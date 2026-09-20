@@ -494,3 +494,102 @@ surface, not the only door.
 - **Layout survives expansion**: grid headers wrap, buttons grow, no fixed-width control
   holds a translated label, and the `en-XA` expansion pseudo-locale plus the `ar-XB` mirror
   are the acceptance test for every new surface in this file.
+
+---
+
+## 19. ERP-owned field and the ERP-maintained section (new — added Sept 2026)
+
+This pattern is what keeps the ERP-parity fields (`docs/design/phase-1-mdm-spec.md` §20–§25)
+out of the operator's way. It introduces **no new token, no new colour and no new component
+family**: it is `DescriptionList` + `StatusShape` + `TimestampValue` + a chip, plus the
+existing disclosure and validation rules. The `/design` gallery entry is
+`pattern.erpOwnedField.*` (title, hint, the three states, the popover), so the pattern is
+reviewable without reading a spec.
+
+### 19.1 The field: read-only value + provenance chip
+
+Used wherever a value is maintained by a connected system: `mdm.article.*`,
+`mdm.raw_material.*`, `mdm.vendor.*`, `mdm.uom.*`, `mdm.tax_class.*`, `mdm.site.*`.
+
+**Markup and behaviour**
+
+- **Never a disabled input.** An ERP-owned field is a `DescriptionList` row (or a grid cell
+  with `aria-readonly="true"` and `tabindex="-1"`, §11) whose value sits in the same column as
+  every other value, so the record still scans as one grid of values. A disabled `<input>` is
+  skipped by some screen readers, announces nothing, takes no focus and cannot be copied —
+  three failure modes for one control.
+- **The chip is beside the value, at the logical inline-end** (`margin-inline-start`),
+  never a badge prefixed to the label: the label must read the same whether the value is ours
+  or theirs.
+- The chip carries: the system's **display name** (chain data, not a catalog key), the
+  **key type + value** the record was matched on (mono, `<CodeLabel>`), and the **last sync
+  instant** via `TimestampValue` (relative with the absolute instant in `title`, viewer's
+  timezone). Tone and shape come from the existing five status families plus one glyph
+  (`StatusShape`); **no new colour**.
+- **One tab stop per field group**, not per field: the chip is a button
+  (`aria-haspopup="dialog"`), `Enter`/`Space` opens the provenance popover, `Escape` closes
+  and returns focus to the chip. A 24-field section must not become 24 keyboard stops.
+- **The popover answers "why"** in four lines: the field group, the ownership in force
+  (`owner`, `override_allowed`, `inbound_action`) as words, a catalogued note
+  (`mdm.erp.ownership.note.*`), and a link to the connection's mapping for that field
+  (permission-gated; a viewer without it sees the words and no link, never a dead link).
+- **A change made by the system is visible as a change**: for the session the value carries a
+  `mdm.erp.changedBySystem` marker and opens `RecordDiff` (before → after, instant, run id) — the
+  existing version-diff pane, reused.
+- **A local override exists only where `override_allowed`**: the affordance appears with the
+  reason it exists, requires a note, and the chip switches to `local_override`. The next
+  inbound divergence raises `localOverrideStands` in the run report instead of reverting the
+  operator's work.
+- **A refusal names itself**: a server refusal (`erp.ownership.refused`) renders as the
+  server's own message as `detail` alongside the field (§6), plus the honest alternative —
+  *ask MDM* (`support.ticket.raise`, pattern §12's parity rule) — so a role that cannot edit
+  can still act.
+
+**RTL, expansion, density**
+
+- The chip uses `margin-inline-start`; in RTL it sits at the inline-end of the mirrored
+  layout. The `mdm.erp.changedBySystem` marker is a **shape**, not a directional arrow, so nothing
+  flips incorrectly.
+- The chip wraps and grows; it is never truncated to one line (a German system name + a key +
+  a date is three lines in a narrow column, and that is correct). The field's label wraps
+  rather than truncating when the chip takes width.
+- Values keep `numeric` + tabular figures, `MoneyValue` / `QuantityValue` unchanged, with the
+  currency code or UOM code always present.
+- Row height still comes from `--density-*`; the chip's own height is
+  `var(--control-height)`-bounded so a `compact` row does not grow, and at `compact` the chip
+  reduces to its shape + system initial with the full content in the popover and the
+  accessible name.
+
+### 19.2 The section: *ERP-maintained*, collapsed, counted, conditional
+
+- **Always the last section of a record, collapsed by default**, its header carrying
+  `mdm.erp.section.title`, the count (`mdm.erp.section.count`, `{count}` fields, `{system}`),
+  and a chevron that flips with direction. The count is the only ERP fact visible while
+  closed.
+- **The section exists only when a system is configured and the record has at least one
+  ERP-maintained value or an available mapping.** With no ERP: no section anywhere on the
+  record, and the honest empty state lives on the connection screen
+  (`mdm.erp.notConfigured`), where a chain would go looking for it.
+- **Inside the section, fields are grouped by the §22.4 field groups** (identity,
+  classification, units, dimensions, storage, shelf life, batch/serial, quality, purchasing,
+  valuation, tax, origin/customs, manufacturer, revision, lifecycle), each group a
+  `DescriptionList` with the same chip contract. Groups with no value are **absent**, not
+  shown empty.
+- **Hidden-when-irrelevant is data** (`erp_visibility_rule` rows, phase-1 spec §25.2), so a
+  second ERP's different realities are configuration, not a component's `if` ladder.
+- Disclosure state is per record and per session, not persisted, and the record's
+  leave-with-unsaved-draft guard (§11) is unaffected: **nothing inside this section is
+  editable** unless an override is allowed, and an override dirties the record like any field
+  and commits with the same Save and the same audit row.
+
+### 19.3 Chatbot parity
+
+- "Why can't I change the tax class?" → the chatbot reads the same ownership row the chip
+  popover reads and answers with the group, the owner and the system — from the domain
+  response, not from prose the model invented.
+- "What did the ERP change overnight?" → the run report's own query action (`mdm.erp.view`),
+  answering with counts by kind and the first three affected records, with a link to the
+  report for the rest.
+- The chatbot **may never** apply a held-back ERP change, unlink an external key, edit a code
+  map, or override an ERP-maintained value without the same confirm card a screen path needs
+  (§8) and the same permission.
