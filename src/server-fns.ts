@@ -466,3 +466,86 @@ export const useSupportAccessFn = createServerFn({ method: "POST" })
       return failure(error);
     }
   });
+
+// ── Phase 1 master data ──────────────────────────────────────────────────────
+// A separate import at the end of the file rather than an edit to the block above: it
+// keeps this slab's diff to one appended region, which matters more on a shared tree than
+// import ordering does. `import` is hoisted, so position changes nothing.
+import {
+  getArticle,
+  getArticleFilterOptions,
+  listArticles,
+  setArticleAvailability,
+  updateArticlePrice,
+} from "~/domain/mdm";
+
+/**
+ * The article master read. It has no input validator on purpose: the screen loads one page
+ * and filters it locally (the same shape the chains list uses), while the *API* carries the
+ * server-side filters the chatbot and an import will need. The permission decision is the
+ * same either way — it happens here, on the server, before a row is read.
+ */
+export const listArticlesFn = createServerFn({ method: "GET" }).handler(async () => {
+  const principal = await currentPrincipal();
+  if (!principal) return failure(new Unauthenticated());
+  try {
+    const result = await listArticles(principal, { limit: 200 });
+    const options = await getArticleFilterOptions(principal);
+    return { ok: true as const, ...result, options };
+  } catch (error) {
+    return failure(error);
+  }
+});
+
+export const getArticleFn = createServerFn({ method: "GET" })
+  .validator((input: unknown) => input as { code: string })
+  .handler(async ({ data }) => {
+    const principal = await currentPrincipal();
+    if (!principal) return failure(new Unauthenticated());
+    try {
+      return { ok: true as const, article: await getArticle(principal, data.code) };
+    } catch (error) {
+      return failure(error);
+    }
+  });
+
+export const updateArticlePriceFn = createServerFn({ method: "POST" })
+  .validator(
+    (input: unknown) =>
+      input as { code: string; outletCode: string; amount: number; currencyCode: string }
+  )
+  .handler(async ({ data }) => {
+    const principal = await currentPrincipal();
+    if (!principal) return failure(new Unauthenticated());
+    try {
+      return {
+        ok: true as const,
+        result: await updateArticlePrice(principal, data, {
+          source: "screen",
+          intent: "mdm.article.price.update",
+        }),
+      };
+    } catch (error) {
+      return failure(error);
+    }
+  });
+
+export const setArticleAvailabilityFn = createServerFn({ method: "POST" })
+  .validator(
+    (input: unknown) =>
+      input as {
+        code: string;
+        outletCode: string;
+        availability: "available" | "seasonal" | "unavailable";
+        reason?: string | null;
+      }
+  )
+  .handler(async ({ data }) => {
+    const principal = await currentPrincipal();
+    if (!principal) return failure(new Unauthenticated());
+    try {
+      return { ok: true as const, result: await setArticleAvailability(principal, data, { source: "screen" }) };
+    } catch (error) {
+      return failure(error);
+    }
+  });
