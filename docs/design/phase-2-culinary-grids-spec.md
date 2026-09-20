@@ -233,7 +233,12 @@ informed and never automatic.
 
 ## 6. Conflicts: the surface that makes this screen honest
 
-One `ConflictPanel` directly under the view switch, plus a marker on every affected line. Each
+One `ConflictPanel` directly under the view switch, plus a marker on every affected line.
+**One vocabulary, shared with the ERP report.** The ERP run report
+(`docs/design/phase-1-mdm-spec.md` §23.6) renders this identical four-part row and reuses
+`unconvertibleUnit`, `dimensionMismatch`, `ambiguousConversion`, `missingTaxClass` and
+`currencyMismatch` verbatim, so the same problem carries one name and one fix wherever it is
+surfaced — a cost grid, an import report or a sync report. Each
 conflict row states four things, in this order: **what** · **where** (line number, field) ·
 **what it blocks** · **what can be done about it, by *this* viewer**.
 
