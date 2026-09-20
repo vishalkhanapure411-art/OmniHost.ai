@@ -30,6 +30,17 @@ export const hiIN: Partial<Record<MessageKey, string>> = {
 
   // Actions
   "action.save": "सहेजें",
+  // Phase 1: the article master. Partial on purpose — a key that is not translated here
+  // falls back to English rather than rendering as a key or an empty box.
+  "nav.route./mdm/articles": "लेख",
+  "mdm.articles.title": "लेख मास्टर",
+  "mdm.articles.search.placeholder": "कोड, नाम या संक्षिप्त नाम…",
+  "mdm.articles.column.code": "कोड",
+  "mdm.articles.column.name": "नाम",
+  "mdm.articles.column.status": "स्थिति",
+  "mdm.articles.empty.title": "इस चेन में अभी कोई लेख नहीं है",
+  "mdm.article.status.active": "सक्रिय",
+  "mdm.article.status.draft": "ड्राफ़्ट",
   "action.cancel": "रद्द करें",
   "action.close": "बंद करें",
   "action.confirm": "पुष्टि करें",

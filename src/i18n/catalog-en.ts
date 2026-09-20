@@ -842,6 +842,64 @@ export const enIN = {
   "chains.settings.validation.range": "Enter a value between {min} and {max}.",
   "chains.settings.status.configured": "Configured",
   "chains.settings.status.platformDefaults": "Platform defaults",
+
+  // ── Phase 1: the article master ───────────────────────────────────────────────
+  "nav.route./mdm/articles": "Articles",
+  "mdm.articles.title": "Article master",
+  "mdm.articles.subtitle":
+    "Every sellable item on one screen: what it is, what the market's profile requires of it, and how many outlets carry it.",
+  "mdm.articles.search.label": "Search articles",
+  "mdm.articles.search.placeholder": "Code, name or short name…",
+  "mdm.articles.filter.legend": "Filters",
+  "mdm.articles.filter.status": "Status",
+  "mdm.articles.filter.category": "Category",
+  "mdm.articles.filter.outlet": "Sold at outlet",
+  "mdm.articles.filter.incomplete": "Incomplete records only",
+  "mdm.articles.filter.all": "All",
+  "mdm.articles.column.code": "Code",
+  "mdm.articles.column.name": "Name",
+  "mdm.articles.column.category": "Category",
+  "mdm.articles.column.type": "Type",
+  "mdm.articles.column.diet": "Diet mark",
+  "mdm.articles.column.taxClass": "Tax class",
+  "mdm.articles.column.status": "Status",
+  "mdm.articles.column.outlets": "Outlets",
+  "mdm.articles.column.compliance": "Compliance",
+  "mdm.articles.column.allergens": "Allergens",
+  "mdm.articles.compliance.ok": "Complete",
+  "mdm.articles.compliance.missing": "{count} missing",
+  "mdm.articles.compliance.checked":
+    "Compliance is checked against the {jurisdiction} profile: {fields}.",
+  "mdm.articles.compliance.gap":
+    "This profile requires {field}, which this screen has no check for — reported as missing rather than assumed present.",
+  "mdm.articles.untranslated": "No {locale} name",
+  "mdm.articles.count": "Showing {shown} of {total} articles",
+  "mdm.articles.empty.title": "No articles in this chain yet",
+  "mdm.articles.empty.description":
+    "The article master is empty for this chain. An import or a first record fills it — nothing here invents an item.",
+  "mdm.articles.noResults.title": "No article matches these filters",
+  "mdm.articles.noResults.description": "{total} articles are loaded; none match the filters as set.",
+  "mdm.articles.denied.title": "The article master is not yours to read",
+  "mdm.articles.denied.description":
+    "Reading master data needs the capability below. Ask for the delegation rather than inferring what the catalogue holds.",
+  "mdm.articles.scope.note":
+    "Licence tier is set once on the chain, so nothing on this screen is gated per site.",
+  "mdm.articles.nextSlab":
+    "The record screen — per-outlet price grid, allergen and nutrition editing, the per-market compliance matrix and version history — is the next slab; the API behind it is already live and audited.",
+  "mdm.article.status.draft": "Draft",
+  "mdm.article.status.pending_review": "Pending review",
+  "mdm.article.status.active": "Active",
+  "mdm.article.status.seasonal": "Seasonal",
+  "mdm.article.status.discontinued": "Discontinued",
+  "mdm.article.type.food": "Food",
+  "mdm.article.type.beverage": "Beverage",
+  "mdm.article.type.retail": "Retail",
+  "mdm.article.type.service": "Service",
+  "mdm.article.diet.veg": "Vegetarian",
+  "mdm.article.diet.non_veg": "Non-vegetarian",
+  "mdm.article.diet.egg": "Contains egg",
+  "mdm.article.diet.vegan": "Vegan",
+  "mdm.article.diet.none": "No mark",
 } as const;
 
 export type MessageKey = keyof typeof enIN;

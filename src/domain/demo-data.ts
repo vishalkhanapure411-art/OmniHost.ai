@@ -278,6 +278,16 @@ export const DEMO_ACCOUNTS: DemoAccount[] = [
     grants: [],
   },
   {
+    email: "mdm.head@saffron.example",
+    displayName: "Priya Raghavan",
+    password: "Saffron!MdmHead#2026",
+    locale: "en-IN",
+    blurb:
+      "Central MDM Head — maintains the master data for one chain and approves what the function proposes. The positive case for the Phase 1 master-data API.",
+    assignments: [{ roleCode: "CENTRAL_MDM_HEAD", chainCode: "saffron-table" }],
+    grants: [],
+  },
+  {
     email: "site.head@saffron.example",
     displayName: "Anita Kulkarni",
     password: "Saffron!SiteHead#2026",

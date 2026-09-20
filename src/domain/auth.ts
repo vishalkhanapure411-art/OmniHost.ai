@@ -146,6 +146,15 @@ export const NAV_ITEMS: {
     requires: ["support.access.request"],
   },
   {
+    // Phase 1's first screen. `requires` is the same code the server checks, so a role
+    // that cannot read the master does not see the door to it either — a courtesy, not a
+    // control: the API refuses regardless.
+    to: "/mdm/articles",
+    label: "Articles",
+    description: "The article master: names, per-outlet prices, allergens, and the fields the market's profile requires.",
+    requires: ["mdm.article.view"],
+  },
+  {
     to: "/audit",
     label: "Audit trail",
     description: "Who did what, with before and after state.",

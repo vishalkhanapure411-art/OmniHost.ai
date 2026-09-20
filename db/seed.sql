@@ -463,3 +463,226 @@ on conflict (key) do update set
   enum_options = excluded.enum_options, default_value = excluded.default_value,
   unit = excluded.unit, label_key = excluded.label_key, help_key = excluded.help_key,
   delegate_to = excluded.delegate_to, set_by = excluded.set_by, sort_order = excluded.sort_order;
+
+-- ---------------------------------------------------------------------------
+-- 6. Tool registry — Phase 1 master data (MDM) entity-level codes.
+--    Authority: docs/design/phase-1-mdm-spec.md §3. The coarse MDM codes generated
+--    by the function×suffix grid above (`mdm.view`, `mdm.execute`, `mdm.propose`,
+--    `mdm.approve.threshold`, `mdm.policy.configure`) stay and are unchanged: they
+--    answer "may this person do MDM work", which is not an answer to "may this person
+--    change a vendor's bank details". These are the entity-level codes the screens,
+--    the picker and the chatbot actually call, and their shape matches the existing
+--    registry exactly (code, module, name, description, action_kind, layer,
+--    requires_site_scope, check_function, financial_or_stock, implemented_in).
+--    `mdm.approve.self` is deliberately absent: nobody holds it. It is the name of
+--    the refusal reason when an author tries to approve their own version.
+-- ---------------------------------------------------------------------------
+with code (code, kind, site_scope, financial, name) as (
+  values
+    -- article (the sellable item)
+    ('mdm.article.view',             'query',    false, false, 'View an article record and its versions'),
+    ('mdm.article.search',           'query',    false, false, 'Search articles (the picker''s and the chatbot''s read)'),
+    ('mdm.article.propose',          'mutation', false, false, 'Submit a new or changed article for review (Culinary''s path)'),
+    ('mdm.article.create',           'mutation', false, false, 'Create an article directly (MDM Team)'),
+    ('mdm.article.update',           'mutation', false, false, 'Edit an article draft (non-financial fields)'),
+    ('mdm.article.price.update',     'mutation', false, true,  'Change a per-outlet price — financial, so confirm-before-commit and threshold approval'),
+    ('mdm.article.approve',          'mutation', false, false, 'Approve a version to active (MDM Head)'),
+    ('mdm.article.deactivate',       'mutation', false, false, 'Deactivate an article with a reason'),
+    ('mdm.article.reactivate',       'mutation', false, false, 'Reactivate an article, separately audited'),
+    ('mdm.article.import',           'mutation', false, false, 'Bulk import articles'),
+    -- raw material (the purchased component)
+    ('mdm.raw_material.view',        'query',    false, false, 'View a raw material and its effective-dated costs'),
+    ('mdm.raw_material.search',      'query',    false, false, 'Search raw materials'),
+    ('mdm.raw_material.propose',     'mutation', false, false, 'Culinary proposes a new raw material'),
+    ('mdm.raw_material.create',      'mutation', false, false, 'Create a raw material directly (MDM Team)'),
+    ('mdm.raw_material.update',      'mutation', false, false, 'Maintain a raw material record'),
+    ('mdm.raw_material.cost.update', 'mutation', false, true,  'Standard cost — financial, effective-dated, threshold approval'),
+    ('mdm.raw_material.approve',     'mutation', false, false, 'Approve a raw material (MDM Head)'),
+    ('mdm.raw_material.deactivate',  'mutation', false, false, 'Deactivate a raw material with a reason'),
+    ('mdm.raw_material.reactivate',  'mutation', false, false, 'Reactivate a raw material'),
+    ('mdm.raw_material.import',      'mutation', false, false, 'Bulk import raw materials'),
+    -- vendor
+    ('mdm.vendor.view',              'query',    false, false, 'View a vendor record'),
+    ('mdm.vendor.search',            'query',    false, false, 'Search vendors'),
+    ('mdm.vendor.propose',           'mutation', false, false, 'Purchase proposes a vendor'),
+    ('mdm.vendor.create',            'mutation', false, false, 'Create a vendor directly (MDM Team)'),
+    ('mdm.vendor.update',            'mutation', false, false, 'Maintain a vendor record'),
+    ('mdm.vendor.bank.view',         'query',    false, true,  'Reveal remittance details — a separate, audited read'),
+    ('mdm.vendor.bank.update',       'mutation', false, true,  'Change remittance details — never merged into a general update'),
+    ('mdm.vendor.terms.update',      'mutation', false, true,  'Change payment terms or billing currency'),
+    ('mdm.vendor.approve',           'mutation', false, false, 'Approve a vendor as usable on POs (MDM Head)'),
+    ('mdm.vendor.suspend',           'mutation', false, false, 'Suspend a vendor — no new POs, open POs flagged'),
+    ('mdm.vendor.reactivate',        'mutation', false, false, 'Reinstate a suspended vendor'),
+    ('mdm.vendor.deactivate',        'mutation', false, false, 'Deactivate a vendor with a reason'),
+    ('mdm.vendor.import',            'mutation', false, false, 'Bulk import vendors'),
+    -- unit of measure
+    ('mdm.uom.view',                 'query',    false, false, 'View the unit reference and its conversions'),
+    ('mdm.uom.search',               'query',    false, false, 'Search units'),
+    ('mdm.uom.create',               'mutation', false, false, 'Add a chain unit'),
+    ('mdm.uom.update',               'mutation', false, false, 'Change a chain unit''s code or precision'),
+    ('mdm.uom.conversion.update',    'mutation', false, false, 'Define or change a conversion factor — one number changes every cost in the chain'),
+    ('mdm.uom.import',               'mutation', false, false, 'Bulk import a conversion table'),
+    -- tax class and rates
+    ('mdm.tax_class.view',           'query',    false, false, 'View tax classes and rate history'),
+    ('mdm.tax_class.create',         'mutation', false, true,  'Create a tax class'),
+    ('mdm.tax_class.update',         'mutation', false, true,  'Edit a tax class (never a rate in place)'),
+    ('mdm.tax_class.rate.update',    'mutation', false, true,  'Open a new effective-dated rate row'),
+    ('mdm.tax_class.approve',        'mutation', false, false, 'Approve a rate change (MDM Head)'),
+    ('mdm.tax_class.deactivate',     'mutation', false, false, 'Deactivate a tax class, blocked while referenced'),
+    -- site and outlet
+    ('mdm.site.view',                'query',    false, false, 'View the site master (a chain-level golden record)'),
+    ('mdm.site.create',              'mutation', false, false, 'Create a site'),
+    ('mdm.site.update',              'mutation', false, false, 'Maintain a site record'),
+    ('mdm.site.deactivate',          'mutation', false, false, 'Close a site — status closed, never a delete'),
+    ('mdm.site.import',              'mutation', false, false, 'Bulk import sites and their outlets'),
+    ('mdm.outlet.view',              'query',    false, false, 'View the outlet master'),
+    ('mdm.outlet.create',            'mutation', false, false, 'Create an outlet (MDM Team)'),
+    ('mdm.outlet.update',            'mutation', false, false, 'Maintain an outlet'),
+    ('mdm.outlet.propose',           'mutation', true,  false, 'A Site Head proposes an outlet change at their own site'),
+    -- allergen and nutrient reference
+    ('mdm.allergen.view',            'query',    false, false, 'View the allergen reference and which are mandatory here'),
+    ('mdm.allergen.chain.update',    'mutation', false, false, 'Add a chain-only allergen (a proprietary blend)'),
+    ('mdm.nutrient.view',            'query',    false, false, 'View the nutrient reference'),
+    ('mdm.nutrient.chain.update',    'mutation', false, false, 'Add chain-only nutrient declaration rows')
+)
+insert into permission (code, module, name, description, action_kind, layer, requires_site_scope,
+                        check_function, financial_or_stock, implemented_in)
+select code.code,
+       -- The module is the entity, so a function-scoped grant reads the same way the
+       -- existing per-function codes do.
+       split_part(code.code, '.', 2),
+       code.name,
+       'Phase 1 master data — ' || code.name || '.',
+       code.kind,
+       'tenant',
+       code.site_scope,
+       false,
+       code.financial,
+       'phase1'
+  from code
+on conflict (code) do update set
+  module = excluded.module, name = excluded.name, description = excluded.description,
+  action_kind = excluded.action_kind, layer = excluded.layer,
+  requires_site_scope = excluded.requires_site_scope,
+  check_function = excluded.check_function, financial_or_stock = excluded.financial_or_stock,
+  implemented_in = excluded.implemented_in;
+
+-- The App-layer half of the same work: curating the platform reference sets. A chain
+-- selects a market; it does not write that market's law (§13.3).
+insert into permission (code, module, name, description, action_kind, layer, requires_site_scope,
+                        check_function, financial_or_stock, implemented_in) values
+  ('mdm.allergen.reference.update', 'allergen', 'Curate the platform allergen set',
+   'AppAdmin, or the slice of it delegated to AppConfig. A chain sees the set; it does not edit it.',
+   'mutation', 'app', false, false, false, 'phase1'),
+  ('mdm.nutrient.reference.update', 'nutrient', 'Curate the platform nutrient set',
+   'AppAdmin, or the slice of it delegated to AppConfig.',
+   'mutation', 'app', false, false, false, 'phase1'),
+  ('mdm.jurisdiction.rule.update', 'jurisdiction', 'Curate a jurisdiction profile',
+   'Which fields a market requires. App-owned: a profile change is versioned and produces an exception list rather than editing records.',
+   'mutation', 'app', false, false, false, 'phase1')
+on conflict (code) do update set
+  module = excluded.module, name = excluded.name, description = excluded.description,
+  action_kind = excluded.action_kind, layer = excluded.layer,
+  requires_site_scope = excluded.requires_site_scope,
+  check_function = excluded.check_function, financial_or_stock = excluded.financial_or_stock,
+  implemented_in = excluded.implemented_in;
+
+-- ---------------------------------------------------------------------------
+-- 7. role → permission for the MDM codes (§3's own statement of how the coarse and
+--    fine codes combine, turned into grants).
+--    * MDM Head: every server-side entity code, because a Head approves what the
+--      function produces.
+--    * MDM Team: maintains records — create, update, propose, import, view, search,
+--      plus the two codes that are a deliberate separate act (a conversion factor and
+--      a cost) and the vendor bank reveal.
+--    * Culinary: reads articles and raw materials and proposes them; it does not
+--      approve, and it never touches a vendor's bank details.
+--    * Purchase: proposes a vendor and reads what it orders against.
+--    * Store: reads raw materials and units.
+--    * Marketing: reads articles and the allergen reference (menu copy has to be right).
+--    * Site Head: already holds every `%.view` tenant code including these, plus the
+--      outlet proposal path, which is site-scoped by design.
+-- ---------------------------------------------------------------------------
+with mdm_grant (role_code, permission_like) as (
+  values
+    ('CENTRAL_MDM_HEAD', 'mdm.%'),
+    ('CENTRAL_MDM_TEAM', 'mdm.%.view'),
+    ('CENTRAL_MDM_TEAM', 'mdm.%.search'),
+    ('CENTRAL_MDM_TEAM', 'mdm.article.create'),
+    ('CENTRAL_MDM_TEAM', 'mdm.article.update'),
+    ('CENTRAL_MDM_TEAM', 'mdm.article.price.update'),
+    ('CENTRAL_MDM_TEAM', 'mdm.article.deactivate'),
+    ('CENTRAL_MDM_TEAM', 'mdm.raw_material.create'),
+    ('CENTRAL_MDM_TEAM', 'mdm.raw_material.update'),
+    ('CENTRAL_MDM_TEAM', 'mdm.raw_material.deactivate'),
+    ('CENTRAL_MDM_TEAM', 'mdm.vendor.create'),
+    ('CENTRAL_MDM_TEAM', 'mdm.vendor.update'),
+    ('CENTRAL_MDM_TEAM', 'mdm.vendor.bank.view'),
+    ('CENTRAL_MDM_TEAM', 'mdm.vendor.suspend'),
+    ('CENTRAL_MDM_TEAM', 'mdm.vendor.deactivate'),
+    ('CENTRAL_MDM_TEAM', 'mdm.uom.create'),
+    ('CENTRAL_MDM_TEAM', 'mdm.uom.update'),
+    ('CENTRAL_MDM_TEAM', 'mdm.tax_class.create'),
+    ('CENTRAL_MDM_TEAM', 'mdm.tax_class.update'),
+    ('CENTRAL_MDM_TEAM', 'mdm.site.create'),
+    ('CENTRAL_MDM_TEAM', 'mdm.site.update'),
+    ('CENTRAL_MDM_TEAM', 'mdm.outlet.create'),
+    ('CENTRAL_MDM_TEAM', 'mdm.outlet.update'),
+    ('CENTRAL_MDM_TEAM', 'mdm.allergen.chain.update'),
+    ('CENTRAL_MDM_TEAM', 'mdm.nutrient.chain.update'),
+    ('CENTRAL_CULINARY_TEAM', 'mdm.article.view'),
+    ('CENTRAL_CULINARY_TEAM', 'mdm.article.search'),
+    ('CENTRAL_CULINARY_TEAM', 'mdm.article.propose'),
+    ('CENTRAL_CULINARY_TEAM', 'mdm.raw_material.view'),
+    ('CENTRAL_CULINARY_TEAM', 'mdm.raw_material.search'),
+    ('CENTRAL_CULINARY_TEAM', 'mdm.raw_material.propose'),
+    ('CENTRAL_CULINARY_TEAM', 'mdm.uom.view'),
+    ('CENTRAL_CULINARY_TEAM', 'mdm.allergen.view'),
+    ('CENTRAL_CULINARY_TEAM', 'mdm.nutrient.view'),
+    ('CENTRAL_CULINARY_HEAD', 'mdm.article.view'),
+    ('CENTRAL_CULINARY_HEAD', 'mdm.raw_material.view'),
+    ('SITE_CULINARY_TEAM', 'mdm.article.view'),
+    ('SITE_CULINARY_TEAM', 'mdm.article.search'),
+    ('SITE_CULINARY_TEAM', 'mdm.article.propose'),
+    ('SITE_CULINARY_TEAM', 'mdm.raw_material.view'),
+    ('SITE_CULINARY_TEAM', 'mdm.raw_material.search'),
+    ('SITE_CULINARY_TEAM', 'mdm.raw_material.propose'),
+    ('SITE_CULINARY_TEAM', 'mdm.uom.view'),
+    ('SITE_CULINARY_TEAM', 'mdm.allergen.view'),
+    ('SITE_CULINARY_TEAM', 'mdm.nutrient.view'),
+    ('CENTRAL_PURCHASE_HEAD', 'mdm.vendor.view'),
+    ('CENTRAL_PURCHASE_HEAD', 'mdm.raw_material.view'),
+    ('CENTRAL_PURCHASE_HEAD', 'mdm.uom.view'),
+    ('CENTRAL_PURCHASE_TEAM', 'mdm.vendor.view'),
+    ('CENTRAL_PURCHASE_TEAM', 'mdm.vendor.search'),
+    ('CENTRAL_PURCHASE_TEAM', 'mdm.vendor.propose'),
+    ('CENTRAL_PURCHASE_TEAM', 'mdm.raw_material.view'),
+    ('CENTRAL_PURCHASE_TEAM', 'mdm.raw_material.search'),
+    ('CENTRAL_PURCHASE_TEAM', 'mdm.uom.view'),
+    ('SITE_PURCHASE_TEAM', 'mdm.vendor.view'),
+    ('SITE_PURCHASE_TEAM', 'mdm.vendor.search'),
+    ('SITE_PURCHASE_TEAM', 'mdm.vendor.propose'),
+    ('SITE_PURCHASE_TEAM', 'mdm.raw_material.view'),
+    ('SITE_PURCHASE_TEAM', 'mdm.uom.view'),
+    ('CENTRAL_STORE_TEAM', 'mdm.raw_material.view'),
+    ('CENTRAL_STORE_TEAM', 'mdm.raw_material.search'),
+    ('CENTRAL_STORE_TEAM', 'mdm.uom.view'),
+    ('CENTRAL_STORE_TEAM', 'mdm.uom.search'),
+    ('SITE_STORE_TEAM', 'mdm.raw_material.view'),
+    ('SITE_STORE_TEAM', 'mdm.uom.view'),
+    ('CENTRAL_MARKETING_HEAD', 'mdm.article.view'),
+    ('CENTRAL_MARKETING_HEAD', 'mdm.allergen.view'),
+    ('CENTRAL_MARKETING_TEAM', 'mdm.article.view'),
+    ('CENTRAL_MARKETING_TEAM', 'mdm.article.search'),
+    ('CENTRAL_MARKETING_TEAM', 'mdm.allergen.view'),
+    ('CENTRAL_MARKETING_TEAM', 'mdm.nutrient.view'),
+    ('SITE_MARKETING_TEAM', 'mdm.article.view'),
+    ('SITE_MARKETING_TEAM', 'mdm.allergen.view'),
+    ('SITE_HEAD', 'mdm.outlet.propose')
+)
+insert into role_permission (role_id, permission_id)
+select r.id, p.id
+  from mdm_grant mg
+  join role r on r.code = mg.role_code
+  join permission p on p.code like mg.permission_like and p.layer = 'tenant'
+on conflict (role_id, permission_id) do nothing;

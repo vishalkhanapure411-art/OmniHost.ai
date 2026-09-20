@@ -17,6 +17,7 @@ import { fileURLToPath } from "node:url";
 import { DEV_FALLBACK, exec, getPool, sql, withTransaction, type Queryable } from "../src/db";
 import { hashPassword } from "../src/server/crypto";
 import { DEMO_ACCOUNTS, DEMO_CHAINS, DEMO_SITES, DEMO_SUPPORT_TICKETS } from "../src/domain/demo-data";
+import { seedMdm } from "../src/domain/mdm-seed";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const migrationsDir = path.join(root, "db", "migrations");
@@ -82,6 +83,14 @@ export async function seed(): Promise<void> {
     await seedSupportTickets(tx);
   });
   console.log("seed: demo tenant, users and support queue upserted");
+  // Phase 1 master data. It runs after the tenant and users because it resolves the
+  // chain, the sites and the outlets the Phase 0 seed creates, and because the loader is
+  // the path a chain's real extract comes through — same order, same upsert-on-code
+  // behaviour, so replacing this dataset is a data change and not a code change.
+  await withTransaction((tx) => seedMdm(tx));
+  console.log(
+    "seed: master data (jurisdictions, tax classes, UOMs, allergens, vendors, raw materials, articles)"
+  );
 }
 
 async function upsertUserId(
