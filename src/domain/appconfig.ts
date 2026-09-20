@@ -417,9 +417,25 @@ export type SettingValueType = "integer" | "decimal" | "text" | "boolean" | "enu
 export type SettingValue = string | number | boolean;
 export type SettingDelegation = "none" | "chain_head" | "site_head";
 
+/** A site-scoped setting's value at one site. Empty for a chain-scoped definition. */
+export interface ChainSettingSiteValue {
+  siteId: string;
+  siteName: string;
+  storedValue: SettingValue | null;
+  effectiveValue: SettingValue;
+  updatedAt: string | null;
+  updatedBy: string | null;
+}
+
 export interface ChainSettingView {
   key: string;
   module: string;
+  /**
+   * What the definition applies to. 'site' means the value is stored per site: the
+   * chain-level `storedValue` below is then always null and `siteValues` carries one
+   * entry per site, because "the stock-out reset window" is a property of an outlet and
+   * not of the head office that owns several.
+   */
   scope: "chain" | "site";
   valueType: SettingValueType;
   minValue: number | null;
@@ -436,6 +452,8 @@ export interface ChainSettingView {
   /** The chain's stored value, or null when it is still running on the default. */
   storedValue: SettingValue | null;
   effectiveValue: SettingValue;
+  /** One entry per site for a site-scoped definition; empty otherwise. */
+  siteValues: ChainSettingSiteValue[];
   /** Whether a chain-side admin may set it at all (the App layer's delegation). */
   delegatable: boolean;
   /** Whether *this caller* may set it, given the delegation and their own scope. */
@@ -579,55 +597,21 @@ export async function getChainSettings(
 
   const values = await sql()<{
     setting_key: string;
+    site_id: string | null;
     value: unknown;
     updated_at: Date;
     updated_by: string | null;
   }>`
-    select cs.setting_key, cs.value, cs.updated_at, u.display_name as updated_by
+    select cs.setting_key, cs.site_id, cs.value, cs.updated_at, u.display_name as updated_by
       from chain_setting cs
       left join "user" u on u.id = cs.updated_by_user_id
      where cs.chain_id = ${chainId}
   `;
-  const byKey = new Map(values.map((row) => [row.setting_key, row]));
-
-  const maySetTool = principal.permissions.includes("chain.setting.update");
-
-  const settings: ChainSettingView[] = definitions.map((definition) => {
-    const stored = byKey.get(definition.key) ?? null;
-    const delegation = definition.delegate_to as SettingDelegation;
-    const fixedByPolicy = definition.set_by === "regulator" || delegation === "none";
-    const delegatedToCaller =
-      principal.scope === "app"
-        ? true
-        : delegation === "chain_head"
-          ? principal.scope === "central"
-          : delegation === "site_head"
-            ? principal.scope === "site"
-            : false;
-    return {
-      key: definition.key,
-      module: definition.module,
-      scope: definition.scope === "site" ? "site" : "chain",
-      valueType: definition.value_type as SettingValueType,
-      minValue: definition.min_value === null ? null : Number(definition.min_value),
-      maxValue: definition.max_value === null ? null : Number(definition.max_value),
-      enumOptions: definition.enum_options,
-      unit: definition.unit,
-      labelKey: definition.label_key,
-      helpKey: definition.help_key,
-      delegateTo: delegation,
-      fixedByPolicy,
-      defaultValue: coerceValue(definition.default_value),
-      storedValue: stored ? coerceValue(stored.value) : null,
-      effectiveValue: stored ? coerceValue(stored.value) : coerceValue(definition.default_value),
-      delegatable: !fixedByPolicy,
-      // `fixedByPolicy` already covers delegate_to = 'none', so this is the whole rule:
-      // the tool, a delegatable key, and a delegation that names the caller's own scope.
-      maySet: maySetTool && !fixedByPolicy && delegatedToCaller,
-      updatedAt: stored ? stored.updated_at.toISOString() : null,
-      updatedBy: stored?.updated_by ?? null,
-    };
-  });
+  // Keyed by site as well as key: a site-scoped setting holds one row per site, and
+  // reading them without the site would silently show one outlet's value at every outlet.
+  const byKey = new Map(
+    values.map((row) => [`${row.setting_key}|${row.site_id ?? "-"}`, row])
+  );
 
   const sites = await sql()<{
     id: string;
@@ -642,6 +626,62 @@ export async function getChainSettings(
      where chain_id = ${chainId}
      order by name asc
   `;
+
+  const maySetTool = principal.permissions.includes("chain.setting.update");
+
+  const settings: ChainSettingView[] = definitions.map((definition) => {
+    const scope = definition.scope === "site" ? "site" : "chain";
+    const stored = scope === "chain" ? (byKey.get(`${definition.key}|-`) ?? null) : null;
+    const delegation = definition.delegate_to as SettingDelegation;
+    const fixedByPolicy = definition.set_by === "regulator" || delegation === "none";
+    const delegatedToCaller =
+      principal.scope === "app"
+        ? true
+        : delegation === "chain_head"
+          ? principal.scope === "central"
+          : delegation === "site_head"
+            ? principal.scope === "site"
+            : false;
+    const defaultValue = coerceValue(definition.default_value);
+    const siteValues: ChainSettingSiteValue[] =
+      scope === "site"
+        ? sites.map((site) => {
+            const row = byKey.get(`${definition.key}|${site.id}`) ?? null;
+            return {
+              siteId: site.id,
+              siteName: site.name,
+              storedValue: row ? coerceValue(row.value) : null,
+              effectiveValue: row ? coerceValue(row.value) : defaultValue,
+              updatedAt: row ? row.updated_at.toISOString() : null,
+              updatedBy: row?.updated_by ?? null,
+            };
+          })
+        : [];
+    return {
+      key: definition.key,
+      module: definition.module,
+      scope,
+      valueType: definition.value_type as SettingValueType,
+      minValue: definition.min_value === null ? null : Number(definition.min_value),
+      maxValue: definition.max_value === null ? null : Number(definition.max_value),
+      enumOptions: definition.enum_options,
+      unit: definition.unit,
+      labelKey: definition.label_key,
+      helpKey: definition.help_key,
+      delegateTo: delegation,
+      fixedByPolicy,
+      defaultValue,
+      storedValue: stored ? coerceValue(stored.value) : null,
+      effectiveValue: stored ? coerceValue(stored.value) : defaultValue,
+      siteValues,
+      delegatable: !fixedByPolicy,
+      // `fixedByPolicy` already covers delegate_to = 'none', so this is the whole rule:
+      // the tool, a delegatable key, and a delegation that names the caller's own scope.
+      maySet: maySetTool && !fixedByPolicy && delegatedToCaller,
+      updatedAt: stored ? stored.updated_at.toISOString() : null,
+      updatedBy: stored?.updated_by ?? null,
+    };
+  });
 
   return {
     chainId,
@@ -666,31 +706,43 @@ export async function getChainSettings(
   };
 }
 
+export interface UpdateChainSettingInput {
+  key: string;
+  value: unknown;
+  /**
+   * Required for a site-scoped definition, refused for a chain-scoped one. A site-scoped
+   * value belongs to one outlet: storing it without a site is how two outlets ended up
+   * sharing one stock-out window.
+   */
+  siteId?: string | null;
+}
+
 /**
  * Sets one chain setting inside the bounds the App layer published.
  *
  * Requires `chain.setting.update` (a tenant-layer tool). The scope check, the bounds
- * check and the delegation check all happen against rows re-read inside the write
- * transaction, so a value that arrives from a crafted request or a future chatbot tool
- * call is judged by exactly the same rule as one typed into the screen.
+ * check, the delegation check and the *site* check all happen against rows re-read inside
+ * the write transaction, so a value that arrives from a crafted request or a future
+ * chatbot tool call is judged by exactly the same rule as one typed into the screen.
  */
 export async function updateChainSetting(
   principal: Principal,
   chainId: string,
-  key: string,
-  value: unknown,
+  input: UpdateChainSettingInput,
   meta: MutationMeta = {}
-): Promise<{ key: string; before: SettingValue | null; after: SettingValue }> {
+): Promise<{ key: string; siteId: string | null; before: SettingValue | null; after: SettingValue }> {
   if (!chainId) throw new ValidationError("chainId is required");
-  const settingKey = (key ?? "").trim();
+  const settingKey = (input.key ?? "").trim();
   if (!settingKey) throw new ValidationError("setting key is required");
+  const siteId = input.siteId?.trim() ? input.siteId.trim() : null;
 
   await guard({
     principal,
     action: "chain.setting.update",
     entityType: "chain_setting",
     chainId,
-    target: `chain ${chainId} setting ${settingKey}`,
+    siteId,
+    target: `chain ${chainId} setting ${settingKey}${siteId ? ` at site ${siteId}` : ""}`,
     source: meta.source,
     intent: meta.intent ?? null,
   });
@@ -700,6 +752,7 @@ export async function updateChainSetting(
     action: "chain.setting.update",
     entityType: "chain_setting",
     chainId,
+    siteId,
     source: meta.source ?? "api",
     intent: meta.intent ?? null,
     run: async (tx) => {
@@ -726,25 +779,67 @@ export async function updateChainSetting(
         }
       }
 
-      const validated = validateSettingValue(definition, value);
+      // The dimension the definition asks for decides where the value is stored, and the
+      // two are not interchangeable: a site-scoped definition without a site would be a
+      // chain-wide value wearing a site setting's name, and a chain-scoped definition with
+      // one would be a per-outlet override of a chain policy.
+      if (definition.scope === "site") {
+        if (!siteId) {
+          throw new ValidationError(
+            `${settingKey} is set per site — name the site this value applies to`
+          );
+        }
+        const site = await tx.query<{ id: string }>(
+          `select id from site where id = $1 and chain_id = $2`,
+          [siteId, chainId]
+        );
+        if (!site[0]) throw new NotFound("Site", siteId);
+      } else if (siteId) {
+        throw new ValidationError(`${settingKey} applies to the whole chain and takes no site`);
+      }
 
-      const existing = await tx.query<{ value: unknown }>(
-        `select value from chain_setting where chain_id = $1 and setting_key = $2 for update`,
-        [chainId, settingKey]
-      );
+      const validated = validateSettingValue(definition, input.value);
 
-      await tx.query(
-        `insert into chain_setting (chain_id, setting_key, value, updated_by_user_id)
-         values ($1, $2, $3::jsonb, $4)
-         on conflict (chain_id, setting_key) do update set
-           value = excluded.value,
-           updated_by_user_id = excluded.updated_by_user_id,
-           updated_at = now()`,
-        [chainId, settingKey, JSON.stringify(validated), principal.userId]
-      );
+      const existing = siteId
+        ? await tx.query<{ value: unknown }>(
+            `select value from chain_setting
+              where chain_id = $1 and setting_key = $2 and site_id = $3
+              for update`,
+            [chainId, settingKey, siteId]
+          )
+        : await tx.query<{ value: unknown }>(
+            `select value from chain_setting
+              where chain_id = $1 and setting_key = $2 and site_id is null
+              for update`,
+            [chainId, settingKey]
+          );
+
+      // Two conflict targets, because the uniqueness is two partial indexes: one row per
+      // key at chain level, one row per (site, key). See migration 0006.
+      if (siteId) {
+        await tx.query(
+          `insert into chain_setting (chain_id, setting_key, value, site_id, updated_by_user_id)
+           values ($1, $2, $3::jsonb, $4, $5)
+           on conflict (chain_id, site_id, setting_key) where site_id is not null do update set
+             value = excluded.value,
+             updated_by_user_id = excluded.updated_by_user_id,
+             updated_at = now()`,
+          [chainId, settingKey, JSON.stringify(validated), siteId, principal.userId]
+        );
+      } else {
+        await tx.query(
+          `insert into chain_setting (chain_id, setting_key, value, updated_by_user_id)
+           values ($1, $2, $3::jsonb, $4)
+           on conflict (chain_id, setting_key) where site_id is null do update set
+             value = excluded.value,
+             updated_by_user_id = excluded.updated_by_user_id,
+             updated_at = now()`,
+          [chainId, settingKey, JSON.stringify(validated), principal.userId]
+        );
+      }
 
       return {
-        entityId: `${chainId}:${settingKey}`,
+        entityId: `${chainId}:${settingKey}${siteId ? `:${siteId}` : ""}`,
         before: { key: settingKey, value: existing[0] ? coerceValue(existing[0].value) : null },
         after: { key: settingKey, value: validated },
       };
@@ -753,6 +848,7 @@ export async function updateChainSetting(
 
   return {
     key: settingKey,
+    siteId,
     before: (outcome.before as { value: SettingValue | null }).value,
     after: (outcome.after as { value: SettingValue }).value,
   };
