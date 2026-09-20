@@ -1,0 +1,154 @@
+/**
+ * OmniHost.ai design tokens — Phase 0a, provisional.
+ *
+ * Every visual decision lives here and nowhere else. Screens reference semantic
+ * utility names (`bg-surface`, `text-fg-muted`, `border-border`, `text-danger`) and
+ * component classes (`.data-table`, `.list-row`), never raw colours, pixel values or
+ * font sizes. That is deliberate: the team's designer replaces this file and the
+ * screens do not change.
+ *
+ * Tailwind v4 reads `@theme` and generates utilities from it, so
+ * `--color-surface` becomes `bg-surface` / `text-surface` / `border-surface`.
+ * Non-namespaced variables (density, component geometry) become plain CSS variables
+ * consumed by the component classes at the bottom of this file.
+ */
+
+@theme {
+  /* Type scale — one ramp, five steps, dense-data first. */
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --text-2xs: 0.6875rem; /* 11px — table headers, meta */
+  --text-2xs--line-height: 1rem;
+  --text-xs: 0.75rem;
+  --text-xs--line-height: 1.05rem;
+  --text-sm: 0.8125rem; /* 13px — table cells, form labels */
+  --text-sm--line-height: 1.2rem;
+  --text-base: 0.875rem; /* 14px — body copy in the console */
+  --text-base--line-height: 1.45rem;
+  --text-lg: 1.0625rem; /* 17px — section headings */
+  --text-lg--line-height: 1.6rem;
+  --text-xl: 1.375rem; /* 22px — page titles */
+  --text-xl--line-height: 1.8rem;
+
+  /* Surfaces and text */
+  --color-canvas: oklch(0.975 0.004 255);
+  --color-surface: oklch(1 0 0);
+  --color-surface-muted: oklch(0.965 0.005 255);
+  --color-surface-sunken: oklch(0.945 0.006 255);
+  --color-border: oklch(0.905 0.008 255);
+  --color-border-strong: oklch(0.82 0.012 255);
+  --color-fg: oklch(0.26 0.02 260);
+  --color-fg-muted: oklch(0.5 0.02 260);
+  --color-fg-subtle: oklch(0.64 0.015 260);
+  --color-fg-inverse: oklch(0.99 0 0);
+
+  /* Brand accent */
+  --color-accent: oklch(0.52 0.12 255);
+  --color-accent-hover: oklch(0.46 0.13 255);
+  --color-accent-fg: oklch(0.99 0 0);
+  --color-accent-soft: oklch(0.955 0.025 255);
+
+  /* Status */
+  --color-ok: oklch(0.55 0.12 155);
+  --color-ok-soft: oklch(0.955 0.04 155);
+  --color-warn: oklch(0.66 0.14 70);
+  --color-warn-soft: oklch(0.965 0.05 70);
+  --color-danger: oklch(0.55 0.18 25);
+  --color-danger-soft: oklch(0.955 0.04 25);
+  --color-info: oklch(0.55 0.11 235);
+  --color-info-soft: oklch(0.955 0.03 235);
+
+  /* Radii and elevation */
+  --radius-sm: 0.25rem;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.625rem;
+  --shadow-card: 0 1px 2px oklch(0.26 0.02 260 / 0.06);
+  --shadow-pop: 0 6px 20px oklch(0.26 0.02 260 / 0.12);
+}
+
+/**
+ * Density and component geometry. Data-heavy operations screens want a tighter row
+ * than a marketing page, so row height is a variable, not a hard-coded padding.
+ * Add `density-compact` or `density-roomy` to a container to retune everything inside
+ * it without touching a single component.
+ */
+:root {
+  --density-row-py: 0.375rem;
+  --density-cell-px: 0.75rem;
+  --density-list-row-py: 0.5rem;
+  --density-header-py: 0.4375rem;
+  --density-control-py: 0.375rem;
+  --density-control-px: 0.625rem;
+  --control-height: 1.875rem;
+}
+
+.density-compact {
+  --density-row-py: 0.25rem;
+  --density-cell-px: 0.625rem;
+  --density-list-row-py: 0.375rem;
+}
+
+.density-roomy {
+  --density-row-py: 0.625rem;
+  --density-cell-px: 1rem;
+  --density-list-row-py: 0.75rem;
+}
+
+@layer components {
+  /* The table/list density contract. Screens use `.data-table`; only this file
+     decides how tall a row is. */
+  .data-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .data-table thead th {
+    padding: var(--density-header-py) var(--density-cell-px);
+    font-size: var(--text-2xs);
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--color-fg-subtle);
+    text-align: left;
+    white-space: nowrap;
+    border-bottom: 1px solid var(--color-border);
+    background-color: var(--color-surface);
+  }
+
+  .data-table tbody td {
+    padding: var(--density-row-py) var(--density-cell-px);
+    font-size: var(--text-sm);
+    color: var(--color-fg);
+    border-bottom: 1px solid var(--color-border);
+    vertical-align: top;
+  }
+
+  .data-table tbody tr:last-child td {
+    border-bottom: 0;
+  }
+
+  .data-table tbody tr[data-clickable="true"] {
+    cursor: pointer;
+  }
+
+  .data-table tbody tr:hover {
+    background-color: var(--color-surface-muted);
+  }
+
+  .data-table tbody tr[data-selected="true"] {
+    background-color: var(--color-accent-soft);
+  }
+
+  .list-row {
+    padding: var(--density-list-row-py) var(--density-cell-px);
+  }
+
+  .field-control {
+    height: var(--control-height);
+    padding: var(--density-control-py) var(--density-control-px);
+  }
+}
