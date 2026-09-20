@@ -48,6 +48,7 @@ rsync -a --delete \
   --exclude '.env' \
   --exclude '.env.*' \
   --exclude 'Documentation' \
+  --exclude 'README.md' \
   "$SITE_DIR"/ "$REPO_DIR"/
 
 git add -A

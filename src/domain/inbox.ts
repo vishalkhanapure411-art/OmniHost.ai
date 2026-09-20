@@ -101,8 +101,15 @@ export async function listApprovals(principal: Principal, limit = 50): Promise<I
   };
 }
 
-/** jsonb columns come back as plain JSON values; the type keeps them serialisable. */
-export type JsonState = Record<string, unknown> | unknown[] | string | number | boolean | null;
+/**
+ * A before/after audit snapshot, carried across the server-fn boundary as JSON text.
+ *
+ * Deliberately not an object type: TanStack Start's serialisability check rejects a
+ * nested untyped value (`Record<string, unknown>`, `unknown[]`) inside a returned
+ * interface, and that fails the whole `tsc` run. JSON text is unambiguously
+ * serialisable, and the audit screen parses it back for display.
+ */
+export type JsonState = string | null;
 
 export interface AuditEntryView {
   id: string;
@@ -200,8 +207,8 @@ export async function listAuditEntries(
     reason: row.reason,
     source: row.request_source,
     intent: row.intent,
-    before: row.before_state as JsonState,
-    after: row.after_state as JsonState,
+    before: row.before_state === null ? null : JSON.stringify(row.before_state),
+    after: row.after_state === null ? null : JSON.stringify(row.after_state),
   }));
 }
 

@@ -283,17 +283,22 @@ export function Note({
 }
 
 /** Renders a before/after pair the way the audit screen needs it. */
-export function BeforeAfter({ before, after }: { before: unknown; after: unknown }) {
-  const render = (value: unknown) => {
-    if (value === null || value === undefined) return "—";
-    if (typeof value === "object") {
-      const entries = Object.entries(value as Record<string, unknown>);
-      if (entries.length === 0) return "—";
-      return entries
-        .map(([key, val]) => `${key}: ${typeof val === "object" ? JSON.stringify(val) : String(val)}`)
-        .join(", ");
+export function BeforeAfter({ before, after }: { before: string | null; after: string | null }) {
+  const render = (value: string | null) => {
+    if (value === null || value === undefined || value === "") return "—";
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      return value;
     }
-    return String(value);
+    if (parsed === null) return "—";
+    if (typeof parsed !== "object") return String(parsed);
+    const entries = Object.entries(parsed as Record<string, unknown>);
+    if (entries.length === 0) return "—";
+    return entries
+      .map(([key, val]) => `${key}: ${typeof val === "object" ? JSON.stringify(val) : String(val)}`)
+      .join(", ");
   };
   return (
     <div className="grid gap-1 text-xs">
