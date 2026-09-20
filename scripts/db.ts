@@ -14,9 +14,9 @@ import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { getPool, sql, withTransaction, type Queryable } from "../src/db";
+import { DEV_FALLBACK, exec, getPool, sql, withTransaction, type Queryable } from "../src/db";
 import { hashPassword } from "../src/server/crypto";
-import { DEMO_ACCOUNTS, DEMO_CHAINS, DEMO_SITES } from "../src/domain/demo-data";
+import { DEMO_ACCOUNTS, DEMO_CHAINS, DEMO_SITES, DEMO_SUPPORT_TICKETS } from "../src/domain/demo-data";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const migrationsDir = path.join(root, "db", "migrations");
@@ -79,13 +79,14 @@ export async function seed(): Promise<void> {
   await withTransaction(async (tx) => {
     await seedTenantData(tx);
     await seedUsersAndScopes(tx);
+    await seedSupportTickets(tx);
   });
-  console.log("seed: demo tenant and users upserted");
+  console.log("seed: demo tenant, users and support queue upserted");
 }
 
 async function upsertUserId(
   tx: Queryable,
-  account: { email: string; displayName: string; password: string; locale: string }
+  account: { email: string; displayName: string; password: string; locale: string | null }
 ): Promise<string> {
   const digest = hashPassword(account.password);
   const existing = await tx.query<{ id: string }>(
@@ -164,12 +165,13 @@ async function seedTenantData(tx: Queryable): Promise<void> {
 
     for (const site of DEMO_SITES.filter((s) => s.chainCode === chain.code)) {
       const siteRows = await tx.query<{ id: string }>(
-        `insert into site (chain_id, name, code, timezone, tax_jurisdiction)
-         values ($1, $2, $3, $4, $5)
+        `insert into site (chain_id, name, code, timezone, tax_jurisdiction, locale)
+         values ($1, $2, $3, $4, $5, $6)
          on conflict (chain_id, code) do update
-           set name = excluded.name, timezone = excluded.timezone, updated_at = now()
+           set name = excluded.name, timezone = excluded.timezone,
+               locale = excluded.locale, updated_at = now()
          returning id`,
-        [chainId, site.name, site.code, site.timezone, site.taxJurisdiction]
+        [chainId, site.name, site.code, site.timezone, site.taxJurisdiction, site.locale]
       );
       const siteId = siteRows[0]?.id;
       if (!siteId) throw new Error(`could not seed site ${site.code}`);
@@ -258,12 +260,194 @@ async function seedUsersAndScopes(tx: Queryable): Promise<void> {
   console.log(`seed: ${String(DEMO_ACCOUNTS.length)} demo users with assignments and delegations`);
 }
 
+async function seedSupportTickets(tx: Queryable): Promise<void> {
+  const chainRows = await tx.query<{ id: string; code: string }>(`select id, code from chain`);
+  const chainId = new Map(chainRows.map((row) => [row.code, row.id]));
+  const siteRows = await tx.query<{ id: string; code: string }>(`select id, code from site`);
+  const siteId = new Map(siteRows.map((row) => [row.code, row.id]));
+  const userRows = await tx.query<{ id: string; email: string }>(`select id, email from "user"`);
+  const userId = new Map(userRows.map((row) => [row.email, row.id]));
+
+  for (const ticket of DEMO_SUPPORT_TICKETS) {
+    const cid = ticket.chainCode ? (chainId.get(ticket.chainCode) ?? null) : null;
+    if (ticket.chainCode && !cid) throw new Error(`unknown chain ${ticket.chainCode}`);
+    const sid = ticket.siteCode ? (siteId.get(ticket.siteCode) ?? null) : null;
+    if (ticket.siteCode && !sid) throw new Error(`unknown site ${ticket.siteCode}`);
+    const assignee = ticket.assignedToEmail
+      ? (userId.get(ticket.assignedToEmail) ?? null)
+      : null;
+    // The SLA clocks are relative to the seed run, so re-seeding always leaves a live
+    // queue with one breach in it rather than a queue of stale timestamps.
+    await tx.query(
+      `insert into support_ticket (
+         reference, chain_id, site_id, category, severity, source, subject, detail, status,
+         raised_by_label, assigned_user_id, assigned_at, response_due_at, resolve_due_at, payload
+       ) values (
+         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
+         case when $11::uuid is null then null else now() end,
+         now() + ($12 || ' hours')::interval,
+         now() + ($13 || ' hours')::interval,
+         '{}'::jsonb
+       )
+       on conflict (reference) do update
+         set chain_id = excluded.chain_id, site_id = excluded.site_id,
+             category = excluded.category, severity = excluded.severity,
+             source = excluded.source, subject = excluded.subject, detail = excluded.detail,
+             status = excluded.status, raised_by_label = excluded.raised_by_label,
+             assigned_user_id = excluded.assigned_user_id, assigned_at = excluded.assigned_at,
+             response_due_at = excluded.response_due_at,
+             resolve_due_at = excluded.resolve_due_at, updated_at = now()`,
+      [
+        ticket.reference,
+        cid,
+        sid,
+        ticket.category,
+        ticket.severity,
+        ticket.source,
+        ticket.subject,
+        ticket.detail,
+        ticket.status,
+        ticket.raisedByLabel,
+        assignee,
+        String(ticket.responseDueInHours),
+        String(ticket.resolveDueInHours),
+      ]
+    );
+  }
+  console.log(`seed: ${String(DEMO_SUPPORT_TICKETS.length)} support tickets`);
+}
+
+/** A role name we are willing to interpolate into DDL (GRANT has no parameters). */
+const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/** A SQL string literal for DDL we cannot parameterise (CREATE ROLE … PASSWORD …). */
+function literal(value: string): string {
+  return `'${value.replaceAll("'", "''")}'`;
+}
+
+/**
+ * Recreates `public`, tolerating the case where the role running the reset does not own
+ * it — which is what happens when an earlier reset ran under a different role, because a
+ * schema belongs to whoever created it.
+ */
+async function dropPublicSchema(): Promise<void> {
+  const attempts = [
+    `drop schema public cascade`,
+    // Hand ownership to the dev fallback role and retry: the reset may legitimately be
+    // running as a different role (DATABASE_URL set), and PostgreSQL allows this when the
+    // current role can SET ROLE to that role.
+    `alter schema public owner to ${DEV_FALLBACK.role}`,
+    `drop schema public cascade`,
+    // A superuser can always take the schema for itself.
+    `alter schema public owner to current_user`,
+    `drop schema public cascade`,
+  ];
+  let failure: unknown;
+  for (const statement of attempts) {
+    try {
+      await exec(statement);
+      return;
+    } catch (error) {
+      failure = error;
+    }
+  }
+  const state = await sql()<{ owner: string; me: string; database: string }>`
+    select pg_get_userbyid(nspowner) as owner, current_user as me, current_database() as database
+      from pg_namespace where nspname = 'public'
+  `;
+  throw new Error(
+    `reset: schema public is owned by "${state[0]?.owner ?? "?"}" and cannot be dropped by ` +
+      `"${state[0]?.me ?? "?"}" (${String(failure)}). Fix it once, as a superuser, then re-run:\n` +
+      `  psql -U postgres -d ${state[0]?.database ?? DEV_FALLBACK.database} ` +
+      `-c "alter schema public owner to ${DEV_FALLBACK.role}"`
+  );
+}
+
+/**
+ * Hands the dev fallback role (src/db.ts DEV_FALLBACK) the privileges it needs on the
+ * schema the reset just recreated, and — best effort — makes that role the schema's owner
+ * so the next reset can drop it from either role.
+ *
+ * A dropped schema loses its ACL along with its contents, so without this step a reset
+ * leaves the documented dev setup — no DATABASE_URL, so the app connects as the fallback
+ * role — unable to see a single table (`relation "user" does not exist`, pg 42P01).
+ * Granting here, rather than exporting DATABASE_URL by hand, means the reset and the app
+ * always agree on the identity, whichever role ran the reset.
+ */
+async function grantDevFallbackRole(): Promise<void> {
+  const { role } = DEV_FALLBACK;
+  if (!IDENTIFIER.test(role)) {
+    console.warn(`reset: WARNING — refusing to grant to non-identifier role "${role}"`);
+    return;
+  }
+  const known = await sql()<{ present: boolean }>`
+    select exists (select 1 from pg_roles where rolname = ${role}) as present
+  `;
+  if (!known[0]?.present) {
+    // Only a role with CREATEROLE (or a superuser) can create it; say what to run rather
+    // than failing the whole reset over a role that may not even be the one in use.
+    try {
+      await exec(`create role ${role} login password ${literal(DEV_FALLBACK.password)}`);
+    } catch {
+      console.warn(
+        `reset: WARNING — role "${role}" does not exist and this role cannot create it.\n` +
+          `  As a superuser: psql -U postgres -c "create role ${role} login password '<pw>'" ` +
+          `(keep DEV_FALLBACK in src/db.ts in step), then re-run the reset.`
+      );
+      return;
+    }
+  }
+  const statements = [
+    `grant usage, create on schema public to ${role}`,
+    `grant select, insert, update, delete on all tables in schema public to ${role}`,
+    `grant usage, select on all sequences in schema public to ${role}`,
+    `grant execute on all functions in schema public to ${role}`,
+    // Objects a later `db:migrate` creates while this role is connected must be usable by
+    // the dev role too, without another reset.
+    `alter default privileges in schema public grant select, insert, update, delete on tables to ${role}`,
+    `alter default privileges in schema public grant usage, select on sequences to ${role}`,
+  ];
+  for (const statement of statements) {
+    try {
+      await exec(statement);
+    } catch (error) {
+      console.warn(
+        `reset: WARNING — "${statement}" failed (${String(error)}). The dev fallback role may ` +
+          `not be able to use this schema.`
+      );
+    }
+  }
+  try {
+    await exec(`alter schema public owner to ${role}`);
+  } catch {
+    // Not possible on a database where this role is a plain client of a managed instance.
+    // The grants above are what actually matter there.
+  }
+  const verdict = await sql()<{ usage: boolean; rows: boolean }>`
+    select
+      has_schema_privilege(to_regrole(${role})::oid, 'public', 'usage') as usage,
+      has_table_privilege(to_regrole(${role})::oid, 'public."user"', 'select') as rows
+  `;
+  const usable = verdict[0]?.usage === true && verdict[0]?.rows === true;
+  console.log(
+    `reset: dev role "${role}" — schema usage=${String(verdict[0]?.usage)}, ` +
+      `select on "user"=${String(verdict[0]?.rows)}`
+  );
+  if (!usable) {
+    console.warn(
+      `reset: WARNING — the documented no-DATABASE_URL dev setup is NOT usable: grant "${role}" ` +
+        `privileges on schema public as a superuser and re-run.`
+    );
+  }
+}
+
 async function reset(): Promise<void> {
-  await sql()`drop schema public cascade`;
+  await dropPublicSchema();
   await sql()`create schema public`;
   console.log("reset: schema dropped");
   await migrate();
   await seed();
+  await grantDevFallbackRole();
 }
 
 async function main(): Promise<void> {

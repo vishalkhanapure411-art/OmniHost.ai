@@ -28,10 +28,15 @@ import { currentPrincipal } from "~/server/context";
  * The four hops of the owner-set order, and where each one is read from:
  *
  *   1. user preference — the `omnihost.locale` cookie set by the language switcher,
- *      falling back to `user.locale` on the account.
- *   2. site default — derived from the site's tax jurisdiction, in the absence of a
- *      `site.locale` column (interim; see the note in src/i18n/locales.ts).
- *   3. chain default — derived from the chain's tax jurisdiction, same reason.
+ *      falling back to `user.locale` on the account. `user.locale` is nullable: NULL
+ *      means "no personal preference", which is what lets hop 2 apply at all.
+ *   2. site default — `site.locale` (migration 0005). A real stored column with its own
+ *      audit row, set per site by AppConfig or a chain admin. Where it is NULL the
+ *      jurisdiction-derived default still applies, so a chain that has not decided a
+ *      language behaves as it did before the column existed.
+ *   3. chain default — derived from the chain's tax jurisdiction. Still a stand-in: no
+ *      chain-level language column exists yet, and a chain operating in one country
+ *      rarely needs one. Flagged, not hidden.
  *   4. platform default — `OMNIHOST_DEFAULT_LOCALE`, default `en-IN`. Indian English is
  *      the first interface locale, not the only one.
  *
@@ -57,6 +62,7 @@ function readCookieValue(name: string): string | null {
 }
 
 interface HintRow {
+  site_locale: string | null;
   site_jurisdiction: string | null;
   site_timezone: string | null;
   chain_jurisdiction: string | null;
@@ -66,9 +72,14 @@ interface HintRow {
  * The site and chain hops. Two single-row reads, only for the tenant the session is
  * actually attached to — an App-layer identity has neither, and gets the platform
  * defaults, which is correct rather than a fallback.
+ *
+ * `site.locale` is the real column; the site's jurisdiction is still read as the
+ * fallback for a site that has not been given a language, and the chain's jurisdiction
+ * remains the chain hop until a chain-level column exists.
  */
 async function tenantHints(chainId: string | null, siteId: string | null): Promise<HintRow> {
   const empty: HintRow = {
+    site_locale: null,
     site_jurisdiction: null,
     site_timezone: null,
     chain_jurisdiction: null,
@@ -76,6 +87,7 @@ async function tenantHints(chainId: string | null, siteId: string | null): Promi
   try {
     const rows = await sql()<HintRow>`
       select
+        (select s.locale from site s where s.id = ${siteId}::uuid) as site_locale,
         (select s.tax_jurisdiction from site s where s.id = ${siteId}::uuid) as site_jurisdiction,
         (select s.timezone from site s where s.id = ${siteId}::uuid) as site_timezone,
         (select c.tax_jurisdiction from chain c where c.id = ${chainId}::uuid) as chain_jurisdiction
@@ -91,12 +103,18 @@ export async function resolveDisplayPreferences(): Promise<LocalePayload> {
   const principal = await currentPrincipal();
   const hints = principal
     ? await tenantHints(principal.chainId, principal.siteId)
-    : { site_jurisdiction: null, site_timezone: null, chain_jurisdiction: null };
+    : {
+        site_locale: null,
+        site_jurisdiction: null,
+        site_timezone: null,
+        chain_jurisdiction: null,
+      };
 
   const resolution = resolveLocale(
     {
       userPreference: principal?.locale ?? null,
-      siteDefault: localeForJurisdiction(hints.site_jurisdiction),
+      // The site's own column first, its jurisdiction only as the fallback.
+      siteDefault: hints.site_locale ?? localeForJurisdiction(hints.site_jurisdiction),
       siteTimeZone: hints.site_timezone,
       chainDefault: localeForJurisdiction(hints.chain_jurisdiction),
       chainCurrency: currencyForJurisdiction(hints.chain_jurisdiction),

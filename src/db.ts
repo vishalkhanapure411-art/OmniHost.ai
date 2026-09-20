@@ -24,8 +24,23 @@ import { Pool, type PoolClient, type QueryResultRow } from "pg";
  * the managed database and against a local PostgreSQL.
  */
 
+/**
+ * The identity local development connects as when DATABASE_URL is absent — see
+ * resolveDatabaseUrl(). It is exported as a structure, not just a URL, because
+ * `scripts/db.ts` has to hand this same role the privileges on the schema it recreates:
+ * there is exactly one definition of "the dev fallback role" and both the app and the
+ * reset script read it from here.
+ */
+export const DEV_FALLBACK = {
+  role: "omnihost",
+  password: "omnihost",
+  host: "127.0.0.1",
+  port: 5432,
+  database: "omnihost",
+} as const;
+
 /** Seed/demo URL for local development only — see resolveDatabaseUrl(). */
-const DEV_FALLBACK_URL = "postgres://omnihost:omnihost@127.0.0.1:5432/omnihost";
+const DEV_FALLBACK_URL = `postgres://${DEV_FALLBACK.role}:${DEV_FALLBACK.password}@${DEV_FALLBACK.host}:${String(DEV_FALLBACK.port)}/${DEV_FALLBACK.database}`;
 
 export class DatabaseNotConfigured extends Error {
   constructor() {
@@ -85,6 +100,14 @@ export function getPool(): Pool {
   return pool;
 }
 
+/**
+ * Runs one statement with no bind parameters. For dev tooling only: DDL such as GRANT and
+ * CREATE ROLE cannot be parameterised, so the caller is responsible for the text.
+ */
+export async function exec(text: string): Promise<void> {
+  await getPool().query(text);
+}
+
 export type Row = QueryResultRow;
 
 /** Minimal query surface shared by the pool and a transaction client. */
@@ -101,6 +124,9 @@ function queryableFrom(client: Pool | PoolClient): Queryable {
   };
 }
 
+export function poolQueryable(): Queryable {
+  return queryableFrom(getPool());
+}
 export type SqlTag = <R extends Row = Row>(
   strings: TemplateStringsArray,
   ...values: unknown[]

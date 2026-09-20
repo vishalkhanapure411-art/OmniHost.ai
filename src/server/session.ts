@@ -35,6 +35,13 @@ export interface PrincipalRole {
    * widen the operator's tenant reach to every chain.
    */
   rolePermissionCount: number;
+  /**
+   * The codes this role carries. `authorise()` needs them per role, not just flattened
+   * across the identity, to answer "is this capability held *for this chain*": a grant
+   * names one chain, and a permission it carries must not travel to another chain just
+   * because the same person holds it somewhere else.
+   */
+  permissions: string[];
 }
 
 export interface PrincipalGrant {
@@ -52,7 +59,8 @@ export interface Principal {
   userId: string;
   email: string;
   displayName: string;
-  locale: string;
+  /** Personal language preference; NULL = follow the site default. */
+  locale: string | null;
   /** The highest org layer this identity holds: app > central > site. */
   scope: OrgLayer;
   /** Tenant context. NULL for an App-layer identity until a request names a chain. */
@@ -83,7 +91,7 @@ export interface SessionUserRow {
   email: string;
   display_name: string;
   status: string;
-  locale: string;
+  locale: string | null;
   auth_provider: string;
   password_hash: string | null;
   password_salt: string | null;
@@ -147,7 +155,7 @@ interface SessionJoinRow {
   user_id: string;
   email: string;
   display_name: string;
-  locale: string;
+  locale: string | null;
   status: string;
 }
 
@@ -251,6 +259,7 @@ export async function resolvePrincipal(token: string | undefined | null): Promis
     siteId: row.site_id,
     expiresAt: row.expires_at ? row.expires_at.toISOString() : null,
     rolePermissionCount: (row.permission_codes ?? []).length,
+    permissions: row.permission_codes ?? [],
   }));
 
   const principalGrants: PrincipalGrant[] = grants.map((row) => ({

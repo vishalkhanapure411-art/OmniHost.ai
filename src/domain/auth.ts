@@ -131,6 +131,21 @@ export const NAV_ITEMS: {
     requires: ["chain.list"],
   },
   {
+    // AppConfig's working surface: the chains a delegation names are the only ones the
+    // server will return, so an operator with no grant sees an empty list rather than a
+    // refused screen.
+    to: "/support",
+    label: "Support queue",
+    description: "Escalated tickets and the chain access you hold.",
+    requires: ["support.ticket.read"],
+  },
+  {
+    to: "/support/access",
+    label: "Support access",
+    description: "Time-boxed access into a chain's account, and who asked for it.",
+    requires: ["support.access.request"],
+  },
+  {
     to: "/audit",
     label: "Audit trail",
     description: "Who did what, with before and after state.",

@@ -2,6 +2,23 @@ import { createServerFn } from "@tanstack/react-start";
 
 import { listChains, getChain, onboardChain, setChainFeature, updateChainTier } from "~/domain/chains";
 import type { LicenceTier } from "~/domain/chains";
+import {
+  getChainAuthConfig,
+  getChainSettings,
+  updateChainAuthConfig,
+  updateChainSetting,
+  updateSiteLocale,
+  type UpdateChainAuthInput,
+} from "~/domain/appconfig";
+import {
+  assignSupportTicket,
+  decideSupportAccessRequest,
+  listSupportAccess,
+  listSupportTickets,
+  requestSupportAccess,
+  resolveSupportTicket,
+  useSupportAccess,
+} from "~/domain/support";
 import { NAV_ITEMS, countOpenApprovals } from "~/domain/auth";
 import { canReadAudit, listApprovals, listAuditEntries } from "~/domain/inbox";
 import { currentPrincipal } from "~/server/context";
@@ -197,3 +214,194 @@ export const listAuditFn = createServerFn({ method: "GET" }).handler(async () =>
     return failure(error);
   }
 });
+
+// ── AppConfig vertical ───────────────────────────────────────────────────────
+
+export const getChainAuthConfigFn = createServerFn({ method: "GET" })
+  .validator((input: unknown) => input as { chainId: string })
+  .handler(async ({ data }) => {
+    const principal = await currentPrincipal();
+    if (!principal) return failure(new Unauthenticated());
+    try {
+      return { ok: true as const, config: await getChainAuthConfig(principal, data.chainId) };
+    } catch (error) {
+      return failure(error);
+    }
+  });
+
+export const updateChainAuthConfigFn = createServerFn({ method: "POST" })
+  .validator((input: unknown) => input as { chainId: string; config: UpdateChainAuthInput })
+  .handler(async ({ data }) => {
+    const principal = await currentPrincipal();
+    if (!principal) return failure(new Unauthenticated());
+    try {
+      return {
+        ok: true as const,
+        result: await updateChainAuthConfig(principal, data.chainId, data.config, {
+          source: "screen",
+        }),
+      };
+    } catch (error) {
+      return failure(error);
+    }
+  });
+
+export const getChainSettingsFn = createServerFn({ method: "GET" })
+  .validator((input: unknown) => input as { chainId: string })
+  .handler(async ({ data }) => {
+    const principal = await currentPrincipal();
+    if (!principal) return failure(new Unauthenticated());
+    try {
+      return { ok: true as const, settings: await getChainSettings(principal, data.chainId) };
+    } catch (error) {
+      return failure(error);
+    }
+  });
+
+export const updateChainSettingFn = createServerFn({ method: "POST" })
+  .validator(
+    (input: unknown) => input as { chainId: string; key: string; value: string | number | boolean }
+  )
+  .handler(async ({ data }) => {
+    const principal = await currentPrincipal();
+    if (!principal) return failure(new Unauthenticated());
+    try {
+      return {
+        ok: true as const,
+        result: await updateChainSetting(principal, data.chainId, data.key, data.value, {
+          source: "screen",
+        }),
+      };
+    } catch (error) {
+      return failure(error);
+    }
+  });
+
+export const updateSiteLocaleFn = createServerFn({ method: "POST" })
+  .validator((input: unknown) => input as { chainId: string; siteId: string; locale: string | null })
+  .handler(async ({ data }) => {
+    const principal = await currentPrincipal();
+    if (!principal) return failure(new Unauthenticated());
+    try {
+      return {
+        ok: true as const,
+        result: await updateSiteLocale(principal, data.chainId, data.siteId, data.locale, {
+          source: "screen",
+        }),
+      };
+    } catch (error) {
+      return failure(error);
+    }
+  });
+
+// ── AppSupport vertical ──────────────────────────────────────────────────────
+
+export const listSupportTicketsFn = createServerFn({ method: "GET" })
+  .validator((input: unknown) => input as { status?: string | null } | undefined)
+  .handler(async ({ data }) => {
+    const principal = await currentPrincipal();
+    if (!principal) return failure(new Unauthenticated());
+    try {
+      return {
+        ok: true as const,
+        queue: await listSupportTickets(principal, { status: data?.status ?? null }),
+      };
+    } catch (error) {
+      return failure(error);
+    }
+  });
+
+export const assignSupportTicketFn = createServerFn({ method: "POST" })
+  .validator((input: unknown) => input as { ticketId: string; assignToUserId: string | null })
+  .handler(async ({ data }) => {
+    const principal = await currentPrincipal();
+    if (!principal) return failure(new Unauthenticated());
+    try {
+      return {
+        ok: true as const,
+        result: await assignSupportTicket(
+          principal,
+          data.ticketId,
+          { assignToUserId: data.assignToUserId },
+          { source: "screen" }
+        ),
+      };
+    } catch (error) {
+      return failure(error);
+    }
+  });
+
+export const resolveSupportTicketFn = createServerFn({ method: "POST" })
+  .validator((input: unknown) => input as { ticketId: string; note: string })
+  .handler(async ({ data }) => {
+    const principal = await currentPrincipal();
+    if (!principal) return failure(new Unauthenticated());
+    try {
+      return {
+        ok: true as const,
+        result: await resolveSupportTicket(principal, data.ticketId, data.note, { source: "screen" }),
+      };
+    } catch (error) {
+      return failure(error);
+    }
+  });
+
+export const listSupportAccessFn = createServerFn({ method: "GET" }).handler(async () => {
+  const principal = await currentPrincipal();
+  if (!principal) return failure(new Unauthenticated());
+  try {
+    return { ok: true as const, access: await listSupportAccess(principal) };
+  } catch (error) {
+    return failure(error);
+  }
+});
+
+export const requestSupportAccessFn = createServerFn({ method: "POST" })
+  .validator(
+    (input: unknown) =>
+      input as { chainId: string; reason: string; requestedHours: number; ticketId?: string | null }
+  )
+  .handler(async ({ data }) => {
+    const principal = await currentPrincipal();
+    if (!principal) return failure(new Unauthenticated());
+    try {
+      return { ok: true as const, result: await requestSupportAccess(principal, data, { source: "screen" }) };
+    } catch (error) {
+      return failure(error);
+    }
+  });
+
+export const decideSupportAccessRequestFn = createServerFn({ method: "POST" })
+  .validator(
+    (input: unknown) =>
+      input as { requestId: string; approve: boolean; note?: string | null; grantedHours?: number | null }
+  )
+  .handler(async ({ data }) => {
+    const principal = await currentPrincipal();
+    if (!principal) return failure(new Unauthenticated());
+    try {
+      return {
+        ok: true as const,
+        result: await decideSupportAccessRequest(
+          principal,
+          data.requestId,
+          { approve: data.approve, note: data.note ?? null, grantedHours: data.grantedHours ?? null },
+          { source: "screen" }
+        ),
+      };
+    } catch (error) {
+      return failure(error);
+    }
+  });
+
+export const useSupportAccessFn = createServerFn({ method: "POST" })
+  .validator((input: unknown) => input as { chainId: string })
+  .handler(async ({ data }) => {
+    const principal = await currentPrincipal();
+    if (!principal) return failure(new Unauthenticated());
+    try {
+      return { ok: true as const, result: await useSupportAccess(principal, data.chainId, { source: "screen" }) };
+    } catch (error) {
+      return failure(error);
+    }
+  });

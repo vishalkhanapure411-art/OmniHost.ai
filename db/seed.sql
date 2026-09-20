@@ -93,6 +93,28 @@ insert into permission (code, module, name, description, action_kind, layer, req
   ('support.chain_access.timeboxed', 'support', 'Use time-boxed support access into a chain account',
    'Scoped, time-boxed and audit-logged. Held only through a scope_grant that names an expiry.',
    'query', 'app', false, false, false, 'phase0a'),
+  -- Phase 0 AppConfig vertical (migration 0005). Capability table: "SSO / authentication
+  -- setup — AppAdmin yes, AppConfig typically delegated, AppSupport no", and "Feature
+  -- toggles per chain — AppConfig typically delegated". AppConfig and AppSupport still
+  -- hold nothing BY ROLE: every one of these arrives through a scope_grant.
+  ('chain.auth.read', 'admin', 'View a chain''s authentication / SSO configuration',
+   'Read side of auth.sso.configure; the write side is the delegated configuration action itself.',
+   'query', 'app', false, false, false, 'phase0'),
+  ('chain.settings.read', 'admin', 'View a chain''s settings and the App-layer bounds',
+   'Returns the definitions (bounds, delegation, whether the App layer allows a chain to set it) alongside the chain''s stored values.',
+   'query', 'app', false, false, false, 'phase0'),
+  ('chain.setting.define', 'admin', 'Define a chain-configurable setting and its bounds',
+   'The App layer decides what a chain may configure and within which bounds; the bounds are checked server-side on every write.',
+   'mutation', 'app', false, false, false, 'phase0'),
+  ('support.ticket.read', 'support', 'Read the support ticket queue',
+   'The escalated queue the chatbot opens a ticket into when intent confidence is low or a request is unsupported.',
+   'query', 'app', false, false, false, 'phase0'),
+  ('support.ticket.assign', 'support', 'Assign or take a support ticket',
+   'Assignment is recorded with its own audit row; acting on a ticket that names a chain also needs reach into that chain.',
+   'mutation', 'app', false, false, false, 'phase0'),
+  ('support.access.request', 'support', 'Request time-boxed support access to a chain',
+   'Asking is not having: a request grants nothing until AppAdmin approves it and a time-boxed scope_grant exists.',
+   'mutation', 'app', false, false, false, 'phase0'),
   ('audit.read', 'audit', 'Read own chain''s audit trail',
    'The chain-side counterpart of chain.audit.read: the spec requires that "a chain should be able to see exactly who at OmniHost.ai touched their data and why, which matters for a platform holding another company''s sales and cost data". Held by the compliance-facing roles rather than everyone.',
    'query', 'tenant', false, false, false, 'phase0a')
@@ -194,6 +216,26 @@ insert into permission (code, module, name, description, action_kind, layer, req
   ('marketing.campaign.push', 'marketing', 'Publish / schedule a campaign',
    'Spec example intent: "Push 20% weekday lunch offer, Sites 3–8". Only centrally-approved content ever goes live.',
    'mutation', 'tenant', false, false, false, null)
+on conflict (code) do update set
+  module = excluded.module, name = excluded.name, description = excluded.description,
+  action_kind = excluded.action_kind, layer = excluded.layer,
+  requires_site_scope = excluded.requires_site_scope,
+  check_function = excluded.check_function, financial_or_stock = excluded.financial_or_stock,
+  implemented_in = excluded.implemented_in;
+
+-- ---------------------------------------------------------------------------
+-- 4b. Tool registry — the tenant-layer half of the AppConfig vertical: setting a
+--     value inside a bound the App layer published. Tenant layer, because the value
+--     belongs to a chain; the *bounds* belong to the App layer
+--     (chain.setting.define) and are checked server-side on every write.
+-- ---------------------------------------------------------------------------
+insert into permission (code, module, name, description, action_kind, layer, requires_site_scope, check_function, financial_or_stock, implemented_in) values
+  ('chain.setting.update', 'admin', 'Set a chain setting inside the App-layer bounds',
+   'The chain side of the delegation: a Central head (or a site head, where the definition says so) sets a value the App layer has declared overridable, and the value is validated against the published bounds.',
+   'mutation', 'tenant', false, false, false, 'phase0'),
+  ('site.locale.update', 'admin', 'Set a site''s default interface language',
+   'The site hop of the language resolution order (user → site → chain → platform). Stored on site.locale; a display default, not a permission.',
+   'mutation', 'tenant', true, false, false, 'phase0')
 on conflict (code) do update set
   module = excluded.module, name = excluded.name, description = excluded.description,
   action_kind = excluded.action_kind, layer = excluded.layer,
@@ -314,6 +356,22 @@ select r.id, p.id
   join permission p on p.code = 'audit.read'
 on conflict (role_id, permission_id) do nothing;
 
+-- The delegated-settings pair. AppAdmin holds both on every chain; a chain's Central
+-- heads hold them for their own chain (the chain is their scope, so the tenant-layer
+-- check covers "their own chain only" without a second rule), and the Site Head holds
+-- chain.setting.update so that a definition whose delegation is 'site_head' can be set
+-- at the site. Which *keys* each of them may actually touch is decided by
+-- setting_definition.delegate_to and checked in src/domain/appconfig.ts — holding the
+-- tool is "may set some setting", not "may set any setting".
+insert into role_permission (role_id, permission_id)
+select r.id, p.id
+  from role r
+  join permission p on p.code in ('chain.setting.update', 'site.locale.update')
+ where r.code = 'APP_ADMIN'
+    or (r.layer = 'central' and r.seniority = 'head')
+    or r.code = 'SITE_HEAD'
+on conflict (role_id, permission_id) do nothing;
+
 -- ---------------------------------------------------------------------------
 -- 6. Feature registry — the capabilities the Licensing Tiers table names, with the
 --    tier at which each becomes available.
@@ -358,3 +416,50 @@ insert into feature (code, name, module, description, min_tier, toggleable) valu
 on conflict (code) do update set
   name = excluded.name, module = excluded.module, description = excluded.description,
   min_tier = excluded.min_tier, toggleable = excluded.toggleable;
+
+-- ---------------------------------------------------------------------------
+-- 7. Delegated setting definitions — what a chain may configure, and in what
+--    bounds. The App layer owns every row here; a chain only ever sets a *value*.
+--
+-- Where the spec names a configurable value ("prep-time SLA set for that site",
+-- "stock-out reset policy", "service-charge default", "above a site-configured
+-- value it needs Revenue Assurance co-sign", "approve above a threshold for their
+-- function", "escalates one level"), the definition below is the spec's value and
+-- delegate_to is the spec's "AppConfig sets what's overridable at all; within that,
+-- the Site Head sets the site's own values".
+--
+-- Where the spec names the setting but states no number (the thresholds and windows),
+-- the default and the bounds are this build's platform defaults, flagged SPEC-OPEN in
+-- the migration PR for the owner to set. They are values, not business rules.
+-- ---------------------------------------------------------------------------
+insert into setting_definition (key, module, scope, value_type, min_value, max_value, enum_options, default_value, unit, label_key, help_key, delegate_to, set_by, sort_order) values
+  ('purchase.approval_threshold', 'purchase', 'chain', 'decimal', 0, 100000000, null,
+   '50000'::jsonb, 'currency',
+   'settings.purchase.approval_threshold.label', 'settings.purchase.approval_threshold.help',
+   'chain_head', 'app', 10),
+  ('culinary.waste_writeoff_ra_threshold', 'culinary', 'chain', 'decimal', 0, 1000000, null,
+   '2000'::jsonb, 'currency',
+   'settings.culinary.waste_writeoff_ra_threshold.label', 'settings.culinary.waste_writeoff_ra_threshold.help',
+   'chain_head', 'app', 20),
+  ('notifications.sla_escalation', 'ticketing', 'chain', 'enum', null, null,
+   array['off', 'one_level']::text[], '"one_level"'::jsonb, null,
+   'settings.notifications.sla_escalation.label', 'settings.notifications.sla_escalation.help',
+   'chain_head', 'app', 30),
+  ('guest.prep_time_sla_minutes', 'operations', 'site', 'integer', 5, 90, null,
+   '25'::jsonb, 'minutes',
+   'settings.guest.prep_time_sla_minutes.label', 'settings.guest.prep_time_sla_minutes.help',
+   'site_head', 'app', 40),
+  ('store.stockout_reset_minutes', 'store', 'site', 'integer', 0, 1440, null,
+   '240'::jsonb, 'minutes',
+   'settings.store.stockout_reset_minutes.label', 'settings.store.stockout_reset_minutes.help',
+   'site_head', 'app', 50),
+  ('payments.service_charge_percent', 'payments', 'site', 'decimal', 0, 15, null,
+   '5'::jsonb, 'percent',
+   'settings.payments.service_charge_percent.label', 'settings.payments.service_charge_percent.help',
+   'site_head', 'app', 60)
+on conflict (key) do update set
+  module = excluded.module, scope = excluded.scope, value_type = excluded.value_type,
+  min_value = excluded.min_value, max_value = excluded.max_value,
+  enum_options = excluded.enum_options, default_value = excluded.default_value,
+  unit = excluded.unit, label_key = excluded.label_key, help_key = excluded.help_key,
+  delegate_to = excluded.delegate_to, set_by = excluded.set_by, sort_order = excluded.sort_order;

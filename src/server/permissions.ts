@@ -105,6 +105,29 @@ export function authorise(
     );
   }
 
+  /**
+   * Holding a code somewhere is not holding it *here*.
+   *
+   * A per-chain delegation names one chain, and the codes it carries must not travel to
+   * another chain because the same person holds them somewhere else. Without this, an
+   * AppSupport operator whose platform-wide queue grant makes them reach every chain
+   * could read *any* chain's detail the moment one chain-scoped grant gave them
+   * `chain.read` — and the time-box on that grant stopped meaning anything the second it
+   * lapsed, which is exactly what the time-box is for. Reach (`canReachChain`) says which
+   * chains an identity may touch at all; this says which capabilities it actually holds
+   * for that particular chain.
+   */
+  const coversChain = (chainId: string): boolean =>
+    principal.roles.some(
+      (role) =>
+        (role.chainId === null || role.chainId === chainId) &&
+        role.permissions.includes(permission.code)
+    ) ||
+    principal.grants.some(
+      (grant) =>
+        (grant.chainId === null || grant.chainId === chainId) &&
+        grant.permissions.includes(permission.code)
+    );
   if (permission.layer === "app") {
     // Platform capability. Only an App-layer identity, or a person holding an
     // explicit per-chain App-layer grant, can exercise it — a chain's own Head must
@@ -115,6 +138,9 @@ export function authorise(
     if (target.chainId && !canReachChain(principal, target.chainId)) {
       return deny(`your delegated scope does not include this chain`);
     }
+    if (target.chainId && !coversChain(target.chainId)) {
+      return deny(`${permission.code} is held for other chains only; this chain needs its own grant`);
+    }
     return { allowed: true, reason: "app capability held", permission };
   }
 
@@ -122,6 +148,9 @@ export function authorise(
   const chainId = target.chainId ?? principal.chainId;
   if (!chainId) return deny(`${permission.code} needs a chain context and your session has none`);
 
+  if (!coversChain(chainId)) {
+    return deny(`${permission.code} is held for other chains only; this chain needs its own grant`);
+  }
   if (principal.scope === "app") {
     // An App-layer operator reaching chain data is doing so under a delegation; the
     // delegation decides which chains.
