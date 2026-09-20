@@ -1,9 +1,16 @@
-# OmniHost.ai — screen pattern spec (Phase 0)
+# OmniHost.ai — screen pattern spec (Phase 0 core, Phase 1 master-data additions)
 
 Every later role module reuses these patterns. Each entry says what the pattern is for,
 the rules that make it work for an operator who sits in it for hours, and where the live
 example lives. Tokens are in `src/styles/tokens.css`; components in `src/components/`;
 worked examples at `/design`.
+
+Sections 1–9 are the Phase 0 platform patterns. Sections 10–18 are the Phase 1 additions
+(master data, dense editable grids, import, per-jurisdiction fields) and the surfaces
+Phase 2 needs — written into the same system, and paired with
+`docs/design/phase-1-mdm-spec.md` (the masters themselves) and
+`docs/design/phase-2-culinary-grids-spec.md` (the recipe/BOM costing surfaces). Where a
+section here says "extends §n", §n stays in force; nothing below supersedes a Phase 0 rule.
 
 **Non-negotiables across every pattern**
 
@@ -137,3 +144,353 @@ Live: `/chains/onboard`, `/design`.
   length) exist to catch RTL and truncation bugs before a real translation does.
 - Codes are not translated: `silver`, `platinum`, role codes, permission codes, UOM codes
   and ISO currency codes stay as stored values; only their labels come from the catalog.
+
+---
+
+# Phase 1 additions — master data and the visual costing surfaces
+
+Sections 1–9 above are the platform patterns and still apply unchanged. What follows
+extends them for Phase 1 (master data) and the surfaces Phase 2 needs. It is the same
+design system: the same tokens (`src/styles/tokens.css`), the same component kit
+(`src/components/`), the same four states, the same localisation rules. Nothing here
+introduces a second system, a second token set or a second table.
+
+**New non-namespaced tokens this section needs** (all in `tokens.css`, so a density
+change or a theme still has one home):
+
+| token | why it exists |
+|---|---|
+| `--density-grid-cell-px` | editable cells need their own inline padding; a text input inside `--density-cell-px` is unreadably tight at `compact` |
+| `--row-marker-width` | the inline-start bar that marks a selected/edited/blocked row is currently a literal `3px` inside `.data-table`; the grid needs the same bar at row and line level |
+| `--indent-step` | tree/depth indentation (recipe tiers, exploded BOM, a nested grid under a semi-finished good) |
+
+No new colour tokens. Dirty, stale, blocked, inherited and derived states are drawn from
+the existing five status families plus `--color-fg-subtle`; if a state can only be told
+apart by adding a colour, it is not designed yet.
+
+## 10. Master-data record: list and detail (extends §1)
+
+`MasterDetail` + `ListToolbar` + `DataTable` for the list; `DetailHeader` +
+`DescriptionList` + a sticky action bar for the record. Targets: `/chains/$chainId` is
+the reference implementation; `/mdm/articles`, `/mdm/raw-materials`, `/mdm/vendors`,
+`/mdm/uom`, `/mdm/tax-classes`, `/mdm/sites`, `/mdm/reference/*` follow it.
+
+- **The record is addressed by its business code, not its uuid**: `/mdm/articles/ART-1042`.
+  A link an operator pastes into a chat is the same link a chatbot card carries, and it
+  survives a re-import (codes are the import key). A uuid only ever appears in an audit row.
+- **List columns are the four things a reviewer needs, in this order**: code (mono,
+  `<CodeLabel>`), name, the master's own decisive attribute (tax class; base UOM; vendor
+  tax registration; rate + jurisdiction; jurisdiction), status badge, and last change
+  (relative via `TimestampValue` with the instant in the `title`, the actor in the row's
+  expandable meta — never a second table for it).
+- **Counts are always visible** (extends §1): `ListToolbar` shows the in-scope count, and
+  when a filter is on, both counts — `common.showing` (`{shown} of {total}`). A filter that
+  hides an incomplete record must say that it hid it.
+- **Status is the record's lifecycle, not a colour**: `draft` · `pending_review` ·
+  `active` · `inactive` · `suspended` (vendor) · `seasonal`/`discontinued` (article). Each
+  is a `.badge-*` tone **plus** a `StatusShape` glyph **plus** the catalogued label —
+  legible in greyscale and to a screen reader (non-negotiable 5).
+- **Detail reads first, then edits.** The record opens read-only; `Edit` (permission-gated,
+  `action.edit`) switches the whole form to edit mode in place. There is no separate
+  "edit page", so a link to the record is a link to the record in either mode.
+- **The sticky action bar** sits at the foot of the record (inline-start: what is dirty;
+  inline-end: the actions). It always answers three questions: *what will this save do*,
+  *what is blocking it*, *who has to approve it*. Copy is catalogued
+  (`mdm.record.saveState.*`), never a bare "Save".
+- **Panels are ordered by how often they are read, not by how the table is shaped**:
+  Identity → Jurisdiction & compliance → Classification → Related records → Versions →
+  Audit. An empty panel is an honest empty state (§2), not a missing section.
+- **Versions are a list, not a history log**: `VersionList` (version no, status, effective
+  window, who changed it, what changed in one phrase) with `RecordDiff` opening read-only.
+  A superseded version is never editable and never hidden — the PRD's rule that a
+  historical order keeps the figures it was sold under is only enforceable if the operator
+  can see them.
+- **Related records are panes, not tabs that lose state**: a pane holds a small
+  `DataTable` of links (approved vendors; outlets; per-outlet prices; site par levels) with
+  an inline add row that opens §12's picker. Adding to a pane edits the record's draft, so
+  it dirties the record like any field and commits with the same Save.
+- Pane and grid headers stick; panes scroll independently (extends §1).
+
+## 11. Dense editable grid (extends §7)
+
+`EditableGrid` — the same `.data-table` density contract, one row per line, but cells are
+editable. Used by: indent/PO/GRN lines (Phase 3), per-outlet price rows, UOM conversion
+rows, tax rate rows, import mapping rows, and every recipe/BOM grid in §19.
+
+**Structure.** A real `<table>` for row/column semantics, marked up as
+`role="grid"` with `aria-rowcount`; each row `role="row"`; editable cells
+`role="gridcell"`; derived/computed cells `aria-readonly="true"` **and**
+`tabindex="-1"` so the keyboard flow never stops on a value the operator cannot change.
+One cell is the *active cell* at a time (roving `tabindex`); the active cell is inside the
+row that is the *working line*.
+
+**Keyboard model.** This screen is used at speed for hours; every one of these is a
+requirement, not a nicety.
+
+| key | behaviour |
+|---|---|
+| `Arrow` up/down/start/end | move the active cell; in RTL, `Start`/`End` follow reading direction (CSS `start`, not `left`) |
+| `Tab` / `Shift+Tab` | next/previous **editable** cell in reading order; from the last editable cell of the last line, `Tab` creates a new line and lands on its first cell — so tabbing never leaves the grid for the Save button by accident |
+| `Enter` | commit the cell and move down one row; `Shift+Enter` moves up (the spreadsheet habit; operators arrive with it) |
+| `F2`, or any printable character | opens the cell editor, content selected |
+| `Escape` | in a cell: revert the cell to its last committed value and stay on the cell. In the grid: nothing else (there is no "discard everything" key — see dirty state) |
+| `Alt+ArrowDown` | opens the cell's picker (references) or its option list (enums) without typing |
+| `Alt+ArrowUp/Down` on a row header | reorders the line |
+| `Alt+Insert` / `Alt+Backspace` | insert a line below / remove the working line (removal asks nothing; it is a draft change, and the Save is the commit point) |
+| `Ctrl/Cmd+S` | same as the Save button — a shortcut, never the only path |
+| `Delete` | clears a text cell's content; it is **never** a row delete |
+| `PageUp`/`PageDown` | 10 rows |
+| paste (`Ctrl/Cmd+V`) | a TSV block from a spreadsheet fills from the active cell outward; pasted values go through the same validation as typed ones |
+
+Screen readers get `aria-rowindex`/`aria-colindex` on movable cells, and every keyboard
+action above that changes structure is also a visible button in the row's overflow menu.
+
+**Dirty state.** Editing writes to a client draft. Nothing autosaves on a grid that can
+affect money, stock or a golden record.
+
+- Per-cell: a `dirty` marker — an inline-start bar (`.row-marker`, `--row-marker-width`)
+  plus a small shape (`Dot`) at the cell's inline-end, **plus** the row's own marker, plus
+  the sticky bar's wording (`mdm.grid.dirty.one` / `.other`, `{count}` inserted). Never a
+  colour alone.
+- Per-row: an `edited` badge on the row header; a row whose committed value differs from
+  the server's at save time returns a conflict (§11.5) rather than a silent overwrite.
+- Per-grid: the sticky footer says `{count} unsaved changes`; leaving the route with a
+  dirty draft raises a confirm dialog that restates what would be lost (`mdm.grid.dirty.leave`).
+  A browser-level `beforeunload` guard covers hard navigation.
+
+**Inline validation.**
+- Timing: a field validates on blur and on change *after its first blur* (so a half-typed
+  value is not shouted at); cross-field rules validate on commit of either side; the whole
+  grid validates on Save.
+- An invalid cell is `aria-invalid="true"` + `.control-invalid` + a message tied by
+  `aria-describedby` (extends §6). The message is a **key plus parameters**
+  (`validation.*`, `mdm.grid.error.*`), so the same rule reads correctly in Hindi, German
+  and Arabic, and the server stays the source of truth for the rule.
+- The grid carries its own summary: the sticky bar names the count and a link that moves
+  the active cell to the first error (`validation.summary.*`). Save is **never disabled**
+  by a validation error — pressing it reveals them (extends §6).
+- A value that passes the client and fails the server shows the server's own message
+  verbatim as `detail` (§2); the UI never re-words a domain error.
+
+**Save semantics.**
+- One grid = one mutation = one audit row per record (before/after diff), committed
+  in-transaction with the write. `source` records `screen` / `chatbot` / `import`, `intent`
+  records the chatbot intent when there was one.
+- Save posts the **whole draft**, not per-cell. The response re-reads the record and the
+  grid re-renders from the server's copy. No optimistic UI on a financial, stock-affecting
+  or golden-record path (§5).
+- While saving: the grid is read-only and the Save button carries the spinner, so a slow
+  write cannot be double-submitted.
+- Per-line server errors come back keyed — `{ lineIndex, field, messageKey, params }` — and
+  are mapped back onto the cells. A 20-line PO must not fail as one sentence.
+- Partial accept is explicit: `commit valid lines, keep the other {count} in the report`.
+  A line is never dropped silently.
+
+**Blocked lines.** A line whose component cannot be costed, converted or resolved is
+marked `blocked` (tone + shape + word) with its reason on the line and a link to the fix.
+Blocked lines are excluded from the running footer total, and the footer **says** so
+(`mdm.grid.totalsPartial`, `{costed} of {total}`) — a total that quietly omits a line is
+the worst failure this screen can have.
+
+**Totals.** Pinned `tfoot` (extends §7), rendered from the server's computation, per
+currency where lines carry more than one: a mixed-currency grid groups totals by ISO code
+under a labelled sub-row and **never** sums across currencies.
+
+**RTL, density, expansion.**
+- Every offset uses logical properties (`ms/me`, `ps/pe`, `border-inline`,
+  `inset-inline-start`); the row's marker bar flips with it. `text-align: start` in text
+  cells, `end` in numeric cells (`.numeric`).
+- Numeric cells are `numeric` + tabular figures; money and quantities go through
+  `MoneyValue`/`QuantityValue`. A unit is a mono code beside the quantity (`12 kg`).
+- Row height comes from `--density-*`; the cell input uses `min-height: var(--control-height)`
+  so a control at `compact` is still a target.
+- Column widths are `min-content`–`max-content`; a header wraps to two lines rather than
+  truncating, because "Wastage %" in German is not "Wastage %". Truncation is allowed only
+  with a `title`, and never on a label the operator must act on.
+- Above 200 lines the grid virtualises; the scroll container keeps the sticky header and
+  footer, and `aria-rowcount` reports the real count so a screen reader is not lied to.
+
+## 12. Related-record picker (a reference, not a text field)
+
+`RecordPicker` (`role="combobox"` + a `role="listbox"` popup, one active descendant).
+
+- Type-ahead searches the **server**, scoped to the chain and to the record's jurisdiction;
+  results are debounced, ordered by code match first then name, and the query text is
+  highlighted. Search matches on code, name, and the disambiguating field.
+- A result row shows: mono code, name, and the one thing that tells two similar records
+  apart (status, base UOM, jurisdiction, tax registration). Without that third item an
+  operator cannot pick between two "Paneer" entries, which is how duplicate golden records
+  get created in the first place.
+- Keyboard: `Alt+ArrowDown` opens without typing; `Arrow` moves, `Enter` selects, `Escape`
+  closes and restores the previous value, `Home`/`End` jump. The popup announces its result
+  count as `status` (`mdm.picker.resultCount`).
+- **A typed value that was never picked is an error** (`validation.unknownReference`), not a
+  silent create. Creation from the picker exists only where the caller holds the create
+  permission; it opens the create flow and returns with the new record selected, and it is
+  audited as a create with `source: "picker"`.
+- **Inactive records still resolve for display** on historical lines (marked `inactive`),
+  but cannot be newly selected: search excludes inactive by default with an explicit
+  `mdm.picker.includeInactive` toggle that says how many it added.
+- Multi-select is a chip list; each chip has a keyboard-reachable remove button and the
+  chip's own error state when it becomes invalid (e.g. a vendor suspended after selection).
+- The same search is a registered **query** action per master (`mdm.<master>.search`), so a
+  chatbot slot-fill can offer three candidates as chips (extends §8). The picker and the
+  chatbot call one function.
+
+## 13. Bulk import and CSV column mapping
+
+Nobody types a golden record twice. Import is a first-class surface, not a script, because
+the chain's real data arrives as a spreadsheet — and the owner has not supplied it yet, so
+this is the path the pilot data will actually take.
+
+- **Four steps, all reviewable, all reversible up to the commit**: Upload → Map columns →
+  Validate (dry run) → Commit. The stepper is a route segment per step (`?step=map`), so a
+  half-finished import can be linked and resumed.
+- **The mapping is named and reused**: `ImportTemplate` per master per chain (the same
+  vendor sends the same price list monthly). Mapping auto-suggests from header text and
+  labels each guess as a suggestion the operator confirms, so a wrong guess is visible
+  before 4,000 rows are committed.
+- **Jurisdiction-required fields are shown as required for the import's target
+  jurisdiction** (§15), not for India, and the mapping step refuses to proceed while a
+  required target is unmapped — with the reason and the jurisdiction named.
+- **Validate is a server dry run** against the identical domain rules, returning per row:
+  row number, key (code), outcome (`new` / `update` / `duplicate` / `error`), and a keyed
+  reason. Counts by outcome sit above the table. Duplicates are matched on the de-dup keys
+  and are offered **merge or skip, never auto-merged**.
+- **Commit is chunked and audited as one event plus per row**: a batch id on every audit
+  row, the file name and the template on the batch, and a downloadable error report keyed
+  by row and column. `source: "import"`.
+- **States**: no file · unreadable/undecodable file · all rows invalid · partially valid
+  (`commit valid rows`) · denied (`mdm.<master>.import`, naming the missing permission) ·
+  expired template. Each is its own sentence (§2), and the error report is reachable from
+  the failure state so the failure is actionable.
+- Import never bypasses the approval gate: imported records land at `pending_review` where
+  the master is approval-gated (§16), and a Silver chain that holds only the basic lists
+  gets the same import landing directly (tier is a chain property — see §15 note).
+
+## 14. Deactivate, with a reason — never delete
+
+There is no delete affordance for a golden record anywhere in the console, and the API has
+no delete action. Historical orders, COGS and versioned articles must keep resolving a
+record that someone has stopped using.
+
+- `Deactivate` (a governed action, `mdm.<master>.deactivate`) opens `Dialog` +
+  `ConfirmSummary` (§5) and requires **a reason code** (`mdm.deactivate.reason.*`, reference
+  data — not free text, so it is reportable) plus an optional note, and an effective moment
+  (now / end of business day / a date, rendered locale-aware).
+- The dialog restates what breaks: what the record is used by (active articles, open POs,
+  per-outlet prices — counts, not "related items"), and what remains resolvable afterwards.
+- **A dependency that would be orphaned refuses deactivation** with a named error
+  (`mdm.deactivate.blocked` + the count + a link), because resolving what should happen to
+  four active articles is the operator's decision, not the software's.
+- Effects: excluded from new selection in every picker; still resolves on historical rows
+  and versions; the list hides inactive rows **by default and says how many it hid** — a
+  hidden row is never a silent disappearance.
+- Reactivation is a separate permission and a separate audit row. Suspension (vendor,
+  site) is a separate state with its own reason and its own effect (no new POs; open POs
+  flagged), so "temporarily stopped" and "no longer used" never share a word.
+- Audit row: action, entity, `before.status`/`after.status`, reason code, note, effective
+  moment, actor, `source`.
+
+## 15. Per-jurisdiction fields: one record, several markets
+
+The chain record carries the tax jurisdiction; a chain trading in more than one market has
+sites in more than one jurisdiction, and the golden record is chain-wide. So a
+jurisdiction-varying field is *a field with a jurisdiction dimension*, presented — never
+hidden, never duplicated into a second record.
+
+- **The jurisdiction is data.** `jurisdiction` (ISO 3166-1 alpha-2 + optional subdivision,
+  `IN-KA`) → `jurisdiction_field_rule` (field, requirement `required` | `recommended` |
+  `forbidden`, validator, effective-from, and the citation/label that explains it). The
+  interface renders rules; it does not contain them. FSSAI's mandatory fields are the first
+  profile, not a hardcoded rule.
+- **The jurisdiction chip** in the record header shows the mono code (`CodeLabel`) plus the
+  market name from `Intl.DisplayNames` — the name is CLDR data, not a catalog key, because
+  a catalog will not have the jurisdiction that gets onboarded next week.
+- **Field-level marking**: a field whose requirement varies carries a suffix badge —
+  `required in IN-KA` / `optional here` — with the rule's explanation in the hint and, when
+  more than one jurisdiction is in scope, in the field's disclosure. The badge is tone +
+  shape + words; a bare red border would be invisible in greyscale and to a screen reader.
+- **Where a field varies by market, the field holds a small per-jurisdiction grid** (§11):
+  one row per jurisdiction in the chain's profile set, columns for the value and its
+  jurisdiction, and an explicit **`inherited`** marker on rows that take the chain-level
+  value. An empty cell means "not applicable", and those are different words on purpose.
+- **Compliance is a matrix, not a sentence**: for an article, a panel of
+  jurisdiction × required-display-field cells (`ok` / `missing` / `not applicable`), each
+  linking to the field. This is the explanation for the gate; the gate itself is
+  server-side: an article cannot reach `active` while a jurisdiction the chain trades in
+  has a missing required field, and the refusal names the field and the jurisdiction.
+- **Cross-market completeness is evaluated per jurisdiction** — never "the chain is
+  compliant". A read-only `compliance` summary on the list row says which markets are
+  incomplete, so a reviewer can filter to them.
+- **Money inside a jurisdiction grid is amount + ISO code per cell.** A column of mixed
+  currencies is legitimate; a total across currencies is not, and the grid refuses to
+  render one (it groups totals by currency instead).
+- **Nothing about tax rates is overwritten.** A rate change closes the old row's effective
+  window and inserts a new one; the dialog says that history is preserved, and the audit
+  row records both the closed and the new window. Historical orders keep the rate they were
+  sold under, exactly as a historical order keeps its article version.
+
+## 16. Maker–checker on a master record (extends §3 and §5)
+
+MDM is a gate, not a form: a proposer (Purchase proposes a vendor, Culinary a raw material)
+and an approver (MDM Head) are different people in different roles, and the same pattern
+serves Gold-tier approval-gated masters.
+
+- Actions: `submit for review` → `approve` / `send back`, each a permission-gated mutation
+  with its own audit row. The transition is refusable server-side with a keyed reason
+  (incomplete in a traded jurisdiction; self-approval; unresolved duplicate).
+- **The review surface is the record, read-only, with a diff**, not the form again: a
+  `RecordDiff` pane (field, before, after, and the jurisdiction rule that made it matter),
+  the compliance matrix (§15), and the two decisions. The approver answers "what changes
+  and what is still missing", which is the only question they have.
+- **Self-approval is refused by the server** (`mdm.approve.self`) and the refusal is
+  audited. A hidden Approve button on one's own record is not the control.
+- An approval request routes to the approver's own inbox and chatbot as an actionable item
+  (§3, maker–checker), never back to the proposer, and carries the source badge.
+- Every transition restates **what becomes usable when this is approved** — a vendor
+  becoming selectable on POs, an article becoming sellable — because that is the
+  consequence being authorised.
+
+## 17. Chatbot parity for every pattern above
+
+Every mutation specified in this file has a registered action code (see
+`docs/design/phase-1-mdm-spec.md`), so the chatbot reaches the same capability through the
+same domain function and the same permission check — a screen is the fallback and the audit
+surface, not the only door.
+
+- Reads are `query` codes (`mdm.<master>.search`, `mdm.<master>.view`); writes are
+  `mutation` codes. The registry decides what a session may offer, so "the chatbot only
+  shows what the role holds" is enforced by the same table the buttons read.
+- Small structures render inline as a structured card (`ChatCard`, §8): a recipe of ≤ 4
+  lines, a single price row, one tax rate. Above that the card offers `open in the grid`
+  and carries the link — the PRD's own rule for the recipe builder.
+- Anything financial, stock-affecting or golden-record-changing shows a confirm summary and
+  waits (§8). Cost overrides and deactivations are confirm-only, never slot-filled.
+- A low-confidence or unsupported request opens a ticket and says so (`support.*`), rather
+  than guessing a field value.
+
+## 18. Localisation in master data (extends §9)
+
+- No user-visible string literal, including in the new surfaces: grid headers, import
+  outcomes, dirty/blocked/stale markers, picker results, compliance cells, conflict reasons,
+  and the copy generator for a tax rate all resolve through `t()`.
+- **Business codes are never translated and never localised as text**: UOM codes (`kg`,
+  `pc`), allergen codes, status codes, reason codes, permission codes, role codes, country
+  and currency codes. Their *labels* come from the catalog; the code is what the API, the
+  invoice and the ledger use.
+- **Record content that is content** (an article name, a raw material name, a vendor's
+  trade name, an ingredient declaration) is chain data, not a catalog entry: stored per
+  locale with the chain's default locale required and other locales optional, edited on a
+  locale tab set, and falling back to the default locale with a visible `untranslated`
+  marker rather than an empty field.
+- **Numbers and money**: `MoneyValue`/`QuantityValue` only; amounts are amount + ISO code;
+  decimals are a *domain* rule (a UOM's precision, a currency's minor-unit exponent per ISO
+  4217 — JPY has none, KWD has three), not a locale rule. A locale changes the grouping and
+  the separator, never the number of meaningful decimals.
+- **Dates and effective windows** go through `TimestampValue`/locale-aware date formatting;
+  an effective window is rendered in the viewer's zone with the zone stated, because a tax
+  rate that starts "today" in two zones is a real argument.
+- **Layout survives expansion**: grid headers wrap, buttons grow, no fixed-width control
+  holds a translated label, and the `en-XA` expansion pseudo-locale plus the `ar-XB` mirror
+  are the acceptance test for every new surface in this file.
