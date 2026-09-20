@@ -1,0 +1,599 @@
+/**
+ * OmniHost.ai design tokens
+ * =========================
+ *
+ * Every visual decision in the console lives in this file and nowhere else. Screens and
+ * components reference semantic names (`bg-surface`, `text-fg-muted`, `.data-table`,
+ * `.badge-ok`), never a raw colour, a pixel value or a font size. That is what makes a
+ * chain theme, a density change or an RTL locale a change here rather than a sweep
+ * through forty components.
+ *
+ * Contents
+ * --------
+ *   1. Type ramp            — one family stack, six steps, sized for dense data
+ *   2. Colour               — surfaces, text, accent, five status families (bg/border/text per status)
+ *   3. Space                — a 4px base scale plus four semantic layout gaps
+ *   4. Radii, elevation, motion, z-index
+ *   5. Focus ring           — one ring, visible everywhere, never removed
+ *   6. Data density         — row height as a variable, three named presets
+ *   7. Numeric typesetting  — tabular figures, decimal alignment, bidi isolation
+ *   8. Direction (RTL)      — logical properties only; directional icons flip
+ *   9. Component classes    — buttons, badges, banners, controls, toggles, dialogs,
+ *                             segmented control, skeletons, the data table
+ *
+ * Tailwind v4 reads `@theme` and generates utilities from it, so `--color-surface`
+ * becomes `bg-surface` / `text-surface` / `border-surface`. Non-namespaced variables
+ * (density, geometry, motion) are plain CSS variables consumed by the component classes
+ * below.
+ *
+ * Contrast: every text colour here was chosen to clear WCAG 2.1 AA (4.5:1) against the
+ * surface it is used on — `--color-fg-subtle` on `--color-surface` is the tightest pair
+ * in the file at 4.7:1, and the status text colours are all ≥4.6:1 on their soft
+ * backgrounds. Status is never carried by colour alone: `.badge-*` draws a shape and a
+ * label (see `StatusShape` in src/components/icons.tsx).
+ */
+
+@theme {
+  /* ── 1. Type ramp ───────────────────────────────────────────────────────────
+     Six steps. The console runs smaller than a marketing page because an operator
+     reads 40 rows at a time, and `text-base` is the body default, not the heading. */
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --text-2xs: 0.6875rem; /* 11px — column headers, row meta, badges */
+  --text-2xs--line-height: 1rem;
+  --text-xs: 0.75rem; /* 12px — secondary copy, hints, validation */
+  --text-xs--line-height: 1.05rem;
+  --text-sm: 0.8125rem; /* 13px — table cells, form controls, nav */
+  --text-sm--line-height: 1.2rem;
+  --text-base: 0.875rem; /* 14px — body copy in the console */
+  --text-base--line-height: 1.45rem;
+  --text-lg: 1.0625rem; /* 17px — dialog titles, section headings */
+  --text-lg--line-height: 1.6rem;
+  --text-xl: 1.375rem; /* 22px — page titles */
+  --text-xl--line-height: 1.8rem;
+
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+
+  /* ── 2. Colour ──────────────────────────────────────────────────────────────
+     Two greys and one accent carry the product; five status families carry meaning.
+     Each status family has three members: a text/icon colour, a soft background and
+     a border. A status is never used as a bare colour on text alone. */
+  --color-canvas: oklch(0.975 0.004 255);
+  --color-surface: oklch(1 0 0);
+  --color-surface-muted: oklch(0.965 0.005 255);
+  --color-surface-sunken: oklch(0.945 0.006 255);
+  --color-border: oklch(0.9 0.008 255);
+  --color-border-strong: oklch(0.8 0.012 255);
+  --color-fg: oklch(0.26 0.02 260);
+  --color-fg-muted: oklch(0.46 0.02 260); /* 5.6:1 on surface */
+  --color-fg-subtle: oklch(0.53 0.015 260); /* 4.7:1 on surface — the tightest pair here */
+  --color-fg-inverse: oklch(0.99 0 0);
+
+  --color-accent: oklch(0.45 0.13 255);
+  --color-accent-hover: oklch(0.39 0.14 255);
+  --color-accent-fg: oklch(0.99 0 0);
+  --color-accent-soft: oklch(0.955 0.025 255);
+  --color-accent-border: oklch(0.85 0.05 255);
+
+  --color-ok: oklch(0.44 0.11 155);
+  --color-ok-soft: oklch(0.96 0.035 155);
+  --color-ok-border: oklch(0.85 0.07 155);
+
+  --color-warn: oklch(0.47 0.12 65);
+  --color-warn-soft: oklch(0.965 0.05 70);
+  --color-warn-border: oklch(0.86 0.09 70);
+
+  --color-danger: oklch(0.45 0.17 25);
+  --color-danger-soft: oklch(0.96 0.035 25);
+  --color-danger-border: oklch(0.86 0.07 25);
+
+  --color-info: oklch(0.45 0.11 240);
+  --color-info-soft: oklch(0.96 0.03 235);
+  --color-info-border: oklch(0.85 0.06 235);
+
+  --color-overlay: oklch(0.26 0.02 260 / 0.45);
+
+  /* ── 3. Space ───────────────────────────────────────────────────────────────
+     The numeric scale is Tailwind's 4px multiplier (`--spacing: 0.25rem`, so `p-4` is
+     16px). These four are the only layout gaps a screen should need to name. */
+  --spacing: 0.25rem;
+  --space-gutter: 1rem; /* page padding */
+  --space-pane: 1.25rem; /* between panes */
+  --space-stack: 0.75rem; /* between stacked cards/blocks */
+  --space-inline: 0.5rem; /* between inline controls */
+
+  /* ── 4. Radii, elevation, motion, z-index ─────────────────────────────────── */
+  --radius-sm: 0.25rem;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.625rem;
+  --radius-pill: 999px;
+
+  --shadow-card: 0 1px 2px oklch(0.26 0.02 260 / 0.06);
+  --shadow-pop: 0 6px 20px oklch(0.26 0.02 260 / 0.12);
+  --shadow-dialog: 0 18px 50px oklch(0.26 0.02 260 / 0.28);
+
+  --motion-fast: 120ms;
+  --motion-base: 180ms;
+  --motion-ease: cubic-bezier(0.2, 0, 0.2, 1);
+
+  --z-sticky: 20;
+  --z-overlay: 40;
+  --z-dialog: 50;
+}
+
+/* ── 5. Focus ring, density presets and geometry ────────────────────────────── */
+
+:root {
+  --focus-ring-width: 2px;
+  --focus-ring-offset: 1px;
+  --focus-ring-color: var(--color-accent);
+
+  --density-row-py: 0.375rem;
+  --density-cell-px: 0.75rem;
+  --density-list-row-py: 0.5rem;
+  --density-header-py: 0.4375rem;
+  --density-control-py: 0.3125rem;
+  --density-control-px: 0.5625rem;
+  --density-font-row: var(--text-sm);
+  --control-height: 1.875rem;
+  --nav-item-py: 0.375rem;
+}
+
+/*
+ * Row density as a variable, not a hard-coded padding — an operator in a site
+ * back-office on a tablet and one in the HQ console on a 27" monitor read the same
+ * table, and neither should need the component changed. `cozy` is the default: it is
+ * the density the seeded data and the screenshot set were reviewed at.
+ */
+.density-compact {
+  --density-row-py: 0.1875rem;
+  --density-cell-px: 0.5625rem;
+  --density-list-row-py: 0.3125rem;
+  --density-header-py: 0.3125rem;
+  --density-font-row: 0.75rem;
+  --control-height: 1.625rem;
+  --nav-item-py: 0.25rem;
+}
+
+.density-cozy {
+  /* the :root values */
+}
+
+.density-roomy {
+  --density-row-py: 0.625rem;
+  --density-cell-px: 1rem;
+  --density-list-row-py: 0.75rem;
+  --density-header-py: 0.5625rem;
+  --control-height: 2.125rem;
+  --nav-item-py: 0.5rem;
+}
+
+/* ── 7. Numeric typesetting ──────────────────────────────────────────────────── */
+
+/* Inline numbers in prose or a badge: tabular so digits do not jitter, isolated so an
+   Arabic or Hebrew paragraph does not reorder the sign or the decimal point. */
+.num {
+  font-variant-numeric: tabular-nums;
+  unicode-bidi: isolate;
+  white-space: nowrap;
+}
+
+/* The fraction in its own span, so a column of money lines up on the decimal even when
+   the glyph widths differ. */
+.money-frac {
+  opacity: 0.72;
+}
+
+/* ── 8. Direction ────────────────────────────────────────────────────────────── */
+
+/* An icon that encodes a reading direction flips in RTL. An icon that encodes an
+   object (a bin, a clock, a building) does not, and carries no class. */
+[dir="rtl"] .icon-directional {
+  transform: scaleX(-1);
+}
+
+/* ── 9. Component classes ────────────────────────────────────────────────────── */
+
+@layer components {
+  /* Buttons. No fixed widths anywhere: German and Arabic labels run longer than the
+     English string they were designed against, so a button grows or wraps, and the
+     expansion pseudo-locale (`en-XA`) is what proves it. */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    min-height: var(--control-height);
+    padding: var(--density-control-py) 0.75rem;
+    border-radius: var(--radius-md);
+    border: 1px solid transparent;
+    font-size: var(--text-sm);
+    font-weight: var(--font-weight-medium);
+    line-height: 1.1;
+    cursor: pointer;
+    transition:
+      background-color var(--motion-fast) var(--motion-ease),
+      border-color var(--motion-fast) var(--motion-ease),
+      color var(--motion-fast) var(--motion-ease);
+  }
+  .btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+  }
+  .btn-sm {
+    min-height: 1.5rem;
+    padding: 0.125rem 0.5rem;
+    font-size: var(--text-xs);
+  }
+  .btn-primary {
+    background-color: var(--color-accent);
+    border-color: var(--color-accent);
+    color: var(--color-accent-fg);
+  }
+  .btn-primary:hover:not(:disabled) {
+    background-color: var(--color-accent-hover);
+    border-color: var(--color-accent-hover);
+  }
+  .btn-secondary {
+    background-color: var(--color-surface);
+    border-color: var(--color-border-strong);
+    color: var(--color-fg);
+  }
+  .btn-secondary:hover:not(:disabled) {
+    background-color: var(--color-surface-muted);
+  }
+  .btn-ghost {
+    background-color: transparent;
+    color: var(--color-fg-muted);
+  }
+  .btn-ghost:hover:not(:disabled) {
+    background-color: var(--color-surface-muted);
+    color: var(--color-fg);
+  }
+  .btn-quiet {
+    background-color: transparent;
+    border-color: var(--color-border);
+    color: var(--color-fg-muted);
+  }
+  .btn-quiet:hover:not(:disabled) {
+    background-color: var(--color-surface-muted);
+    color: var(--color-fg);
+  }
+  .btn-danger {
+    background-color: var(--color-danger);
+    border-color: var(--color-danger);
+    color: var(--color-fg-inverse);
+  }
+  .btn-danger:hover:not(:disabled) {
+    background-color: oklch(0.39 0.17 25);
+  }
+
+  /* Badges. Uppercase, 11px, tracking — legible at a glance in a dense row. The tone
+     supplies the colour; the caller supplies a shape (see `Badge`/`StatusShape`). */
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    border-radius: var(--radius-sm);
+    border: 1px solid transparent;
+    padding: 0 var(--space-inline, 0.375rem);
+    font-size: var(--text-2xs);
+    font-weight: var(--font-weight-semibold);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .badge-neutral {
+    background-color: var(--color-surface-sunken);
+    border-color: var(--color-border);
+    color: var(--color-fg-muted);
+  }
+  .badge-accent {
+    background-color: var(--color-accent-soft);
+    border-color: var(--color-accent-border);
+    color: var(--color-accent);
+  }
+  .badge-ok {
+    background-color: var(--color-ok-soft);
+    border-color: var(--color-ok-border);
+    color: var(--color-ok);
+  }
+  .badge-warn {
+    background-color: var(--color-warn-soft);
+    border-color: var(--color-warn-border);
+    color: var(--color-warn);
+  }
+  .badge-danger {
+    background-color: var(--color-danger-soft);
+    border-color: var(--color-danger-border);
+    color: var(--color-danger);
+  }
+  .badge-info {
+    background-color: var(--color-info-soft);
+    border-color: var(--color-info-border);
+    color: var(--color-info);
+  }
+
+  /* Banners carry a role="status"/"alert" from the component, never from here. */
+  .banner {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    border-radius: var(--radius-md);
+    border-width: 1px;
+    border-style: solid;
+    padding: 0.5rem 0.75rem;
+  }
+  .banner-compact {
+    padding: 0.375rem 0.5rem;
+  }
+  .banner-info {
+    background-color: var(--color-info-soft);
+    border-color: var(--color-info-border);
+    color: var(--color-info);
+  }
+  .banner-warn {
+    background-color: var(--color-warn-soft);
+    border-color: var(--color-warn-border);
+    color: var(--color-warn);
+  }
+  .banner-ok {
+    background-color: var(--color-ok-soft);
+    border-color: var(--color-ok-border);
+    color: var(--color-ok);
+  }
+  .banner-danger {
+    background-color: var(--color-danger-soft);
+    border-color: var(--color-danger-border);
+    color: var(--color-danger);
+  }
+
+  /* Form controls. */
+  .control {
+    min-height: var(--control-height);
+    padding: var(--density-control-py) var(--density-control-px);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--color-border-strong);
+    background-color: var(--color-surface);
+    color: var(--color-fg);
+    font-size: var(--text-sm);
+  }
+  .control::placeholder {
+    color: var(--color-fg-subtle);
+  }
+  .control-invalid {
+    border-color: var(--color-danger);
+    background-color: var(--color-danger-soft);
+  }
+  .control:disabled {
+    background-color: var(--color-surface-sunken);
+    color: var(--color-fg-muted);
+  }
+
+  /* Switch. The knob is positioned with a logical inset, so it slides from the start
+     edge to the end edge and mirrors for free in RTL. */
+  .toggle {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    width: 2rem;
+    height: 1.125rem;
+    border-radius: var(--radius-pill);
+    border: 1px solid var(--color-border-strong);
+    background-color: var(--color-surface-sunken);
+    transition:
+      background-color var(--motion-fast) var(--motion-ease),
+      border-color var(--motion-fast) var(--motion-ease);
+  }
+  .toggle:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+  }
+  .toggle-on {
+    background-color: var(--color-accent);
+    border-color: var(--color-accent);
+  }
+  .toggle-knob {
+    position: absolute;
+    top: 1px;
+    inset-inline-start: 1px;
+    width: 0.75rem;
+    height: 0.75rem;
+    border-radius: var(--radius-pill);
+    background-color: var(--color-surface);
+    box-shadow: var(--shadow-card);
+    transition: inset-inline-start var(--motion-fast) var(--motion-ease);
+  }
+  .toggle-on .toggle-knob {
+    inset-inline-start: calc(100% - 0.8125rem);
+  }
+
+  /* Segmented control — density switch, view toggles. */
+  .segmented {
+    display: inline-flex;
+    align-items: stretch;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--color-border-strong);
+    background-color: var(--color-surface);
+    overflow: hidden;
+  }
+  .segmented-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.25rem 0.5rem;
+    font-size: var(--text-xs);
+    color: var(--color-fg-muted);
+    background-color: transparent;
+    transition: background-color var(--motion-fast) var(--motion-ease);
+  }
+  .segmented-item-sm {
+    padding: 0.125rem 0.375rem;
+  }
+  .segmented-item + .segmented-item {
+    border-inline-start: 1px solid var(--color-border);
+  }
+  .segmented-item:hover {
+    background-color: var(--color-surface-muted);
+  }
+  .segmented-item-on {
+    background-color: var(--color-accent-soft);
+    color: var(--color-accent);
+    font-weight: var(--font-weight-semibold);
+  }
+  .segmented-item[aria-pressed="true"] {
+    box-shadow: inset 0 -2px 0 0 var(--color-accent);
+  }
+
+  /* Dialogs. */
+  .dialog-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-dialog);
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 10vh var(--space-gutter) var(--space-gutter);
+    background-color: var(--color-overlay);
+    overflow-y: auto;
+  }
+  .dialog-panel {
+    width: 100%;
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--color-border);
+    background-color: var(--color-surface);
+    box-shadow: var(--shadow-dialog);
+    outline: none;
+  }
+
+  .skeleton {
+    border-radius: var(--radius-sm);
+    background-color: var(--color-surface-sunken);
+    animation: skeleton-pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes skeleton-pulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.55;
+    }
+  }
+
+  /* The table/list density contract. Screens use `.data-table`; only this file decides
+     how tall a row is, and a container's `.density-*` class retunes it.
+     `text-align: start/end` rather than left/right, so an RTL table mirrors. */
+  .data-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-variant-numeric: tabular-nums;
+  }
+  .data-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: var(--z-sticky);
+    padding: var(--density-header-py) var(--density-cell-px);
+    font-size: var(--text-2xs);
+    font-weight: var(--font-weight-semibold);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--color-fg-subtle);
+    text-align: start;
+    white-space: nowrap;
+    border-block-end: 1px solid var(--color-border);
+    background-color: var(--color-surface);
+  }
+  .data-table tbody td {
+    padding: var(--density-row-py) var(--density-cell-px);
+    font-size: var(--density-font-row);
+    color: var(--color-fg);
+    border-block-end: 1px solid var(--color-border);
+    vertical-align: top;
+  }
+  .data-table tbody tr:last-child td {
+    border-block-end: 0;
+  }
+  .data-table tbody tr[data-clickable="true"] {
+    cursor: pointer;
+  }
+  .data-table tbody tr:hover {
+    background-color: var(--color-surface-muted);
+  }
+  .data-table tbody tr[data-selected="true"] {
+    background-color: var(--color-accent-soft);
+  }
+  .data-table tbody tr:focus-visible {
+    outline: var(--focus-ring-width) solid var(--focus-ring-color);
+    outline-offset: calc(var(--focus-ring-offset) * -1);
+  }
+  .data-table tbody tr[aria-selected="true"] td:first-child {
+    box-shadow: inset 3px 0 0 0 var(--color-accent);
+  }
+  [dir="rtl"] .data-table tbody tr[aria-selected="true"] td:first-child {
+    box-shadow: inset -3px 0 0 0 var(--color-accent);
+  }
+
+  /* Numeric columns: right in LTR, left in RTL, decimal aligned either way. */
+  .numeric {
+    text-align: end;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .data-table thead th.numeric {
+    text-align: end;
+  }
+
+  /* A sortable header is a button filling the cell, so the whole header is a target
+     and the sort state is announced by aria-sort on the th. */
+  .sort-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    width: 100%;
+    font: inherit;
+    color: inherit;
+    letter-spacing: inherit;
+    text-transform: inherit;
+  }
+  .sort-button:hover {
+    color: var(--color-fg);
+  }
+  .numeric .sort-button {
+    justify-content: flex-end;
+  }
+
+  .list-row {
+    padding: var(--density-list-row-py) var(--density-cell-px);
+  }
+
+  .field-control {
+    min-height: var(--control-height);
+    padding: var(--density-control-py) var(--density-control-px);
+  }
+}
+
+/* ── Base layer refinements this file owns ──────────────────────────────────── */
+
+/* One visible focus ring for every interactive element. `:focus-visible` keeps it off
+   for a mouse click and on for a keyboard user, which is the only reason a focus ring
+   ever gets removed in the wild. It is never removed here. */
+:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: var(--focus-ring-offset);
+  border-radius: var(--radius-sm);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
