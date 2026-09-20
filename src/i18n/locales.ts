@@ -15,9 +15,9 @@ import { enIN } from "~/i18n/catalog-en";
  *
  * | hop | source | state |
  * |---|---|---|
- * | user preference | `user.locale` column, via the session principal; the in-app switcher overrides it for the session and persists to a cookie | real; writing back to `user.locale` needs a profile route (Phase 1) |
- * | site default | derived from `site.tax_jurisdiction` | **interim** — the schema has no `site.locale` column, so this is a stand-in until AppConfig can set one |
- * | chain default | derived from `chain.tax_jurisdiction` | **interim** — same reason, and a chain operating in one country rarely needs a different one |
+ * | user preference | `user.locale` column, via the session principal; the in-app switcher overrides it for the session and persists to a cookie | real; `user.locale` is nullable, and NULL means "no preference — follow my site". Writing it back from the switcher needs a profile route (Phase 1) |
+ * | site default | `site.locale` (migration 0005) | **real** — a stored column, set per site by AppConfig or a chain admin, every change audit-logged as `site.locale.update`. Its jurisdiction-derived default remains the fallback for a site that has no language yet |
+ * | chain default | derived from `chain.tax_jurisdiction` | interim — there is no chain-level language column yet, and a chain operating in one country rarely needs one |
  * | platform default | `PLATFORM_DEFAULT_LOCALE` in server config | real |
  *
  * The two interim hops are deliberately sourced from *jurisdiction* rather than

@@ -23,7 +23,7 @@ export const LICENCE_TIERS = ["silver", "gold", "platinum"] as const;
 export type LicenceTier = (typeof LICENCE_TIERS)[number];
 
 /** Spec "Licensing Tiers": each tier is a superset of the one below it. */
-const TIER_RANK: Record<LicenceTier, number> = { silver: 1, gold: 2, platinum: 3 };
+export const TIER_RANK: Record<LicenceTier, number> = { silver: 1, gold: 2, platinum: 3 };
 
 export interface ChainSummary {
   id: string;
@@ -70,7 +70,7 @@ function asIso(value: unknown): string {
   return value === null || value === undefined ? "" : String(value);
 }
 
-function asTier(value: string): LicenceTier {
+export function asTier(value: string): LicenceTier {
   return (LICENCE_TIERS as readonly string[]).includes(value) ? (value as LicenceTier) : "silver";
 }
 

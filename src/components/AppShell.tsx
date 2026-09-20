@@ -39,6 +39,8 @@ import type { NavItem, PublicPrincipal } from "~/server-fns";
 /** Presentation grouping for the registry's routes. Not a permission statement. */
 const NAV_GROUP: Record<string, "appLayer" | "platform"> = {
   "/chains": "appLayer",
+  "/support": "appLayer",
+  "/support/access": "appLayer",
   "/audit": "platform",
   "/approvals": "platform",
 };
