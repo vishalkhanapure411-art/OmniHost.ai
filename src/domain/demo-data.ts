@@ -215,7 +215,7 @@ export const DEMO_ACCOUNTS: DemoAccount[] = [
     password: "OmniHost!Config#2026",
     locale: "en-IN",
     blurb:
-      "AppConfig — holds a delegated slice for Saffron Table only, expiring in 90 days: tier, feature toggles, SSO/auth configuration and the chain's delegated settings.",
+      "AppConfig — holds a delegated slice for Saffron Table only, expiring in 90 days: tier, feature toggles, SSO/auth configuration, the chain's delegated settings and its sites' language defaults.",
     assignments: [{ roleCode: "APP_CONFIG" }],
     grants: [
       {
@@ -232,6 +232,7 @@ export const DEMO_ACCOUNTS: DemoAccount[] = [
           "chain.settings.read",
           "chain.setting.define",
           "chain.setting.update",
+          "site.locale.update",
           "chain.audit.read",
         ],
       },

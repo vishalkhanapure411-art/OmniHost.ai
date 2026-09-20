@@ -2,6 +2,7 @@ import "@tanstack/react-start/server-only";
 
 import { sql, withTransaction } from "~/db";
 import { newSessionToken, sha256 } from "~/server/crypto";
+import { reconcileLapsedAccessSoon } from "~/domain/grants";
 
 /**
  * The session model, and the one place the caller's authority is resolved.
@@ -247,6 +248,12 @@ export async function resolvePrincipal(token: string | undefined | null): Promis
   void sql()`update app_session set last_seen_at = now() where id = ${session.session_id}`.catch(
     () => undefined
   );
+
+  // Time-boxed grants that lapsed are stored as `expired` rather than left claiming
+  // `active` (src/domain/grants.ts). Opportunistic for the same reason as the touch
+  // above, and harmless if it never runs: every check in this file reads `expires_at`,
+  // so an unreconciled row grants nothing.
+  reconcileLapsedAccessSoon();
 
   const roles: PrincipalRole[] = assignments.map((row) => ({
     assignmentId: row.assignment_id,

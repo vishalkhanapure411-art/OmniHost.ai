@@ -8,6 +8,8 @@ import {
   updateChainAuthConfig,
   updateChainSetting,
   updateSiteLocale,
+  type ChainAuthConfigView,
+  type ChainSettingsView,
   type UpdateChainAuthInput,
 } from "~/domain/appconfig";
 import {
@@ -23,10 +25,20 @@ import { NAV_ITEMS, countOpenApprovals } from "~/domain/auth";
 import { canReadAudit, listApprovals, listAuditEntries } from "~/domain/inbox";
 import { currentPrincipal } from "~/server/context";
 import { resolveDisplayPreferences } from "~/server/locale";
-import { Unauthenticated, toErrorResponse } from "~/server/errors";
+import { Unauthenticated, isHttpError, toErrorResponse } from "~/server/errors";
 function failure(error: unknown): { ok: false; status: number; error: string; message: string } {
   const { status, body } = toErrorResponse(error);
   return { ok: false, status, error: String(body.error ?? "error"), message: String(body.message ?? "Request failed.") };
+}
+/**
+ * The permission a refusal was about, read from the domain error's own details. A screen
+ * that shows "not permitted" without naming the missing capability leaves the operator
+ * with nothing to ask for; the code comes from the server's decision, never from the UI.
+ */
+function deniedPermission(error: unknown): string | null {
+  if (!isHttpError(error) || error.status !== 403) return null;
+  const action = (error.details as { action?: unknown } | undefined)?.action;
+  return typeof action === "string" ? action : null;
 }
 import type { Principal } from "~/server/session";
 
@@ -260,7 +272,13 @@ export const getChainSettingsFn = createServerFn({ method: "GET" })
 
 export const updateChainSettingFn = createServerFn({ method: "POST" })
   .validator(
-    (input: unknown) => input as { chainId: string; key: string; value: string | number | boolean }
+    (input: unknown) =>
+      input as {
+        chainId: string;
+        key: string;
+        value: string | number | boolean;
+        siteId?: string | null;
+      }
   )
   .handler(async ({ data }) => {
     const principal = await currentPrincipal();
@@ -268,12 +286,55 @@ export const updateChainSettingFn = createServerFn({ method: "POST" })
     try {
       return {
         ok: true as const,
-        result: await updateChainSetting(principal, data.chainId, data.key, data.value, {
-          source: "screen",
-        }),
+        result: await updateChainSetting(
+          principal,
+          data.chainId,
+          { key: data.key, value: data.value, siteId: data.siteId ?? null },
+          { source: "screen" }
+        ),
       };
     } catch (error) {
       return failure(error);
+    }
+  });
+
+/**
+ * The AppConfig settings screen's loader, composed server-side.
+ *
+ * Two reads with two different capabilities: the delegated settings need
+ * `chain.settings.read`, the authentication configuration needs `chain.auth.read`. An
+ * operator can legitimately hold one and not the other, so a missing `chain.auth.read`
+ * withdraws the auth section only, with the capability named — while a missing
+ * `chain.settings.read` refuses the screen before anything renders. Both decisions are
+ * made by the domain functions from the session, so the screen cannot widen its own
+ * reach with a chain id it made up.
+ */
+export interface ChainConfigScreen {
+  settings: ChainSettingsView;
+  auth: ChainAuthConfigView | null;
+  /** Set when the settings are readable but the authentication configuration is not. */
+  authDenied: { permission: string } | null;
+}
+
+export const getChainConfigFn = createServerFn({ method: "GET" })
+  .validator((input: unknown) => input as { chainId: string })
+  .handler(async ({ data }) => {
+    const principal = await currentPrincipal();
+    if (!principal) return { ...failure(new Unauthenticated()), permission: null };
+    try {
+      const settings = await getChainSettings(principal, data.chainId);
+      let auth: ChainAuthConfigView | null = null;
+      let authDenied: { permission: string } | null = null;
+      try {
+        auth = await getChainAuthConfig(principal, data.chainId);
+      } catch (error) {
+        const permission = deniedPermission(error);
+        if (!permission) throw error;
+        authDenied = { permission };
+      }
+      return { ok: true as const, settings, auth, authDenied };
+    } catch (error) {
+      return { ...failure(error), permission: deniedPermission(error) };
     }
   });
 

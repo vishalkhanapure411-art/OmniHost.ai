@@ -5,6 +5,7 @@ import { auditedMutation, guard, recordAudit, writeAudit } from "~/server/audit"
 import { NotFound, PermissionDenied, ValidationError } from "~/server/errors";
 import { canReachChain, type Principal } from "~/server/session";
 import type { MutationMeta } from "~/domain/chains";
+import { reconcileLapsedAccess } from "~/domain/grants";
 
 /**
  * AppSupport — the escalated-ticket queue and time-boxed chain access.
@@ -441,6 +442,17 @@ export interface SupportAccessView {
 export async function listSupportAccess(principal: Principal): Promise<SupportAccessView> {
   await guard({ principal, action: "support.access.request", entityType: "support_access_request" });
   const canDecide = principal.permissions.includes("scope.grant.manage");
+
+  // Reconciled before reading, so the row this screen prints is the state of the world
+  // rather than a claim the clock has already falsified: an approved request whose window
+  // has closed reads `expired`, not `approved` (src/domain/grants.ts).
+  const reconciled = await reconcileLapsedAccess();
+  if (reconciled.grantsExpired > 0 || reconciled.requestsExpired > 0) {
+    console.log(
+      `grant reconcile: ${String(reconciled.grantsExpired)} grant(s) and ` +
+        `${String(reconciled.requestsExpired)} access request(s) marked expired`
+    );
+  }
 
   const rows = await sql()<{
     id: string;

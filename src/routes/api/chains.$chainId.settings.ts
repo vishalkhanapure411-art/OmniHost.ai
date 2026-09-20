@@ -54,8 +54,7 @@ export const Route = createFileRoute("/api/chains/$chainId/settings")({
             const result = await updateChainSetting(
               principal,
               params.chainId,
-              body.key,
-              body.value,
+              { key: body.key, value: body.value, siteId: body.siteId ?? null },
               { source: "api" }
             );
             return Response.json({ updated: "chain.setting", ...result });
