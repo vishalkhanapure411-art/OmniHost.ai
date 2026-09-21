@@ -1,11 +1,21 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 
-import { Badge, Button, Card, CardHeader, EmptyState, PageHeader, SectionHeader } from "~/components/ui";
+import {
+  Badge,
+  Button,
+  Card,
+  CardHeader,
+  EmptyState,
+  ErrorState,
+  PageHeader,
+  PermissionDenied,
+  SectionHeader,
+} from "~/components/ui";
 import type { ImportIssue, ImportReport } from "~/domain/import";
 import { useI18n } from "~/i18n";
 import type { MessageKey } from "~/i18n/catalog-en";
-import { commitImportFn, dryRunImportFn } from "~/server-fns";
+import { commitImportFn, dryRunImportFn, importScreenAccessFn } from "~/server-fns";
 
 /**
  * The bulk-import screen (§16, §23.2).
@@ -16,17 +26,26 @@ import { commitImportFn, dryRunImportFn } from "~/server-fns";
  * it was handed. Wording comes from the catalog, including every row's reason, so a rejected
  * line reads in the operator's own language and names its own column.
  *
+ * **And a fourth state, resolved before any of them: refused.** The loader asks the server for
+ * the import capability on the same guard the dry run and the commit use, so a caller who does
+ * not hold it is answered with the capability's name and never sees the picker. This screen
+ * holds two writes and no read, so without that question there was nothing to fail and the
+ * picker rendered for everyone — a set of controls whose every press the API refuses. Nav,
+ * screen and domain now say the same thing about the same caller.
+ *
  * The report is a table and not a summary because the promise of the dry run is that you can
  * see *every* row before you commit, and a count would hide the one row an operator has to
  * fix.
  */
 export const Route = createFileRoute("/_shell/mdm/import")({
   staticData: { titleKey: "nav.route./mdm/import" },
+  loader: async () => importScreenAccessFn(),
   component: ImportScreen,
 });
 
 function ImportScreen() {
   const { t, locale } = useI18n();
+  const access = Route.useLoaderData();
   const [fileName, setFileName] = useState<string | null>(null);
   const [content, setContent] = useState<string>("");
   const [report, setReport] = useState<ImportReport | null>(null);
@@ -34,6 +53,39 @@ function ImportScreen() {
     null
   );
   const [busy, setBusy] = useState<"dry_run" | "commit" | null>(null);
+
+  // The server's answer about the screen itself, read the way the vendor and site masters read
+  // theirs: a refusal names the capability the server refused on, in its own words, and a
+  // failure that is not a refusal stays an error rather than being disguised as one.
+  if (!access.ok) {
+    if (access.status === 403) {
+      return (
+        <div className="p-4">
+          <Card>
+            <PermissionDenied
+              title={t("mdm.import.denied.title" as MessageKey)}
+              description={t("mdm.import.denied.description" as MessageKey, {
+                permission: access.permission ?? "mdm.article.import",
+              })}
+              requiredPermission={access.permission ?? "mdm.article.import"}
+            />
+            <p className="border-t border-border px-4 py-2 text-xs text-fg-muted">
+              {access.message}
+            </p>
+          </Card>
+        </div>
+      );
+    }
+    return (
+      <div className="p-4">
+        <ErrorState
+          title={t("error.title")}
+          description={t("error.description")}
+          detail={access.message}
+        />
+      </div>
+    );
+  }
 
   const run = async (phase: "dry_run" | "commit") => {
     if (!fileName) return;

@@ -791,6 +791,35 @@ function planWarnings(plan: ArticleWritePlan): ImportIssue[] {
 }
 
 // ---------------------------------------------------------------------------
+// The screen's own door
+// ---------------------------------------------------------------------------
+/**
+ * The capability the *screen* needs, resolved on the server before the screen renders — the
+ * same way the vendor and site master screens do it, through their loaders.
+ *
+ * The bulk import screen offers two writes and no read, so there was nothing for its loader to
+ * ask for and it rendered its file picker to every caller, including one whose every button the
+ * API refuses with 403 on this exact capability. A control that cannot work misstates the
+ * caller's authority, and not saying it is the screen's job.
+ *
+ * It is the same `guard` call — same capability, same chain scope — that the dry run and the
+ * commit make, so the screen cannot drift from the domain: nobody reaches the picker who could
+ * not also run the import, and the refusal is recorded in `audit_log` with its reason, because
+ * `guard` writes a row for a denial. An allowed call writes nothing: opening a screen is not an
+ * act on master data and does not belong in the trail as one.
+ */
+export async function importScreenAccess(principal: Principal): Promise<void> {
+  await guard({
+    principal,
+    action: "mdm.article.import",
+    entityType: "import_batch",
+    chainId: principal.chainId ?? null,
+    target: "the bulk import screen",
+    source: "screen",
+    intent: "open the bulk import screen",
+  });
+}
+// ---------------------------------------------------------------------------
 // Phase 1 — the dry run
 // ---------------------------------------------------------------------------
 /**

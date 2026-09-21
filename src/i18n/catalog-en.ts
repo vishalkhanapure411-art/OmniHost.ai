@@ -1826,6 +1826,9 @@ export const enIN = {
   "mdm.import.empty.title": "No imports yet",
   "mdm.import.empty.body":
     "A chain's master data arrives as a spreadsheet export. Upload one to see what it would do before anything is written.",
+  "mdm.import.denied.title": "The bulk import is not yours to run",
+  "mdm.import.denied.description":
+    "Importing master data needs the {permission} capability. Ask for it to be delegated rather than uploading a file whose every line the server would refuse.",
   "mdm.import.refused.title": "You cannot import master data",
   "mdm.import.refused.body":
     "Importing needs the {permission} capability. You are signed in with roles that do not hold it, so the upload is not offered.",

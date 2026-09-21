@@ -33,7 +33,7 @@ import type { PublicPrincipal } from "~/domain/principal";
 export type { NavItem } from "~/domain/nav";
 export type { PublicPrincipal } from "~/domain/principal";
 import { canReadAudit, listApprovals, listAuditEntries } from "~/domain/inbox";
-import { commitImport, dryRunImport } from "~/domain/import";
+import { commitImport, dryRunImport, importScreenAccess } from "~/domain/import";
 import { currentPrincipal } from "~/server/context";
 import { resolveDisplayPreferences } from "~/server/locale";
 import { Unauthenticated, isHttpError, toErrorResponse } from "~/server/errors";
@@ -745,6 +745,26 @@ export const getSiteFn = createServerFn({ method: "GET" })
  * authoritative. Capability checks, audit rows and the report all happen behind these two
  * functions; neither screen nor client holds a rule.
  */
+/**
+ * The screen's door, as a read the route's loader can call.
+ *
+ * A loader is the only place a screen can ask the server a question *before* it renders, and
+ * that is what stops this screen offering a file picker to a caller who holds no import
+ * capability: the answer arrives with the markup. It resolves the capability through the same
+ * domain guard the dry run and the commit use, so a caller who passes here is a caller who can
+ * act, and a caller who fails here is told which capability to ask for — by the server's answer,
+ * not by a string the screen guessed.
+ */
+export const importScreenAccessFn = createServerFn({ method: "GET" }).handler(async () => {
+  const principal = await currentPrincipal();
+  if (!principal) return failure(new Unauthenticated());
+  try {
+    await importScreenAccess(principal);
+    return { ok: true as const };
+  } catch (error) {
+    return failure(error);
+  }
+});
 export const dryRunImportFn = createServerFn({ method: "POST" })
   .validator((input: unknown) => input as { entity: "article"; fileName: string; content: string })
   .handler(async ({ data }) => {
