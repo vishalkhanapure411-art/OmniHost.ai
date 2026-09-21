@@ -355,6 +355,18 @@ Phase 0's gotcha), `date`/`instant` as named.
    `draft` while version N stays `active` and sellable, so there is never a window where an
    article has no sellable version. Approving N+1 sets N to `superseded` and pins the
    effective date. This is the PRD's rule and it is the reason the version table exists.
+   **Status: target behaviour, not yet enforced — slab 2 deviates knowingly.** Until the
+   maker–checker review screens are built (they are out of scope for slab 2), a price change
+   closes the open window and opens a new one **inside the current version**: no `draft` N+1
+   appears, nothing has to be approved before the new price sells, and the new price is live
+   from its effective date. The effective-dated row discipline still holds — `article_price`
+   keeps the closed and the opened row, and the audit trail records both — so a historical
+   bill stays reproducible, but the version guarantee above is not what the operator gets
+   today. When the review screens land, the switch is a change inside
+   `updateArticlePrice` and nothing else: the closing/opening logic is already isolated
+   there. *(Recorded Sept 2026 — designer, from the `SPEC-GAP` note the engineer left on that
+   function; verified on the record screen that a saved price takes effect without a new
+   version appearing.)*
 6. **Marking unavailable** (the PRD's `Seasonal`) is a per-outlet availability change, not a
    new version: it takes effect immediately, is audited, and can be reversed. Phase 3's
    automatic stock-out blocks reuse the same surface with `source: system`.
@@ -1374,7 +1386,7 @@ exists for, and it has four parts:
 
 | situation | what happens | what a human sees |
 |---|---|---|
-| ERP code, no mapping, inbound | the **field** does not apply; the raw ERP code is stored in the record's `erpAdmin.unmapped` map so nothing is lost; the record imports | `unknownErpCode` (§23.5) naming the code list, the code and the affected fields, with *Map it* (`mdm.erp.code_map.update`) · *Create our code* (`mdm.uom.create` / `mdm.tax_class.create`, permission-dependent) · *Ignore for now* (recorded) |
+| ERP code, no mapping, inbound | the **field** does not apply; the raw ERP code is recorded as a row in `erp_unmapped_code` (chain · ERP system · entity · code list · ERP code · affected field · seen at) so nothing is lost; the record imports | `unknownErpCode` (§23.5) naming the code list, the code and the affected fields, with *Map it* (`mdm.erp.code_map.update`) · *Create our code* (`mdm.uom.create` / `mdm.tax_class.create`, permission-dependent) · *Ignore for now* (recorded) |
 | ERP code, no mapping, outbound | the **record's export** is refused for that field, never guessed and never sent blank | `missingCodeMapping` in the export report, with the count of records it blocks and a link to *Map it* |
 | our code, no ERP code, inbound | our record keeps its value; the ERP simply has nothing to say | nothing (this is normal — our `category` tree has no ERP counterpart by design) |
 | our code, no ERP code, outbound | the field is omitted from the payload and listed in the report as `notExported` with the reason | `notExported` rows in the export report, grouped by field, **not** a per-record wall of text |
@@ -1388,6 +1400,16 @@ Two hard rules on top:
 - **A mapping is never edited in place.** `valid_from`/`valid_to` supersede the old row, for
   the same reason a tax rate does (§11.2): a re-costed recipe must be explainable against the
   mapping that was in force when it was costed.
+- **An unmapped code is a row, not a blob on the record.** The raw code lives in
+  `erp_unmapped_code`, keyed by chain, ERP system, entity type, entity id and code list, with
+  the field it affected and when it was seen — not in an `erp_*` map on the master record,
+  which decision **D1** forbids for the same reason this section exists: a blob on a record
+  cannot be made enforceable, its field set cannot be verified, and ownership stops being
+  declarable. Rows also make the *same* code findable across every record it touched, which is
+  what turns "someone must map a code" into one task rather than fifty.
+  *(Corrected Sept 2026 — designer. This section said "stored in the record's
+  `erpAdmin.unmapped` map" until slab 1 landed as rows:
+  `erp_unmapped_code` in `db/migrations/0007_mdm_reference.sql`.)*
 
 Mapping lists that exist in both systems and are **not** code-mapped, by design:
 `currency` (ISO 4217 is the shared code — no map needed), `country` (ISO 3166-1), and the UOM
