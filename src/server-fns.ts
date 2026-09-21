@@ -547,3 +547,163 @@ export const setArticleAvailabilityFn = createServerFn({ method: "POST" })
       return failure(error);
     }
   });
+
+// ── Phase 1 master data: the vendor and site/outlet masters ──────────────────
+// Appended the same way the article block was: one new region at the end of the file, so
+// this slab's diff does not disturb the block above it. `import` is hoisted.
+import {
+  addVendorTaxRegistration,
+  getVendor,
+  listVendors,
+  revealVendorBank,
+  setVendorStatus,
+  updateVendorTerms,
+  verifyVendorTaxRegistration,
+} from "~/domain/mdm-vendors";
+import { getSite, listSites } from "~/domain/mdm-sites";
+
+/**
+ * The vendor master read. Like the article list it takes no filters as input: the screen
+ * loads one page and filters it locally, while the *domain* function carries the server-side
+ * filters (`?q=`, status, jurisdiction, type, currency, expiring documents) that the chatbot
+ * and an import will need. The permission decision is the same either way — it happens on the
+ * server before a row is read, and a search asks for `mdm.vendor.search`.
+ */
+export const listVendorsFn = createServerFn({ method: "GET" }).handler(async () => {
+  const principal = await currentPrincipal();
+  if (!principal) return failure(new Unauthenticated());
+  try {
+    return { ok: true as const, ...(await listVendors(principal)) };
+  } catch (error) {
+    return failure(error);
+  }
+});
+
+export const getVendorFn = createServerFn({ method: "GET" })
+  .validator((input: unknown) => input as { code: string })
+  .handler(async ({ data }) => {
+    const principal = await currentPrincipal();
+    if (!principal) return failure(new Unauthenticated());
+    try {
+      return { ok: true as const, vendor: await getVendor(principal, data.code) };
+    } catch (error) {
+      return failure(error);
+    }
+  });
+
+export const updateVendorTermsFn = createServerFn({ method: "POST" })
+  .validator(
+    (input: unknown) =>
+      input as {
+        code: string;
+        paymentTermsKind: string;
+        paymentTermsDays?: number | null;
+        creditLimitAmount?: number | null;
+        creditLimitCurrency?: string | null;
+      }
+  )
+  .handler(async ({ data }) => {
+    const principal = await currentPrincipal();
+    if (!principal) return failure(new Unauthenticated());
+    try {
+      return {
+        ok: true as const,
+        result: await updateVendorTerms(principal, data, {
+          source: "screen",
+          intent: "mdm.vendor.terms.update",
+        }),
+      };
+    } catch (error) {
+      return failure(error);
+    }
+  });
+
+export const addVendorTaxRegistrationFn = createServerFn({ method: "POST" })
+  .validator(
+    (input: unknown) =>
+      input as { code: string; jurisdictionCode: string; schemeCode: string; value: string }
+  )
+  .handler(async ({ data }) => {
+    const principal = await currentPrincipal();
+    if (!principal) return failure(new Unauthenticated());
+    try {
+      return { ok: true as const, result: await addVendorTaxRegistration(principal, data, { source: "screen" }) };
+    } catch (error) {
+      return failure(error);
+    }
+  });
+
+export const verifyVendorTaxRegistrationFn = createServerFn({ method: "POST" })
+  .validator((input: unknown) => input as { code: string; registrationId: string })
+  .handler(async ({ data }) => {
+    const principal = await currentPrincipal();
+    if (!principal) return failure(new Unauthenticated());
+    try {
+      return {
+        ok: true as const,
+        result: await verifyVendorTaxRegistration(principal, data, { source: "screen" }),
+      };
+    } catch (error) {
+      return failure(error);
+    }
+  });
+
+export const setVendorStatusFn = createServerFn({ method: "POST" })
+  .validator(
+    (input: unknown) =>
+      input as { code: string; status: "active" | "suspended" | "inactive"; reason?: string | null }
+  )
+  .handler(async ({ data }) => {
+    const principal = await currentPrincipal();
+    if (!principal) return failure(new Unauthenticated());
+    try {
+      return { ok: true as const, result: await setVendorStatus(principal, data, { source: "screen" }) };
+    } catch (error) {
+      return failure(error);
+    }
+  });
+
+/**
+ * The one function that hands a bank value back in full. It is a read, and the reveal is
+ * audited per reveal, so the caller passes the field it is revealing rather than the whole
+ * row — a screen cannot reveal "everything, once".
+ */
+export const revealVendorBankFn = createServerFn({ method: "POST" })
+  .validator(
+    (input: unknown) =>
+      input as { code: string; field: "accountNumber" | "ifscOrSwift" | "iban" | "upiId" }
+  )
+  .handler(async ({ data }) => {
+    const principal = await currentPrincipal();
+    if (!principal) return failure(new Unauthenticated());
+    try {
+      return {
+        ok: true as const,
+        result: await revealVendorBank(principal, data, { source: "screen", intent: "bank detail reveal" }),
+      };
+    } catch (error) {
+      return failure(error);
+    }
+  });
+
+export const listSitesFn = createServerFn({ method: "GET" }).handler(async () => {
+  const principal = await currentPrincipal();
+  if (!principal) return failure(new Unauthenticated());
+  try {
+    return { ok: true as const, ...(await listSites(principal)) };
+  } catch (error) {
+    return failure(error);
+  }
+});
+
+export const getSiteFn = createServerFn({ method: "GET" })
+  .validator((input: unknown) => input as { code: string })
+  .handler(async ({ data }) => {
+    const principal = await currentPrincipal();
+    if (!principal) return failure(new Unauthenticated());
+    try {
+      return { ok: true as const, site: await getSite(principal, data.code) };
+    } catch (error) {
+      return failure(error);
+    }
+  });

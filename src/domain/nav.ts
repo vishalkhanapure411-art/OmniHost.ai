@@ -72,6 +72,21 @@ export const NAV_ITEMS: NavEntry[] = [
     requires: ["mdm.article.view"],
   },
   {
+    // Phase 1's second and third masters. `requires` is the same code the server checks on
+    // the read, so a role that cannot read the master does not see the door to it either —
+    // a courtesy, never the control: the API refuses regardless.
+    to: "/mdm/vendors",
+    label: "Vendors",
+    description: "Trading partners: legal and trade names, tax registrations per jurisdiction, terms, documents.",
+    requires: ["mdm.vendor.view"],
+  },
+  {
+    to: "/mdm/sites",
+    label: "Sites & outlets",
+    description: "The chain → site → outlet hierarchy, jurisdictions, service modes and what each outlet carries.",
+    requires: ["mdm.site.view"],
+  },
+  {
     to: "/audit",
     label: "Audit trail",
     description: "Who did what, with before and after state.",
