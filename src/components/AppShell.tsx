@@ -8,7 +8,8 @@ import { TimestampValue } from "~/components/values";
 import { LOCALES, catalogCoverage } from "~/i18n/locales";
 import { useI18n } from "~/i18n";
 import type { LocaleCode } from "~/i18n/locales";
-import type { NavItem, PublicPrincipal } from "~/server-fns";
+import type { NavItem } from "~/domain/nav";
+import type { PublicPrincipal } from "~/domain/principal";
 
 /**
  * The app shell — the frame every role module plugs into.

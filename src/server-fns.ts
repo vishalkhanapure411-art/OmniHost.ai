@@ -21,7 +21,17 @@ import {
   resolveSupportTicket,
   useSupportAccess,
 } from "~/domain/support";
-import { NAV_ITEMS, countOpenApprovals } from "~/domain/auth";
+import { countOpenApprovals } from "~/domain/auth";
+// The nav registry and the browser-safe principal shape are imported from modules that
+// import nothing (see `~/domain/nav`). They are re-exported here so a screen can keep
+// asking the bridge it already knows for them. Importing them from a *server-only* module
+// instead is what put `node:crypto` and `pg` in the client graph and stopped the app
+// hydrating; `export type` is erased, so the types cost the browser nothing.
+import { navFor } from "~/domain/nav";
+import type { NavItem } from "~/domain/nav";
+import type { PublicPrincipal } from "~/domain/principal";
+export type { NavItem } from "~/domain/nav";
+export type { PublicPrincipal } from "~/domain/principal";
 import { canReadAudit, listApprovals, listAuditEntries } from "~/domain/inbox";
 import { currentPrincipal } from "~/server/context";
 import { resolveDisplayPreferences } from "~/server/locale";
@@ -54,20 +64,16 @@ import type { Principal } from "~/server/session";
  * screen as a readable message rather than a redacted server error. The refusal is
  * still a real 403-shaped denial produced by `requirePermission` and still written to
  * audit_log.
+ *
+ * **This file is reachable from the browser.** A screen imports the server function it
+ * calls, so this module is in the client graph; TanStack Start replaces every handler body
+ * with an RPC stub there, which leaves only the module-scope code. So the rule the whole
+ * boundary rests on: *anything evaluated at module scope — a value a client-retained export
+ * reads — may import only modules that import nothing server-only.* Everything else
+ * (the domain functions, the session, the database, `node:crypto`) is imported for use
+ * **inside a handler**, which the client transform drops whole. `~/domain/nav` and
+ * `~/domain/principal` hold the two things that genuinely are needed on both sides.
  */
-
-export interface PublicPrincipal {
-  userId: string;
-  email: string;
-  displayName: string;
-  scope: "app" | "central" | "site";
-  chainId: string | null;
-  siteId: string | null;
-  roles: { code: string; name: string; layer: string; functionCode: string | null; chainId: string | null; siteId: string | null }[];
-  grants: { reason: string; chainId: string | null; expiresAt: string | null; grantedBy: string | null; permissions: string[] }[];
-  permissions: string[];
-  sessionExpiresAt: string;
-}
 
 function toPublic(principal: Principal): PublicPrincipal {
   return {
@@ -95,22 +101,6 @@ function toPublic(principal: Principal): PublicPrincipal {
     permissions: principal.permissions,
     sessionExpiresAt: principal.sessionExpiresAt,
   };
-}
-
-export interface NavItem {
-  to: string;
-  label: string;
-  description: string;
-}
-
-/**
- * Role-aware navigation, derived from the same registry the enforcement path uses.
- * Hiding an item is a courtesy; the server refuses the request either way.
- */
-export function navFor(principal: PublicPrincipal): NavItem[] {
-  return NAV_ITEMS.filter((item) =>
-    item.requires.every((code) => principal.permissions.includes(code))
-  ).map(({ to, label, description }) => ({ to, label, description }));
 }
 
 export const getSession = createServerFn({ method: "GET" }).handler(async () => {
