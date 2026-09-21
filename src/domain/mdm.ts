@@ -36,6 +36,9 @@ export interface ArticleListItem {
    * shown with an `untranslated` marker rather than silently falling back in the data. */
   nameLocale: string;
   untranslated: boolean;
+  /** The current version's short name. The list filter matches it as well as the code and
+   * the name — the screen's own placeholder promises "code, name or short name". */
+  shortName: string | null;
   categoryCode: string;
   categoryName: string;
   articleType: string;
@@ -70,6 +73,10 @@ export interface ArticleListResult {
   total: number;
   limit: number;
   offset: number;
+  /** Whether this page is short of the rows that match the filters, said outright rather
+   * than left for the caller to infer from `total` (review S6). */
+  hasMore: boolean;
+  nextOffset: number | null;
   /** The market the compliance column was evaluated against, and the required field list
    * it used — shown on screen so the number is explainable rather than mysterious. */
   jurisdiction: string;
@@ -101,6 +108,7 @@ interface ArticleRow {
   id: string;
   code: string;
   name: string | null;
+  short_name: string | null;
   name_locale: string | null;
   category_code: string;
   category_name: string | null;
@@ -243,8 +251,29 @@ export async function listArticles(
     );
   }
 
-  const limit = Math.min(Math.max(filters.limit ?? 50, 1), MAX_LIMIT);
-  const offset = Math.max(filters.offset ?? 0, 0);
+  // "Incomplete only" is a *predicate*, not a post-filter. Applied to the page after the
+  // LIMIT it returned a short page while further matching rows sat beyond it — the same
+  // silent truncation this endpoint is being fixed for. With no requirements configured
+  // the expression is `false`, which is the honest answer for that market: nothing there
+  // can be incomplete. A rule naming a field this build cannot check also reads as
+  // missing, exactly as the row-level column does.
+  if (filters.incompleteOnly) {
+    where.push(incompleteExpression(required));
+  }
+
+  // The default page *is* the maximum page. A default of 50 quietly dropped the last two
+  // of 52 articles for any caller that passed no parameters (review S6); a caller that
+  // wants a smaller page asks for one, and one that wants to know whether it saw
+  // everything reads `hasMore`/`nextOffset` in the result. A non-numeric limit falls back
+  // instead of reaching SQL as `limit NaN`.
+  const limit = Math.min(
+    Math.max(Number.isFinite(filters.limit) ? Math.trunc(filters.limit as number) : MAX_LIMIT, 1),
+    MAX_LIMIT
+  );
+  const offset = Math.max(
+    Number.isFinite(filters.offset) ? Math.trunc(filters.offset as number) : 0,
+    0
+  );
 
   // The viewer's locale wins, then the platform default — the full user → site → chain →
   // platform order is the shell's business, and this read only needs the winner.
@@ -255,7 +284,7 @@ export async function listArticles(
     `select a.id, a.code, a.article_type, a.status, a.updated_at,
             v.id as version_id, v.version, v.dietary_mark, v.tax_class_id, v.hsn_sac_code,
             v.serving_size_qty, v.calories_kcal,
-            t.name, t.locale as name_locale,
+            t.name, t.short_name, t.locale as name_locale,
             cat.code as category_code,
             cat_t.name as category_name,
             tc.code as tax_class_code, tc.jurisdiction_code as tax_class_jurisdiction,
@@ -280,13 +309,13 @@ export async function listArticles(
       const predicate = FIELD_PREDICATES[field];
       return predicate ? !predicate(row) : false;
     });
-    if (filters.incompleteOnly && missing.length === 0) continue;
     items.push({
       id: row.id,
       code: row.code,
       name: row.name ?? row.code,
       nameLocale: row.name_locale ?? preferredLocale,
       untranslated: row.name_locale === null || row.name_locale !== preferredLocale,
+      shortName: row.short_name,
       categoryCode: row.category_code,
       categoryName: row.category_name ?? row.category_code,
       articleType: row.article_type,
@@ -319,11 +348,15 @@ export async function listArticles(
     totalsValues
   );
 
+  const total = Number(totals[0]?.total ?? 0);
+  const hasMore = offset + items.length < total;
   return {
     items,
-    total: Number(totals[0]?.total ?? 0),
+    total,
     limit,
     offset,
+    hasMore,
+    nextOffset: hasMore ? offset + items.length : null,
     jurisdiction,
     requiredFields: required,
   };
@@ -447,7 +480,18 @@ export interface ArticleDetail {
     effectiveFrom: string | null;
     approvedAt: string | null;
   };
-  prices: { outletId: string; outletCode: string; outletName: string; siteCode: string; money: Money }[];
+  /** The *open* price window per outlet (`effective_to is null`). `effectiveFrom` is the
+   * day this price started: without it the grid showed a figure with no starting date
+   * while its own caption promised effective-dated windows (review S10). A closed window
+   * is history and lives in the audit trail, not here. */
+  prices: {
+    outletId: string;
+    outletCode: string;
+    outletName: string;
+    siteCode: string;
+    effectiveFrom: string | null;
+    money: Money;
+  }[];
   /** Every active outlet of the chain with the currency its site trades in. The price
    * dialog needs the currency *before* a price row exists, and a price in the wrong
    * currency is something the domain refuses — so the screen must know it, not guess it. */
@@ -700,9 +744,10 @@ export async function getArticle(principal: Principal, code: string): Promise<Ar
         site_code: string;
         amount: string;
         currency_code: string;
+        effective_from: Date | string | null;
       }>(
         `select o.id as outlet_id, o.code as outlet_code, o.name as outlet_name, s.code as site_code,
-                p.amount, p.currency_code
+                p.amount, p.currency_code, p.effective_from
            from article_price p
            join outlet o on o.id = p.outlet_id
            join site s on s.id = o.site_id
@@ -913,6 +958,7 @@ export async function getArticle(principal: Principal, code: string): Promise<Ar
       outletCode: price.outlet_code,
       outletName: price.outlet_name,
       siteCode: price.site_code,
+      effectiveFrom: price.effective_from ? asIso(price.effective_from).slice(0, 10) : null,
       money: { amount: Number(price.amount), currencyCode: price.currency_code },
     })),
     outlets: outletRows.map((outlet) => ({
@@ -963,9 +1009,20 @@ export interface MdmFilterOptions {
   categories: { code: string; name: string; count: number }[];
   taxClasses: { code: string; name: string; jurisdiction: string }[];
   outlets: { code: string; name: string; siteCode: string }[];
-  statuses: string[];
+  /** Every state of the shared article lifecycle, in lifecycle order, with how many
+   * articles of this chain are in it — so a state the seed does not use is still
+   * filterable and visibly empty rather than invisible (review S4). */
+  statuses: { code: string; count: number }[];
   jurisdictions: string[];
 }
+
+/**
+ * The article lifecycle (§6's shared state machine), in the order an operator reads it.
+ * It mirrors the `article.status` check constraint in `0008_mdm_masters.sql`, because a
+ * filter that only offered the states present in the data could not be used to *find* a
+ * draft — the one thing a reviewer opens this screen for.
+ */
+const ARTICLE_STATUS_ORDER = ["draft", "pending_review", "active", "seasonal", "discontinued"];
 
 export async function getArticleFilterOptions(principal: Principal): Promise<MdmFilterOptions> {
   const chainId = resolveChainId(principal, null);
@@ -1004,8 +1061,8 @@ export async function getArticleFilterOptions(principal: Principal): Promise<Mdm
         order by s.code, o.name`,
       [chainId]
     ),
-    db.query<{ status: string }>(
-      `select distinct status from article where chain_id = $1 order by status`,
+    db.query<{ status: string; count: string }>(
+      `select status, count(*) as count from article where chain_id = $1 group by status`,
       [chainId]
     ),
   ]);
@@ -1026,7 +1083,15 @@ export async function getArticleFilterOptions(principal: Principal): Promise<Mdm
       name: outlet.name,
       siteCode: outlet.site_code,
     })),
-    statuses: statuses.map((status) => status.status),
+    // The state machine first, in lifecycle order, then any status the database holds that
+    // this build has no label for — an unknown state shows up rather than disappearing.
+    statuses: [
+      ...ARTICLE_STATUS_ORDER,
+      ...statuses.map((row) => row.status).filter((code) => !ARTICLE_STATUS_ORDER.includes(code)),
+    ].map((code) => ({
+      code,
+      count: Number(statuses.find((row) => row.status === code)?.count ?? 0),
+    })),
     jurisdictions: await tradedJurisdictions(chainId),
   };
 }

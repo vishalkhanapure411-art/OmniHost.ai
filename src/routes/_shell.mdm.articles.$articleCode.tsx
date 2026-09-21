@@ -213,6 +213,47 @@ const ERP_CODE_LABEL: Record<string, MessageKey> = {
   AMBIENT: "mdm.erp.code.AMBIENT",
   FROZEN: "mdm.erp.code.FROZEN",
 };
+/**
+ * The localised label for a unit of measure, resolved *from* the code (§4: a code is never
+ * translated, a label is resolved from it). No reference table carries a UOM label yet, so a
+ * code with no entry here renders as the code itself — which is what the ledger, the invoice
+ * and a vendor's price list carry anyway. `SERVING SIZE 1 POR` read as a raw code next to a
+ * localised interface (review S9); the code stays available as the cell's `title`.
+ */
+const UOM_LABEL: Record<string, MessageKey> = {
+  BAG: "mdm.uom.label.BAG",
+  BT: "mdm.uom.label.BT",
+  CAN: "mdm.uom.label.CAN",
+  CS: "mdm.uom.label.CS",
+  CUP: "mdm.uom.label.CUP",
+  DZ: "mdm.uom.label.DZ",
+  G: "mdm.uom.label.G",
+  GAL: "mdm.uom.label.GAL",
+  GLS: "mdm.uom.label.GLS",
+  KG: "mdm.uom.label.KG",
+  L: "mdm.uom.label.L",
+  LB: "mdm.uom.label.LB",
+  MG: "mdm.uom.label.MG",
+  ML: "mdm.uom.label.ML",
+  OZ: "mdm.uom.label.OZ",
+  PC: "mdm.uom.label.PC",
+  PK: "mdm.uom.label.PK",
+  PLT: "mdm.uom.label.PLT",
+  POR: "mdm.uom.label.POR",
+  QT: "mdm.uom.label.QT",
+  TBSP: "mdm.uom.label.TBSP",
+  TSP: "mdm.uom.label.TSP",
+};
+
+function uomLabel(
+  code: string | null,
+  t: (key: MessageKey, params?: Record<string, string | number>) => string
+): string {
+  if (!code) return "";
+  const key = UOM_LABEL[code.toUpperCase()];
+  return key ? t(key) : code;
+}
+
 const ERP_STATUS_LABEL: Record<string, MessageKey> = {
   not_configured: "mdm.erp.status.not_configured",
   active: "mdm.erp.status.active",
@@ -310,6 +351,10 @@ function ArticleScreen() {
   );
   const ownershipByGroup = new Map(article.erp.ownership.map((row) => [row.fieldGroup, row]));
   const primaryProvenance = article.provenance[0];
+  // "ENERGY PER SERVING 412.00" carried no unit while the nutrition panel rendered the same
+  // nutrient as `412 kcal` (review S8). The unit comes from the nutrient reference, so the
+  // two panels cannot disagree about it.
+  const energyUnit = article.nutrition.find((row) => row.code === "energy_kcal")?.unit ?? "kcal";
 
   return (
     <>
@@ -406,10 +451,12 @@ function ArticleScreen() {
                     article.currentVersion.servingSizeQty === null ? (
                       <NoValue />
                     ) : (
-                      <QuantityValue
-                        value={article.currentVersion.servingSizeQty}
-                        uom={article.currentVersion.servingSizeUomCode ?? ""}
-                      />
+                      <span title={article.currentVersion.servingSizeUomCode ?? ""}>
+                        <QuantityValue
+                          value={article.currentVersion.servingSizeQty}
+                          uom={uomLabel(article.currentVersion.servingSizeUomCode, t)}
+                        />
+                      </span>
                     ),
                 },
                 {
@@ -418,7 +465,11 @@ function ArticleScreen() {
                     article.currentVersion.caloriesKcal === null ? (
                       <NoValue />
                     ) : (
-                      <NumberValue value={article.currentVersion.caloriesKcal} decimals={2} />
+                      <QuantityValue
+                        value={article.currentVersion.caloriesKcal}
+                        uom={energyUnit}
+                        decimals={2}
+                      />
                     ),
                 },
                 {
@@ -500,13 +551,19 @@ function ArticleScreen() {
               title={t("mdm.article.price.title")}
               count={String(article.prices.length)}
             />
-            {!canPrice ? (
+            {canPrice ? (
+              <p className="px-4 pt-3 text-xs text-fg-subtle">
+                {t("mdm.article.price.capabilityHint", {
+                  permission: "mdm.article.price.update",
+                })}
+              </p>
+            ) : (
               <div className="px-4 pt-3">
                 <Banner tone="info" compact>
                   {t("mdm.article.price.readOnly")}
                 </Banner>
               </div>
-            ) : null}
+            )}
             {article.prices.length === 0 ? (
               <div className="px-4">
                 <EmptyState
@@ -520,13 +577,18 @@ function ArticleScreen() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-border text-xs text-fg-muted uppercase">
-                      <th className="px-4 py-2 text-start font-medium">
+                      {/* The outlet column takes the slack so the price, its window and its
+                          action sit together instead of three disconnected bands (S11). */}
+                      <th className="w-full px-4 py-2 text-start font-medium">
                         {t("mdm.article.price.column.outlet")}
                       </th>
                       <th className="px-4 py-2 text-end font-medium">
                         {t("mdm.article.price.column.amount")}
                       </th>
                       <th className="px-4 py-2 text-start font-medium">
+                        {t("mdm.article.price.column.effectiveFrom")}
+                      </th>
+                      <th className="w-0 px-4 py-2 text-start font-medium whitespace-nowrap">
                         {t("mdm.article.price.column.action")}
                       </th>
                     </tr>
@@ -538,12 +600,15 @@ function ArticleScreen() {
                           <span className="block">{price.outletName}</span>
                           <span className="font-mono text-2xs text-fg-subtle">{price.outletCode}</span>
                         </td>
-                        <td className="px-4 py-2 text-end">
+                        <td className="px-4 py-2 text-end whitespace-nowrap">
                           <MoneyValue
                             money={{ amount: price.money.amount, currency: price.money.currencyCode }}
                           />
                         </td>
-                        <td className="px-4 py-2">
+                        <td className="px-4 py-2 whitespace-nowrap">
+                          <TimestampValue value={price.effectiveFrom} mode="date" />
+                        </td>
+                        <td className="w-0 px-4 py-2 whitespace-nowrap">
                           {canPrice ? (
                             <Button
                               size="sm"
@@ -574,13 +639,19 @@ function ArticleScreen() {
               title={t("mdm.article.availability.title")}
               count={String(article.availability.length)}
             />
-            {!canAvailability ? (
+            {canAvailability ? (
+              <p className="px-4 pt-3 text-xs text-fg-subtle">
+                {t("mdm.article.availability.capabilityHint", {
+                  permission: "mdm.article.update",
+                })}
+              </p>
+            ) : (
               <div className="px-4 pt-3">
                 <Banner tone="info" compact>
                   {t("mdm.article.availability.readOnly")}
                 </Banner>
               </div>
-            ) : null}
+            )}
             {article.availability.length === 0 ? (
               <div className="px-4">
                 <EmptyState
@@ -600,10 +671,10 @@ function ArticleScreen() {
                       <th className="px-4 py-2 text-start font-medium">
                         {t("mdm.article.availability.column.state")}
                       </th>
-                      <th className="px-4 py-2 text-start font-medium">
+                      <th className="w-full px-4 py-2 text-start font-medium">
                         {t("mdm.article.availability.column.reason")}
                       </th>
-                      <th className="px-4 py-2 text-start font-medium">
+                      <th className="w-0 px-4 py-2 text-start font-medium whitespace-nowrap">
                         {t("mdm.article.availability.column.action")}
                       </th>
                     </tr>
@@ -626,7 +697,7 @@ function ArticleScreen() {
                         <td className="px-4 py-2 text-fg-muted">
                           {row.reason ?? <span className="text-fg-subtle">{t("common.none")}</span>}
                         </td>
-                        <td className="px-4 py-2">
+                        <td className="w-0 px-4 py-2 whitespace-nowrap">
                           {canAvailability ? (
                             <Button
                               size="sm"
@@ -871,6 +942,75 @@ function ArticleScreen() {
           </section>
         </Card>
 
+        {/* ── Versions ──────────────────────────────────────────────────────── */}
+        <Card>
+          <CardHeader
+            title={t("mdm.article.section.versions")}
+            subtitle={t("mdm.article.versions.subtitle")}
+          />
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border text-xs text-fg-muted uppercase">
+                  <th className="px-4 py-2 text-start font-medium">
+                    {t("mdm.article.versions.column.version")}
+                  </th>
+                  <th className="px-4 py-2 text-start font-medium">
+                    {t("mdm.article.versions.column.status")}
+                  </th>
+                  <th className="px-4 py-2 text-start font-medium">
+                    {t("mdm.article.versions.column.effectiveFrom")}
+                  </th>
+                  <th className="px-4 py-2 text-start font-medium">
+                    {t("mdm.article.versions.column.approvedAt")}
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {article.versions.map((version) => (
+                  <tr
+                    key={version.version}
+                    className="border-b border-border last:border-b-0"
+                  >
+                    <td className="px-4 py-2">
+                      <span className="flex items-center gap-2">
+                        <span className="tabular-nums">{version.version}</span>
+                        {version.version === article.currentVersion.version ? (
+                          <Badge tone="accent" shape={false}>
+                            {t("mdm.article.versions.current")}
+                          </Badge>
+                        ) : null}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2">
+                      {t(STATUS_LABEL[version.status] ?? "mdm.article.status.active")}
+                    </td>
+                    <td className="px-4 py-2">
+                      <TimestampValue value={version.effectiveFrom} mode="date" />
+                    </td>
+                    <td className="px-4 py-2">
+                      <TimestampValue value={version.approvedAt} mode="dateTime" />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-4 py-2">
+            <p className="max-w-prose text-xs text-fg-subtle">{t("mdm.article.audit.note")}</p>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => {
+                void router.navigate({ to: "/audit" });
+              }}
+            >
+              {t("mdm.article.audit.open")}
+            </Button>
+          </div>
+        </Card>
+      </div>
+
         {/* ── ERP-maintained (last, collapsed, never empty when it holds a value) ── */}
         {article.erp.system === null && article.provenance.length === 0 ? (
           // §25.1 item 4: with no ERP declared, the section does not exist at all — the
@@ -952,75 +1092,6 @@ function ArticleScreen() {
             </details>
           </Card>
         )}
-
-        {/* ── Versions ──────────────────────────────────────────────────────── */}
-        <Card>
-          <CardHeader
-            title={t("mdm.article.section.versions")}
-            subtitle={t("mdm.article.versions.subtitle")}
-          />
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border text-xs text-fg-muted uppercase">
-                  <th className="px-4 py-2 text-start font-medium">
-                    {t("mdm.article.versions.column.version")}
-                  </th>
-                  <th className="px-4 py-2 text-start font-medium">
-                    {t("mdm.article.versions.column.status")}
-                  </th>
-                  <th className="px-4 py-2 text-start font-medium">
-                    {t("mdm.article.versions.column.effectiveFrom")}
-                  </th>
-                  <th className="px-4 py-2 text-start font-medium">
-                    {t("mdm.article.versions.column.approvedAt")}
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {article.versions.map((version) => (
-                  <tr
-                    key={version.version}
-                    className="border-b border-border last:border-b-0"
-                  >
-                    <td className="px-4 py-2">
-                      <span className="flex items-center gap-2">
-                        <span className="tabular-nums">{version.version}</span>
-                        {version.version === article.currentVersion.version ? (
-                          <Badge tone="accent" shape={false}>
-                            {t("mdm.article.versions.current")}
-                          </Badge>
-                        ) : null}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2">
-                      {t(STATUS_LABEL[version.status] ?? "mdm.article.status.active")}
-                    </td>
-                    <td className="px-4 py-2">
-                      <TimestampValue value={version.effectiveFrom} mode="date" />
-                    </td>
-                    <td className="px-4 py-2">
-                      <TimestampValue value={version.approvedAt} mode="dateTime" />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-4 py-2">
-            <p className="max-w-prose text-xs text-fg-subtle">{t("mdm.article.audit.note")}</p>
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={() => {
-                void router.navigate({ to: "/audit" });
-              }}
-            >
-              {t("mdm.article.audit.open")}
-            </Button>
-          </div>
-        </Card>
-      </div>
 
       {priceOutlet ? (
         <PriceDialog

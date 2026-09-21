@@ -856,6 +856,10 @@ export const enIN = {
   "mdm.articles.filter.outlet": "Sold at outlet",
   "mdm.articles.filter.incomplete": "Incomplete records only",
   "mdm.articles.filter.all": "All",
+  "mdm.articles.filter.incompleteUnavailable":
+    "Nothing can be incomplete in {jurisdiction}: the market's profile states no article requirements to be measured against.",
+  "mdm.articles.truncated":
+    "Only the first {shown} of {total} matching articles are loaded — the list API pages, and this page is full.",
   "mdm.articles.column.code": "Code",
   "mdm.articles.column.name": "Name",
   "mdm.articles.column.category": "Category",
@@ -866,7 +870,16 @@ export const enIN = {
   "mdm.articles.column.outlets": "Outlets",
   "mdm.articles.column.compliance": "Compliance",
   "mdm.articles.column.allergens": "Allergens",
+  "mdm.articles.column.lastChange": "Last change",
   "mdm.articles.compliance.ok": "Complete",
+  "mdm.articles.compliance.notConfigured": "Not configured",
+  "mdm.articles.compliance.notConfiguredTitle":
+    "This market's profile states no article requirements, so no record can be incomplete here. That is a stated state, not a silent pass.",
+  "mdm.articles.compliance.unchecked": "Not checked",
+  "mdm.articles.compliance.uncheckedTitle":
+    "This market's profile requires a field this screen has no check for, so nothing can be said about it here.",
+  "mdm.articles.compliance.noneConfigured":
+    "The {jurisdiction} profile states no article requirements, so every field is treated as optional until that profile is configured — that is a stated state, not a silent pass.",
   "mdm.articles.compliance.missing": "{count} missing",
   "mdm.articles.compliance.checked":
     "Compliance is checked against the {jurisdiction} profile: {fields}.",
@@ -966,6 +979,8 @@ export const enIN = {
   "mdm.article.price.column.effectiveFrom": "Effective from",
   "mdm.article.price.column.action": "Action",
   "mdm.article.price.edit": "Change price",
+  "mdm.article.price.capabilityHint":
+    "Changing a price needs {permission}. The change closes the open window the day before the new one opens, opens a new row, and is recorded in the audit trail.",
   "mdm.article.price.dialog.title": "Change the price at {outlet}",
   "mdm.article.price.dialog.description":
     "The open price row is closed the day before the new window opens; the audit row records both windows.",
@@ -990,6 +1005,8 @@ export const enIN = {
   "mdm.article.availability.column.reason": "Reason",
   "mdm.article.availability.column.action": "Action",
   "mdm.article.availability.change": "Change",
+  "mdm.article.availability.capabilityHint":
+    "Changing availability needs {permission}. It takes effect immediately, is audited, and is reversible.",
   "mdm.article.availability.dialog.title": "Availability at {outlet}",
   "mdm.article.availability.dialog.state": "Availability",
   "mdm.article.availability.dialog.reason": "Reason",
@@ -1190,6 +1207,30 @@ export const enIN = {
   "mdm.erp.code.CHILLED": "Chilled",
   "mdm.erp.code.AMBIENT": "Ambient",
   "mdm.erp.code.FROZEN": "Frozen",
+  // UOM labels: resolved *from* the unit code (§4). The code itself is never translated and
+  // stays available as the cell's title; a code with no label here shows the code.
+  "mdm.uom.label.BAG": "bag",
+  "mdm.uom.label.BT": "bottle",
+  "mdm.uom.label.CAN": "can",
+  "mdm.uom.label.CS": "case",
+  "mdm.uom.label.CUP": "cup",
+  "mdm.uom.label.DZ": "dozen",
+  "mdm.uom.label.G": "gram",
+  "mdm.uom.label.GAL": "gallon",
+  "mdm.uom.label.GLS": "glass",
+  "mdm.uom.label.KG": "kilogram",
+  "mdm.uom.label.L": "litre",
+  "mdm.uom.label.LB": "pound",
+  "mdm.uom.label.MG": "milligram",
+  "mdm.uom.label.ML": "millilitre",
+  "mdm.uom.label.OZ": "ounce",
+  "mdm.uom.label.PC": "piece",
+  "mdm.uom.label.PK": "pack",
+  "mdm.uom.label.PLT": "plate",
+  "mdm.uom.label.POR": "portion",
+  "mdm.uom.label.QT": "quart",
+  "mdm.uom.label.TBSP": "tablespoon",
+  "mdm.uom.label.TSP": "teaspoon",
   "mdm.erp.status.not_configured": "Declared, not connected",
   "mdm.erp.status.active": "Connected",
   "mdm.erp.status.paused": "Paused",
