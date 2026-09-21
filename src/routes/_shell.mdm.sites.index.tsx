@@ -7,6 +7,7 @@ import {
   CardHeader,
   EmptyState,
   ErrorState,
+  PermissionDenied,
   SearchInput,
   Select,
   TableSkeleton,
@@ -89,11 +90,32 @@ function SitesScreen() {
   const [kind, setKind] = useState("");
 
   if (!result.ok) {
+    // Same refusal discipline as the vendor list and both record screens in this slab: a 403
+    // names the capability the *server* refused on (carried on every failure by
+    // `~/server-fns`), as a chip rather than only inside the message text, so the operator
+    // knows what to ask for. A non-403 failure keeps the generic error state — a permission
+    // panel over a server fault claims a refusal that never happened.
+    if (result.status === 403) {
+      return (
+        <div className="p-4">
+          <Card>
+            <PermissionDenied
+              title={t("mdm.sites.denied.title")}
+              description={t("mdm.sites.denied.description")}
+              requiredPermission={result.permission ?? "mdm.site.view"}
+            />
+            <p className="border-t border-border px-4 py-2 text-xs text-fg-muted">
+              {result.message}
+            </p>
+          </Card>
+        </div>
+      );
+    }
     return (
       <div className="p-4">
         <ErrorState
-          title={t("mdm.sites.denied.title")}
-          description={t("mdm.sites.denied.description")}
+          title={t("error.title")}
+          description={t("error.description")}
           detail={result.message}
         />
       </div>

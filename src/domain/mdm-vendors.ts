@@ -291,6 +291,17 @@ export async function listVendors(
     Math.max(Number.isFinite(filters.limit) ? Math.trunc(filters.limit as number) : MAX_LIMIT, 1),
     MAX_LIMIT
   );
+  /**
+   * The parameters the *filters* put into `where`, captured before the two the row query
+   * appends for its own purposes: the locale (the trade-name join) and the limit. The count
+   * query below is built from the same `where`, so it must be handed exactly these — passing
+   * the row query's full parameter list made PostgreSQL reject the statement at bind time
+   * ("bind message supplies 3 parameters, but prepared statement requires 1") and the whole
+   * read came back as a 500, which a screen can only render as "Something went wrong."
+   * Taking the count's parameters from the point the filters stop is what keeps the two
+   * statements in step as filters are added.
+   */
+  const filterValues = [...values];
   const preferredLocale = principal.locale ?? "en-IN";
   const localeParam = p(preferredLocale);
 
@@ -396,7 +407,7 @@ export async function listVendors(
   const options = await getVendorListOptions(chainId, db);
   const total = await db.query<{ total: string }>(
     `select count(*) as total from vendor v where ${where.join(" and ")}`,
-    values.slice(0, values.length - 1)
+    filterValues
   );
   const totalCount = Number(total[0]?.total ?? 0);
 

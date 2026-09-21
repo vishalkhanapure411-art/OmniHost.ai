@@ -36,9 +36,32 @@ import { canReadAudit, listApprovals, listAuditEntries } from "~/domain/inbox";
 import { currentPrincipal } from "~/server/context";
 import { resolveDisplayPreferences } from "~/server/locale";
 import { Unauthenticated, isHttpError, toErrorResponse } from "~/server/errors";
-function failure(error: unknown): { ok: false; status: number; error: string; message: string } {
+/**
+ * A failure reaches a screen as `{ ok: false, status, error, message, permission }`.
+ *
+ * `permission` is carried on *every* failure, not only on the operations that happen to
+ * remember to attach it: a screen that renders a refusal reads the capability the server
+ * actually refused on, so it can name it, and falls back to nothing rather than to a guess
+ * when the failure was not a refusal at all. Before this, `listVendorsFn` and `listSitesFn`
+ * returned no `permission` field while `getChainConfigFn` returned one, which is how a
+ * refusal ends up rendered without its capability — or, worse, with a screen's own hardcoded
+ * guess standing in for the server's answer.
+ */
+function failure(error: unknown): {
+  ok: false;
+  status: number;
+  error: string;
+  message: string;
+  permission: string | null;
+} {
   const { status, body } = toErrorResponse(error);
-  return { ok: false, status, error: String(body.error ?? "error"), message: String(body.message ?? "Request failed.") };
+  return {
+    ok: false,
+    status,
+    error: String(body.error ?? "error"),
+    message: String(body.message ?? "Request failed."),
+    permission: deniedPermission(error),
+  };
 }
 /**
  * The permission a refusal was about, read from the domain error's own details. A screen

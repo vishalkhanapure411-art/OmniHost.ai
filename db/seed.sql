@@ -678,7 +678,25 @@ with mdm_grant (role_code, permission_like) as (
     ('CENTRAL_MARKETING_TEAM', 'mdm.nutrient.view'),
     ('SITE_MARKETING_TEAM', 'mdm.article.view'),
     ('SITE_MARKETING_TEAM', 'mdm.allergen.view'),
-    ('SITE_HEAD', 'mdm.outlet.propose')
+    -- Site Head — spec §3: "`SITE_HEAD` | `mdm.site.view`, `mdm.outlet.view`/`.propose`,
+    -- `mdm.article.view`, `mdm.vendor.view` — a site head reads the golden record and proposes
+    -- outlet changes; they never approve one". The blanket `p.code like '%.view'` upsert
+    -- earlier in this file runs *before* the `mdm.*` permission rows below are inserted, so it
+    -- never reached these; the comment claiming Site Head already held them was wrong. Written
+    -- out explicitly here rather than depending on statement order.
+    ('SITE_HEAD', 'mdm.site.view'),
+    ('SITE_HEAD', 'mdm.outlet.view'),
+    ('SITE_HEAD', 'mdm.article.view'),
+    ('SITE_HEAD', 'mdm.vendor.view'),
+    ('SITE_HEAD', 'mdm.outlet.propose'),
+    -- Purchase — spec §3: "`CENTRAL_PURCHASE_TEAM` / `SITE_PURCHASE_TEAM` |
+    -- `mdm.vendor.view`/`.search`/`.propose`, `mdm.raw_material.view`, `mdm.uom.view`,
+    -- `mdm.tax_class.view`" and "`CENTRAL_PURCHASE_HEAD` | the above plus `mdm.vendor.propose`".
+    ('CENTRAL_PURCHASE_HEAD', 'mdm.vendor.search'),
+    ('CENTRAL_PURCHASE_HEAD', 'mdm.vendor.propose'),
+    ('CENTRAL_PURCHASE_HEAD', 'mdm.tax_class.view'),
+    ('CENTRAL_PURCHASE_TEAM', 'mdm.tax_class.view'),
+    ('SITE_PURCHASE_TEAM', 'mdm.tax_class.view')
 )
 insert into role_permission (role_id, permission_id)
 select r.id, p.id
