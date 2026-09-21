@@ -57,7 +57,17 @@ export function primaryRoleCode(principal: Principal, action: string): string {
   return carrying?.code ?? principal.roles[0]?.code ?? "UNKNOWN";
 }
 
-function json(value: unknown): string | null {
+/**
+ * A before/after audit snapshot as it crosses the server-fn boundary: JSON text.
+ *
+ * Deliberately not an object type. TanStack Start's serialisability check rejects a nested
+ * untyped value (`unknown`, `Record<string, unknown>`, `unknown[]`) inside a returned
+ * interface, and that fails the whole `tsc` run rather than one screen. JSON text is
+ * unambiguously serialisable and `BeforeAfter` parses it back for display.
+ */
+export type JsonState = string | null;
+/** The same snapshot, ready to store in a jsonb column or to send to a screen. */
+export function toJsonState(value: unknown): JsonState {
   if (value === undefined || value === null) return null;
   return JSON.stringify(value);
 }
@@ -82,8 +92,8 @@ export async function writeAudit(tx: Queryable, entry: AuditEntry): Promise<stri
       entry.action,
       entry.entityType,
       entry.entityId ?? null,
-      json(entry.beforeState),
-      json(entry.afterState),
+      toJsonState(entry.beforeState),
+      toJsonState(entry.afterState),
       entry.outcome ?? "success",
       entry.reason ?? null,
       entry.intent ?? null,

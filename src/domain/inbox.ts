@@ -1,7 +1,7 @@
 import "@tanstack/react-start/server-only";
 
 import { sql } from "~/db";
-import { guard } from "~/server/audit";
+import { guard, type JsonState } from "~/server/audit";
 import { accessibleChainIds, type Principal } from "~/server/session";
 
 /**
@@ -103,13 +103,11 @@ export async function listApprovals(principal: Principal, limit = 50): Promise<I
 
 /**
  * A before/after audit snapshot, carried across the server-fn boundary as JSON text.
- *
- * Deliberately not an object type: TanStack Start's serialisability check rejects a
- * nested untyped value (`Record<string, unknown>`, `unknown[]`) inside a returned
- * interface, and that fails the whole `tsc` run. JSON text is unambiguously
- * serialisable, and the audit screen parses it back for display.
+ * Defined beside the writer in `~/server/audit` and re-exported here so the audit read
+ * model and the master-data history panes cannot drift apart; `BeforeAfter` parses it
+ * back for display.
  */
-export type JsonState = string | null;
+export type { JsonState };
 
 export interface AuditEntryView {
   id: string;
