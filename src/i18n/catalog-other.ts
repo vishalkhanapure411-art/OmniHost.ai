@@ -86,6 +86,9 @@ export const hiIN: Partial<Record<MessageKey, string>> = {
   "mdm.import.outcome.updated": "अद्यतन",
   "mdm.import.outcome.unchanged": "अपरिवर्तित",
   "mdm.import.outcome.rejected": "अस्वीकृत",
+  "mdm.import.denied.title": "थोक आयात आपके लिए नहीं है",
+  "mdm.import.denied.description":
+    "मास्टर डेटा आयात करने के लिए {permission} क्षमता चाहिए। जिस फ़ाइल की हर पंक्ति सर्वर अस्वीकार करेगा, उसे अपलोड करने के बजाय यह क्षमता सौंपे जाने का अनुरोध करें।",
   "mdm.import.refused.title": "आप मास्टर डेटा आयात नहीं कर सकते",
   "mdm.import.file.choose": "फ़ाइल चुनें",
 
