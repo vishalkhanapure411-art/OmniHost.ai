@@ -512,7 +512,13 @@ export const getArticleFn = createServerFn({ method: "GET" })
 export const updateArticlePriceFn = createServerFn({ method: "POST" })
   .validator(
     (input: unknown) =>
-      input as { code: string; outletCode: string; amount: number; currencyCode: string }
+      input as {
+        code: string;
+        outletCode: string;
+        amount: number;
+        currencyCode: string;
+        effectiveFrom?: string | null;
+      }
   )
   .handler(async ({ data }) => {
     const principal = await currentPrincipal();

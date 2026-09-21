@@ -1078,3 +1078,157 @@ export const MDM_SITE_OPERATING_HOURS: {
   ...[0, 2, 3, 4, 5, 6].map((day) => ({ chainCode: "saffron-table", siteCode: "saffron-indiranagar", dayOfWeek: day, opensAt: "08:00", closesAt: "22:30", closed: false })),
   { chainCode: "saffron-table", siteCode: "saffron-indiranagar", dayOfWeek: 1, opensAt: null, closesAt: null, closed: true },
 ];
+
+
+// ---------------------------------------------------------------------------
+// The ERP mirror (Part II §21.1, §25)
+// ---------------------------------------------------------------------------
+
+/**
+ * **Demo data, and nothing more.** The pilot chain's ERP is *declared* here — which system
+ * it runs, and which of its material numbers our articles answer to — so the record screen's
+ * read-only-with-provenance treatment (§25.3) can be reviewed against real rows instead of
+ * a mock. No connector exists and none has run: `status` stays `not_configured`, and the
+ * screen says so in words. When a real chain arrives, its own extract overwrites these rows,
+ * because every write below is an upsert on the business code.
+ *
+ * The values are the ERP's own code lists, deliberately not translated and not normalised
+ * away: `FG`, `VK-FB`, `standard` are what an operator will read back to their ERP
+ * administrator, and a display label sits beside each one rather than replacing it.
+ */
+export interface DemoErpMirror {
+  articleCode: string;
+  /** The ERP's material/item number — the key the record was matched on (§22.2). */
+  materialNumber: string;
+  sourceVersion: string;
+  materialType: string;
+  lifecycleState: string;
+  blocked?: boolean;
+  valuationClass?: string;
+  priceControl?: string;
+  standardPrice?: { amount: number; currency: string };
+  movingAveragePrice?: { amount: number; currency: string };
+  netWeight?: { value: number; uom: string };
+  grossWeight?: { value: number; uom: string };
+  storageCondition?: string;
+  temperatureCondition?: string;
+  shelfLifeDays?: number;
+  batchManagement?: string;
+  serialProfile?: string;
+  receiptInspectionRequired?: boolean;
+  certificateRequired?: boolean;
+  taxClassification?: string;
+  taxGroup?: string;
+  countryOfOrigin?: string;
+  customsTariffNumber?: string;
+  exportControlClass?: string;
+  manufacturerName?: string;
+  manufacturerPartNumber?: string;
+  revisionLevel?: string;
+  /** Minutes before "now" the connector last confirmed the record; keeps the demo's
+   * relative timestamp alive on every re-seed. */
+  lastSyncedMinutesAgo: number;
+}
+
+/** The chain's declared connection. `not_configured` is the honest status: declared, not linked. */
+export const MDM_ERP_SYSTEM = {
+  code: "bc-hq",
+  vendor: "dynamics_business_central",
+  displayName: "Saffron Table · Business Central (HQ)",
+  exchangeMode: "realtime_api",
+  directionDefault: "bidirectional",
+  status: "not_configured",
+} as const;
+
+export const MDM_ERP_MIRROR: DemoErpMirror[] = [
+  {
+    articleCode: "ART-1001",
+    materialNumber: "BC-100245",
+    sourceVersion: "12",
+    materialType: "FG",
+    lifecycleState: "active",
+    blocked: false,
+    valuationClass: "VK-FB",
+    priceControl: "standard",
+    standardPrice: { amount: 168.5, currency: "INR" },
+    movingAveragePrice: { amount: 171.25, currency: "INR" },
+    storageCondition: "DRY",
+    temperatureCondition: "chilled",
+    shelfLifeDays: 2,
+    batchManagement: "none",
+    receiptInspectionRequired: false,
+    certificateRequired: false,
+    taxClassification: "GST-5",
+    taxGroup: "GST5-FOOD",
+    countryOfOrigin: "IN",
+    customsTariffNumber: "21069099",
+    revisionLevel: "A",
+    lastSyncedMinutesAgo: 185,
+  },
+  {
+    articleCode: "ART-1015",
+    materialNumber: "BC-100259",
+    sourceVersion: "7",
+    materialType: "FG",
+    lifecycleState: "active",
+    blocked: false,
+    valuationClass: "VK-FB",
+    priceControl: "moving_average",
+    standardPrice: { amount: 214, currency: "INR" },
+    movingAveragePrice: { amount: 216.4, currency: "INR" },
+    storageCondition: "CHILLED",
+    temperatureCondition: "chilled",
+    shelfLifeDays: 3,
+    batchManagement: "required",
+    receiptInspectionRequired: true,
+    certificateRequired: true,
+    taxClassification: "GST-12",
+    taxGroup: "GST12-FOOD",
+    countryOfOrigin: "IN",
+    customsTariffNumber: "21069099",
+    revisionLevel: "B",
+    lastSyncedMinutesAgo: 185,
+  },
+  {
+    articleCode: "ART-1040",
+    materialNumber: "BC-100284",
+    sourceVersion: "4",
+    materialType: "FG",
+    lifecycleState: "active",
+    blocked: false,
+    priceControl: "standard",
+    standardPrice: { amount: 96, currency: "INR" },
+    storageCondition: "AMBIENT",
+    shelfLifeDays: 1,
+    batchManagement: "none",
+    taxClassification: "GST-5",
+    taxGroup: "GST5-BEV",
+    countryOfOrigin: "IN",
+    lastSyncedMinutesAgo: 185,
+  },
+  {
+    articleCode: "ART-1050",
+    materialNumber: "BC-100301",
+    sourceVersion: "3",
+    materialType: "HAWA",
+    lifecycleState: "active",
+    blocked: false,
+    valuationClass: "VK-RET",
+    priceControl: "standard",
+    standardPrice: { amount: 40, currency: "INR" },
+    netWeight: { value: 90, uom: "G" },
+    grossWeight: { value: 104, uom: "G" },
+    storageCondition: "AMBIENT",
+    shelfLifeDays: 180,
+    batchManagement: "optional",
+    receiptInspectionRequired: false,
+    taxClassification: "GST-12",
+    taxGroup: "GST12-RET",
+    countryOfOrigin: "IN",
+    customsTariffNumber: "20052000",
+    manufacturerName: "Demo Snack Works Pvt Ltd",
+    manufacturerPartNumber: "DSW-CHIPS-90",
+    revisionLevel: "A",
+    lastSyncedMinutesAgo: 185,
+  },
+];

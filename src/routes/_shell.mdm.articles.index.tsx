@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { Link, createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import {
   Button,
@@ -29,12 +29,14 @@ import { listArticlesFn } from "~/server-fns";
  *   * **filtered to nothing** — a different sentence, because the fix is different;
  *   * **refused** — the server's own message, never re-worded here.
  *
- * SCOPE, stated on the screen rather than only in the pull request: the record screen
- * (per-outlet price grid, allergen/nutrition editing, the per-market matrix, version
- * history) is the next slab. Its API — including the audited price and availability
- * writes — is already live, which is what makes the boundary a boundary rather than a
- * hole. The outlet filter is also API-only for now: the list read does not carry per-row
- * outlet codes, and a filter that silently ignored itself would be worse than its absence.
+ * A row opens the record at `/mdm/articles/:code`. SCOPE, stated on the screen rather than
+ * only in the pull request: the record screen covers identity, selling (the audited price
+ * and availability writes, which are the two things this slab may change), compliance,
+ * allergens, nutrition, versions and the ERP-maintained section. Maker-checker, recipe/BOM
+ * and everything that *creates* a version are the next slab, so the record is read-only
+ * outside those two writes. The outlet filter is also API-only for now: the list read does
+ * not carry per-row outlet codes, and a filter that silently ignored itself would be worse
+ * than its absence.
  */
 export const Route = createFileRoute("/_shell/mdm/articles/")({
   staticData: { titleKey: "nav.route./mdm/articles" },
@@ -197,9 +199,23 @@ function ArticlesScreen() {
               <tbody>
                 {filtered.map((article) => (
                   <tr key={article.id} className="border-b border-border last:border-b-0">
-                    <td className="px-3 py-2 font-mono text-xs">{article.code}</td>
+                    <td className="px-3 py-2 font-mono text-xs">
+                      <Link
+                        to="/mdm/articles/$articleCode"
+                        params={{ articleCode: article.code }}
+                        className="underline decoration-dotted underline-offset-2"
+                      >
+                        {article.code}
+                      </Link>
+                    </td>
                     <td className="px-3 py-2">
-                      <span className="block">{article.name}</span>
+                      <Link
+                        to="/mdm/articles/$articleCode"
+                        params={{ articleCode: article.code }}
+                        className="block"
+                      >
+                        {article.name}
+                      </Link>
                       {article.untranslated ? (
                         <span className="text-xs text-fg-muted">
                           {t("mdm.articles.untranslated", { locale: article.nameLocale })}
@@ -260,7 +276,6 @@ function ArticlesScreen() {
               fields: result.requiredFields.join(", "),
             })}
           </li>
-          <li>{t("mdm.articles.nextSlab")}</li>
         </ul>
       </Card>
     </div>

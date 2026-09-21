@@ -6,6 +6,8 @@ import {
   MDM_ARTICLES,
   MDM_ARTICLE_CATEGORIES,
   MDM_CONVERSIONS,
+  MDM_ERP_MIRROR,
+  MDM_ERP_SYSTEM,
   MDM_IN_DISPLAY_RULES,
   MDM_IN_FIELD_RULES,
   MDM_IN_MANDATORY_ALLERGENS,
@@ -105,6 +107,121 @@ export async function seedMdm(tx: Queryable): Promise<void> {
   await loadRawMaterials(tx, ctx);
   await loadSections(tx, ctx);
   await loadArticles(tx, ctx);
+  // Last, because it decorates records the steps above created: the ERP mirror is a
+  // layer over the article master, never a source of it.
+  await loadErpMirror(tx, ctx);
+}
+
+// ---------------------------------------------------------------------------
+// The ERP mirror — declared, not connected (§25, Part II §21)
+// ---------------------------------------------------------------------------
+/**
+ * Upserts the chain's declared ERP system and the mirror values the record screen renders
+ * read-only. Idempotent on the same keys as everything else, so a chain's real extract
+ * replaces the demo rows rather than duplicating them.
+ *
+ * Nothing here implies a connector exists: `status` is `not_configured`, and the screen
+ * says so. What it demonstrates is the *treatment* — a value the ERP owns is shown as a
+ * DescriptionList value with a provenance chip, never as a disabled input (§25.3).
+ */
+async function loadErpMirror(tx: Queryable, ctx: Ctx): Promise<void> {
+  const chainId = ctx.chainIdByCode.get("saffron-table");
+  if (!chainId) return;
+
+  const systemRows = await tx.query<{ id: string }>(
+    `insert into erp_system (chain_id, code, vendor, display_name, exchange_mode, direction_default, status)
+     values ($1, $2, $3, $4, $5, $6, $7)
+     on conflict (chain_id, code) do update
+       set vendor = excluded.vendor, display_name = excluded.display_name,
+           exchange_mode = excluded.exchange_mode, direction_default = excluded.direction_default,
+           status = excluded.status, updated_at = now()
+     returning id`,
+    [
+      chainId,
+      MDM_ERP_SYSTEM.code,
+      MDM_ERP_SYSTEM.vendor,
+      MDM_ERP_SYSTEM.displayName,
+      MDM_ERP_SYSTEM.exchangeMode,
+      MDM_ERP_SYSTEM.directionDefault,
+      MDM_ERP_SYSTEM.status,
+    ]
+  );
+  const systemId = systemRows[0]?.id;
+  if (!systemId) return;
+
+  for (const mirror of MDM_ERP_MIRROR) {
+    const articleRows = await tx.query<{ id: string; version_id: string | null }>(
+      `select a.id, a.current_version_id as version_id from article a where a.chain_id = $1 and a.code = $2`,
+      [chainId, mirror.articleCode]
+    );
+    const article = articleRows[0];
+    if (!article) continue;
+
+    const syncedAt = new Date(Date.now() - mirror.lastSyncedMinutesAgo * 60_000);
+    await tx.query(
+      `update article
+          set source_system = $2, external_ref = $3, material_type_code = $4,
+              erp_lifecycle_state_code = $5, erp_blocked = $6,
+              valuation_class_code = $7, price_control = $8,
+              standard_price_amount = $9, standard_price_currency = $10,
+              moving_average_price_amount = $11, moving_average_price_currency = $12,
+              net_weight_value = $13, net_weight_uom_id = $14,
+              gross_weight_value = $15, gross_weight_uom_id = $16,
+              storage_condition_code = $17, temperature_condition = $18, shelf_life_days = $19,
+              batch_management = $20, serial_profile_code = $21,
+              receipt_inspection_required = coalesce($22, receipt_inspection_required),
+              certificate_required = coalesce($23, certificate_required),
+              erp_tax_classification_code = $24, erp_tax_group = $25,
+              country_of_origin = $26, customs_tariff_number = $27, export_control_class = $28,
+              manufacturer_name = $29, manufacturer_part_number = $30, revision_level = $31,
+              erp_source_version = $32, erp_last_sync_at = $33, updated_at = now()
+        where id = $1`,
+      [
+        article.id,
+        MDM_ERP_SYSTEM.vendor,
+        mirror.materialNumber,
+        mirror.materialType,
+        mirror.lifecycleState,
+        mirror.blocked ?? false,
+        mirror.valuationClass ?? null,
+        mirror.priceControl ?? null,
+        mirror.standardPrice?.amount ?? null,
+        mirror.standardPrice?.currency ?? null,
+        mirror.movingAveragePrice?.amount ?? null,
+        mirror.movingAveragePrice?.currency ?? null,
+        mirror.netWeight?.value ?? null,
+        uomId(ctx, "saffron-table", mirror.netWeight?.uom ?? ""),
+        mirror.grossWeight?.value ?? null,
+        uomId(ctx, "saffron-table", mirror.grossWeight?.uom ?? ""),
+        mirror.storageCondition ?? null,
+        mirror.temperatureCondition ?? null,
+        mirror.shelfLifeDays ?? null,
+        mirror.batchManagement ?? null,
+        mirror.serialProfile ?? null,
+        mirror.receiptInspectionRequired ?? null,
+        mirror.certificateRequired ?? null,
+        mirror.taxClassification ?? null,
+        mirror.taxGroup ?? null,
+        mirror.countryOfOrigin ?? null,
+        mirror.customsTariffNumber ?? null,
+        mirror.exportControlClass ?? null,
+        mirror.manufacturerName ?? null,
+        mirror.manufacturerPartNumber ?? null,
+        mirror.revisionLevel ?? null,
+        mirror.sourceVersion,
+        syncedAt,
+      ]
+    );
+
+    await tx.query(
+      `insert into external_key (chain_id, entity_type, entity_id, system_id, key_type, value,
+                                 is_primary, last_seen_at)
+       values ($1, 'article', $2, $3, 'material_number', $4, true, $5)
+       on conflict (chain_id, system_id, key_type, value) do update
+         set last_seen_at = excluded.last_seen_at, status = 'active'`,
+      [chainId, article.id, systemId, mirror.materialNumber, syncedAt]
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
