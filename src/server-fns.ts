@@ -479,7 +479,9 @@ export const listArticlesFn = createServerFn({ method: "GET" }).handler(async ()
   const principal = await currentPrincipal();
   if (!principal) return failure(new Unauthenticated());
   try {
-    const result = await listArticles(principal, { limit: 200 });
+    // No explicit limit: the domain's default *is* the maximum page, and the screen reads
+    // `hasMore` so a longer list says so instead of quietly ending at row 50 (review S6).
+    const result = await listArticles(principal);
     const options = await getArticleFilterOptions(principal);
     return { ok: true as const, ...result, options };
   } catch (error) {
