@@ -376,6 +376,48 @@ export interface ArticleComplianceCell {
   legalRef: string | null;
 }
 
+/** One ERP-maintained value, rendered read-only with provenance and never as a
+ * disabled input (§25.3). `kind` is what the screen formats on: money is always
+ * amount + ISO code, a quantity always carries its UOM code. */
+export interface ErpOwnedField {
+  group: string;
+  field: string;
+  kind: "text" | "code" | "money" | "quantity" | "number" | "boolean";
+  text: string | null;
+  amount: number | null;
+  currencyCode: string | null;
+  uomCode: string | null;
+}
+
+/** The declared ownership row in force for a field group (§22.4). Absent rows mean the
+ * platform default applies, and the screen says so rather than inventing one. */
+export interface ErpOwnershipRow {
+  fieldGroup: string;
+  field: string | null;
+  owner: string;
+  inboundAction: string;
+  outboundAction: string;
+  overrideAllowed: boolean;
+  noteKey: string | null;
+}
+
+/** The chain's declared ERP connection. `status` is `not_configured` until a connector
+ * has actually run — declaring which ERP a chain runs is not claiming a live link. */
+export interface ErpSystemView {
+  code: string;
+  displayName: string;
+  vendor: string;
+  status: string;
+  lastSyncAt: string | null;
+}
+
+export interface ArticleErpMirror {
+  system: ErpSystemView | null;
+  fields: ErpOwnedField[];
+  ownership: ErpOwnershipRow[];
+  lastSyncAt: string | null;
+}
+
 export interface ArticleDetail {
   id: string;
   code: string;
@@ -406,6 +448,10 @@ export interface ArticleDetail {
     approvedAt: string | null;
   };
   prices: { outletId: string; outletCode: string; outletName: string; siteCode: string; money: Money }[];
+  /** Every active outlet of the chain with the currency its site trades in. The price
+   * dialog needs the currency *before* a price row exists, and a price in the wrong
+   * currency is something the domain refuses — so the screen must know it, not guess it. */
+  outlets: { code: string; name: string; siteCode: string; currency: string }[];
   availability: { outletCode: string; availability: string; reason: string | null }[];
   allergens: { code: string; mayContain: boolean; source: string; mandatoryHere: boolean }[];
   nutrition: { code: string; value: number; basis: string; unit: string }[];
@@ -413,6 +459,153 @@ export interface ArticleDetail {
   versions: { version: number; status: string; effectiveFrom: string | null; approvedAt: string | null }[];
   /** The ERP mirror, rendered as a provenance chip and never as an editable field (§25.3). */
   provenance: { externalKeyKind: string; externalKeyValue: string; lastSyncAt: string | null }[];
+  /** The ERP-maintained section (§25.1): last, collapsed, with a count — and only the
+   * field groups that actually hold a value, so a dish never shows a box dimension. */
+  erp: ArticleErpMirror;
+}
+
+/**
+ * Turns the ERP's own columns into the read-only list the record screen shows.
+ *
+ * Two rules from §25 rule this function rather than the component:
+ *   * **A group with no value does not appear.** A plated dish has no box dimension and a
+ *     service item has no batch control; an empty input the operator wonders about is the
+ *     thing §25.2 exists to prevent. The exception is the groups §25.2 makes visible by
+ *     type alone (`retail` shows dimensions and manufacturer even when they are empty,
+ *     because that is what a retail record is for) — and there the group appears with a
+ *     stated empty value rather than a fabricated one.
+ *   * **Static typing lives here, not in a component.** `pg` hands back `numeric` as a
+ *     string and `boolean` as a boolean; the screen must not have to guess.
+ *
+ * SPEC-GAP, flagged rather than hidden: §25.2 specifies the visibility table as
+ * `erp_visibility_rule` rows. That table does not exist in `0008_mdm_masters.sql`, so the
+ * rule is implemented here as the "visible when it holds a value, or when the article
+ * type makes it real" subset, which is the part of the table that is data-driven today.
+ * A spec owner should reconcile the document to the implementation, as was done for
+ * `erp_unmapped_code`.
+ */
+interface ErpColumnRow {
+  article_type: string;
+  source_system: string | null;
+  external_ref: string | null;
+  material_type_code: string | null;
+  lifecycle_state_code: string | null;
+  erp_blocked: boolean | null;
+  valuation_class_code: string | null;
+  price_control: string | null;
+  standard_price_amount: string | number | null;
+  standard_price_currency: string | null;
+  moving_average_price_amount: string | number | null;
+  moving_average_price_currency: string | null;
+  erp_tax_classification_code: string | null;
+  erp_tax_group: string | null;
+  country_of_origin: string | null;
+  customs_tariff_number: string | null;
+  export_control_class: string | null;
+  manufacturer_name: string | null;
+  manufacturer_part_number: string | null;
+  revision_level: string | null;
+  net_weight_value: string | number | null;
+  net_weight_uom_code: string | null;
+  gross_weight_value: string | number | null;
+  gross_weight_uom_code: string | null;
+  storage_condition_code: string | null;
+  temperature_condition: string | null;
+  shelf_life_days: number | null;
+  batch_management: string | null;
+  serial_profile_code: string | null;
+  receipt_inspection_required: boolean | null;
+  certificate_required: boolean | null;
+  source_version: string | null;
+  last_sync_at: Date | null;
+}
+
+function buildErpFields(row: ErpColumnRow): ErpOwnedField[] {
+  const fields: ErpOwnedField[] = [];
+  const text = (value: unknown, group: string, field: string, kind: ErpOwnedField["kind"]): void => {
+    if (value === null || value === undefined || value === "") return;
+    fields.push({ group, field, kind, text: String(value), amount: null, currencyCode: null, uomCode: null });
+  };
+  const number = (value: unknown, group: string, field: string): void => {
+    if (value === null || value === undefined) return;
+    fields.push({ group, field, kind: "number", text: null, amount: Number(value), currencyCode: null, uomCode: null });
+  };
+  const money = (amount: unknown, currency: unknown, group: string, field: string): void => {
+    if (amount === null || amount === undefined || currency === null || currency === undefined) return;
+    fields.push({
+      group,
+      field,
+      kind: "money",
+      text: null,
+      amount: Number(amount),
+      currencyCode: String(currency).trim(),
+      uomCode: null,
+    });
+  };
+  const quantity = (value: unknown, uom: unknown, group: string, field: string): void => {
+    if (value === null || value === undefined) return;
+    fields.push({
+      group,
+      field,
+      kind: "quantity",
+      text: null,
+      amount: Number(value),
+      currencyCode: null,
+      uomCode: uom === null || uom === undefined || uom === "" ? null : String(uom),
+    });
+  };
+  const flag = (value: unknown, group: string, field: string): void => {
+    if (value !== true && value !== false) return;
+    fields.push({
+      group,
+      field,
+      kind: "boolean",
+      text: value ? "true" : "false",
+      amount: null,
+      currencyCode: null,
+      uomCode: null,
+    });
+  };
+
+  // Identity and sync: always shown, because a record mirrored from an ERP is not a
+  // record until you can say which ERP and which revision of it.
+  text(row.source_system, "erpIdentity", "sourceSystem", "code");
+  text(row.external_ref, "erpIdentity", "externalRef", "code");
+  text(row.material_type_code, "erpIdentity", "materialType", "code");
+  text(row.lifecycle_state_code, "erpIdentity", "lifecycleState", "code");
+  flag(row.erp_blocked, "erpIdentity", "blocked");
+  text(row.source_version, "erpSync", "sourceVersion", "text");
+
+  // Dimensions: retail always, otherwise only when the ERP actually sent a measurement.
+  if (row.article_type === "retail" || row.net_weight_value !== null || row.gross_weight_value !== null) {
+    quantity(row.net_weight_value, row.net_weight_uom_code, "dimensions", "netWeight");
+    quantity(row.gross_weight_value, row.gross_weight_uom_code, "dimensions", "grossWeight");
+  }
+  text(row.storage_condition_code, "storage", "storageCondition", "code");
+  text(row.temperature_condition, "storage", "temperatureCondition", "code");
+  number(row.shelf_life_days, "storage", "shelfLifeDays");
+  text(row.batch_management, "batch", "batchManagement", "code");
+  text(row.serial_profile_code, "batch", "serialProfile", "code");
+  flag(row.receipt_inspection_required, "quality", "receiptInspectionRequired");
+  flag(row.certificate_required, "quality", "certificateRequired");
+  text(row.valuation_class_code, "valuation", "valuationClass", "code");
+  text(row.price_control, "valuation", "priceControl", "code");
+  money(row.standard_price_amount, row.standard_price_currency, "valuation", "standardPrice");
+  money(row.moving_average_price_amount, row.moving_average_price_currency, "valuation", "movingAveragePrice");
+  text(row.erp_tax_classification_code, "erpTax", "taxClassification", "code");
+  text(row.erp_tax_group, "erpTax", "taxGroup", "code");
+  text(row.country_of_origin, "customs", "countryOfOrigin", "code");
+  text(row.customs_tariff_number, "customs", "customsTariffNumber", "code");
+  text(row.export_control_class, "customs", "exportControlClass", "code");
+  if (row.article_type === "retail") {
+    text(row.manufacturer_name, "manufacturer", "manufacturerName", "text");
+    text(row.manufacturer_part_number, "manufacturer", "partNumber", "code");
+  } else {
+    text(row.manufacturer_name, "manufacturer", "manufacturerName", "text");
+    text(row.manufacturer_part_number, "manufacturer", "partNumber", "code");
+  }
+  text(row.revision_level, "revision", "revisionLevel", "text");
+  return fields;
 }
 
 export async function getArticle(principal: Principal, code: string): Promise<ArticleDetail> {
@@ -486,8 +679,16 @@ export async function getArticle(principal: Principal, code: string): Promise<Ar
   const jurisdictions = await tradedJurisdictions(chainId);
   const primaryJurisdiction = jurisdictions[0] ?? "IN";
 
-  const [translations, priceRows, availabilityRows, allergenRows, nutritionRows, versionRows, keyRows] =
-    await Promise.all([
+  const [
+    translations,
+    priceRows,
+    availabilityRows,
+    outletRows,
+    allergenRows,
+    nutritionRows,
+    versionRows,
+    keyRows,
+  ] = await Promise.all([
       db.query<{ locale: string; name: string }>(
         `select locale, name from article_version_text where article_version_id = $1 order by locale`,
         [row.version_id]
@@ -516,6 +717,13 @@ export async function getArticle(principal: Principal, code: string): Promise<Ar
           where av.article_id = $1
           order by o.code`,
         [row.id]
+      ),
+      db.query<{ code: string; name: string; site_code: string; currency: string }>(
+        `select o.code, o.name, s.code as site_code, coalesce(s.currency, 'INR') as currency
+           from outlet o join site s on s.id = o.site_id
+          where o.chain_id = $1 and o.status = 'active'
+          order by s.code, o.name`,
+        [chainId]
       ),
       db.query<{ code: string; may_contain: boolean; source: string; mandatory: boolean }>(
         `select al.code, aa.may_contain, aa.source,
@@ -549,6 +757,87 @@ export async function getArticle(principal: Principal, code: string): Promise<Ar
         [chainId, row.id]
       ),
     ]);
+
+  // The ERP-maintained values and the chain's declared connection (§25). Read after the
+  // panels above because nothing here is on the common path — the section is last,
+  // collapsed, and present only when it holds something.
+  const [erpColumnRows, erpSystemRows, ownershipRows] = await Promise.all([
+    db.query<ErpColumnRow>(
+      `select a.article_type, a.source_system, a.external_ref,
+              a.material_type_code, a.erp_lifecycle_state_code as lifecycle_state_code,
+              a.erp_blocked, a.valuation_class_code,
+              a.price_control, a.standard_price_amount, a.standard_price_currency,
+              a.moving_average_price_amount, a.moving_average_price_currency,
+              a.erp_tax_classification_code, a.erp_tax_group,
+              a.country_of_origin, a.customs_tariff_number, a.export_control_class,
+              a.manufacturer_name, a.manufacturer_part_number, a.revision_level,
+              a.net_weight_value, nu.code as net_weight_uom_code,
+              a.gross_weight_value, gu.code as gross_weight_uom_code,
+              a.storage_condition_code, a.temperature_condition, a.shelf_life_days,
+              a.batch_management, a.serial_profile_code,
+              a.receipt_inspection_required, a.certificate_required,
+              a.erp_source_version as source_version, a.erp_last_sync_at as last_sync_at
+         from article a
+         left join uom nu on nu.id = a.net_weight_uom_id
+         left join uom gu on gu.id = a.gross_weight_uom_id
+        where a.id = $1
+        limit 1`,
+      [row.id]
+    ),
+    db.query<{
+      code: string;
+      display_name: string;
+      vendor: string;
+      status: string;
+      last_run_at: Date | null;
+    }>(
+      `select code, display_name, vendor, status, last_run_at
+         from erp_system
+        where chain_id = $1
+        order by created_at
+        limit 1`,
+      [chainId]
+    ),
+    db.query<{
+      field_group: string;
+      field: string | null;
+      owner: string;
+      inbound_action: string;
+      outbound_action: string;
+      override_allowed: boolean;
+      note_key: string | null;
+    }>(
+      `select field_group, field, owner, inbound_action, outbound_action, override_allowed, note_key
+         from erp_field_ownership
+        where chain_id = $1 and entity = 'article'
+        order by field_group, field nulls first`,
+      [chainId]
+    ),
+  ]);
+  const erpColumns = erpColumnRows[0];
+  const erpSystem = erpSystemRows[0];
+  const erp: ArticleErpMirror = {
+    system: erpSystem
+      ? {
+          code: erpSystem.code,
+          displayName: erpSystem.display_name,
+          vendor: erpSystem.vendor,
+          status: erpSystem.status,
+          lastSyncAt: erpSystem.last_run_at ? asIso(erpSystem.last_run_at) : null,
+        }
+      : null,
+    fields: erpColumns ? buildErpFields(erpColumns) : [],
+    ownership: ownershipRows.map((ownership) => ({
+      fieldGroup: ownership.field_group,
+      field: ownership.field,
+      owner: ownership.owner,
+      inboundAction: ownership.inbound_action,
+      outboundAction: ownership.outbound_action,
+      overrideAllowed: ownership.override_allowed,
+      noteKey: ownership.note_key,
+    })),
+    lastSyncAt: erpColumns?.last_sync_at ? asIso(erpColumns.last_sync_at) : null,
+  };
 
   // The compliance matrix, generated per traded jurisdiction from the profile's own rows
   // (§7.4). A market that requires nothing contributes nothing; a market whose rules
@@ -626,6 +915,12 @@ export async function getArticle(principal: Principal, code: string): Promise<Ar
       siteCode: price.site_code,
       money: { amount: Number(price.amount), currencyCode: price.currency_code },
     })),
+    outlets: outletRows.map((outlet) => ({
+      code: outlet.code,
+      name: outlet.name,
+      siteCode: outlet.site_code,
+      currency: outlet.currency,
+    })),
     availability: availabilityRows.map((availability) => ({
       outletCode: availability.outlet_code,
       availability: availability.availability,
@@ -657,6 +952,7 @@ export async function getArticle(principal: Principal, code: string): Promise<Ar
       // `erp_last_sync_at` is on the record and shown beside it as the record-level date.
       lastSyncAt: key.last_seen_at ? asIso(key.last_seen_at) : null,
     })),
+    erp,
   };
 }
 
