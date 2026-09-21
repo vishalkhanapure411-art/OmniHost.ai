@@ -1,7 +1,7 @@
 import "@tanstack/react-start/server-only";
 
 import { poolQueryable, type Queryable } from "~/db";
-import { auditedMutation, guard, recordAudit } from "~/server/audit";
+import { auditedMutation, guard, recordAudit, toJsonState, type JsonState } from "~/server/audit";
 import { NotFound, ValidationError } from "~/server/errors";
 import type { Principal } from "~/server/session";
 import type { ErpOwnedField, ErpOwnershipRow, ErpSystemView } from "~/domain/mdm";
@@ -588,8 +588,8 @@ export interface VendorDetail {
       actorRoleCode: string | null;
       outcome: string;
       reason: string | null;
-      before: unknown;
-      after: unknown;
+      before: JsonState;
+      after: JsonState;
     }[];
     /** Set when the trail is readable in principle but not by this caller. */
     denied: { permission: string } | null;
@@ -1000,8 +1000,8 @@ export async function getVendor(principal: Principal, code: string): Promise<Ven
         actorRoleCode: entry.actor_role_code,
         outcome: entry.outcome,
         reason: entry.reason,
-        before: entry.before_state,
-        after: entry.after_state,
+        before: toJsonState(entry.before_state),
+        after: toJsonState(entry.after_state),
       })),
       denied: canReadAudit ? null : { permission: "chain.audit.read" },
     },
@@ -1128,7 +1128,7 @@ export async function updateVendorTerms(
     creditLimitCurrency?: string | null;
   },
   meta: MutationMeta = {}
-): Promise<{ code: string; before: unknown; after: unknown }> {
+): Promise<{ code: string; before: JsonState; after: JsonState }> {
   const code = input.code?.trim();
   if (!code) throw new ValidationError("vendor code is required");
   const kind = (input.paymentTermsKind ?? "").trim();
@@ -1227,7 +1227,7 @@ export async function updateVendorTerms(
     },
   });
 
-  return { code, before: outcome.before, after: outcome.after };
+  return { code, before: toJsonState(outcome.before), after: toJsonState(outcome.after) };
 }
 
 /**

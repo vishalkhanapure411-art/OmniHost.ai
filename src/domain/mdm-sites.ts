@@ -1,7 +1,7 @@
 import "@tanstack/react-start/server-only";
 
 import { poolQueryable, type Queryable } from "~/db";
-import { guard } from "~/server/audit";
+import { guard, toJsonState, type JsonState } from "~/server/audit";
 import { NotFound, ValidationError } from "~/server/errors";
 import type { Principal } from "~/server/session";
 import type { ErpOwnedField, ErpOwnershipRow, ErpSystemView, MutationMeta } from "~/domain/mdm";
@@ -402,7 +402,13 @@ export interface SiteDetail {
     postalCode: string | null;
     countryCode: string | null;
   };
-  addressRaw: Record<string, unknown>;
+  /**
+   * The raw `address` jsonb, unflattened, as JSON text. Not an object type for the same
+   * reason as `JsonState`: a nested untyped value inside a returned interface fails
+   * TanStack Start's serialisability check. Nothing reads it yet — it is here so the
+   * unprojected keys are not silently lost.
+   */
+  addressRaw: JsonState;
   outlets: OutletView[];
   operatingHours: {
     dayOfWeek: number;
@@ -453,8 +459,8 @@ export interface SiteDetail {
       actorRoleCode: string | null;
       outcome: string;
       reason: string | null;
-      before: unknown;
-      after: unknown;
+      before: JsonState;
+      after: JsonState;
     }[];
     denied: { permission: string } | null;
   };
@@ -842,7 +848,7 @@ export async function getSite(principal: Principal, code: string): Promise<SiteD
       postalCode: addressValue("postalCode") ?? addressValue("postal_code"),
       countryCode: addressValue("countryCode") ?? addressValue("country_code"),
     },
-    addressRaw: address,
+    addressRaw: toJsonState(address),
     outlets,
     operatingHours: hours.map((entry) => ({
       dayOfWeek: entry.day_of_week,
@@ -907,8 +913,8 @@ export async function getSite(principal: Principal, code: string): Promise<SiteD
         actorRoleCode: entry.actor_role_code,
         outcome: entry.outcome,
         reason: entry.reason,
-        before: entry.before_state,
-        after: entry.after_state,
+        before: toJsonState(entry.before_state),
+        after: toJsonState(entry.after_state),
       })),
       denied: canReadAudit ? null : { permission: "chain.audit.read" },
     },

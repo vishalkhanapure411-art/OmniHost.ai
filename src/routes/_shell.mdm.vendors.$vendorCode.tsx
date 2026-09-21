@@ -225,8 +225,8 @@ function VendorScreen() {
             <Badge tone="neutral" shape={false}>
               {t(TYPE_LABEL[vendor.vendorType] ?? "mdm.vendor.type.distributor")}
             </Badge>
-            {vendor.billingCurrency ? (
-              <span className="font-mono text-xs text-fg-muted">{vendor.billingCurrency}</span>
+            {vendor.commercial.billingCurrency ? (
+              <span className="font-mono text-xs text-fg-muted">{vendor.commercial.billingCurrency}</span>
             ) : null}
           </>
         }
@@ -657,7 +657,12 @@ function VendorScreen() {
                 {
                   label: t("mdm.vendor.field.creditLimit"),
                   value: vendor.commercial.creditLimit ? (
-                    <MoneyValue money={vendor.commercial.creditLimit} />
+                    <MoneyValue
+                      money={{
+                        amount: vendor.commercial.creditLimit.amount,
+                        currency: vendor.commercial.creditLimit.currencyCode,
+                      }}
+                    />
                   ) : (
                     <NoValue />
                   ),
@@ -1095,7 +1100,7 @@ function VendorScreen() {
                               field.amount !== null &&
                               field.currencyCode !== null ? (
                                 <MoneyValue
-                                  money={{ amount: field.amount, currencyCode: field.currencyCode }}
+                                  money={{ amount: field.amount, currency: field.currencyCode }}
                                 />
                               ) : (
                                 <span className="font-mono text-xs">{field.text ?? "—"}</span>
@@ -1461,7 +1466,7 @@ function TermsDialog({
             {
               label: t("mdm.vendor.field.creditLimit"),
               value: creditValid && parsedCredit !== null ? (
-                <MoneyValue money={{ amount: parsedCredit, currencyCode: currency || "INR" }} />
+                <MoneyValue money={{ amount: parsedCredit, currency: currency || "INR" }} />
               ) : (
                 t("common.none")
               ),

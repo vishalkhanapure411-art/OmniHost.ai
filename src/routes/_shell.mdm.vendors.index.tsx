@@ -328,7 +328,12 @@ function VendorsScreen() {
                       )}
                       {vendor.creditLimit ? (
                         <span className="block text-xs text-fg-muted">
-                          <MoneyValue money={vendor.creditLimit} />
+                          <MoneyValue
+                            money={{
+                              amount: vendor.creditLimit.amount,
+                              currency: vendor.creditLimit.currencyCode,
+                            }}
+                          />
                         </span>
                       ) : null}
                     </td>
