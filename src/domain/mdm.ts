@@ -1,7 +1,8 @@
 import "@tanstack/react-start/server-only";
 
-import { poolQueryable, type Queryable } from "~/db";
-import { auditedMutation, guard } from "~/server/audit";
+import { poolQueryable, withTransaction, type Queryable } from "~/db";
+import { auditedMutation, guard, writeAudit, type MutationOutcome } from "~/server/audit";
+import { can } from "~/server/permissions";
 import { NotFound, ValidationError } from "~/server/errors";
 import type { Principal } from "~/server/session";
 
@@ -1100,7 +1101,20 @@ export async function getArticleFilterOptions(principal: Principal): Promise<Mdm
 // Writes
 // ---------------------------------------------------------------------------
 export interface MutationMeta {
-  source?: "screen" | "chatbot" | "api";
+  source?: "screen" | "chatbot" | "api" | "import";
+  /** The import batch, when an import applied this write (spec §5 `batchId`). */
+  batchId?: string | null;
+  /** The locale a per-locale content row is written for. The chain default unless stated. */
+  locale?: string | null;
+  /**
+   * A caller-owned transaction. Supplied by the bulk-import pipeline, which must apply a
+   * whole file or none of it (§16, and the brief's rule): each write then joins *that*
+   * transaction instead of opening one of its own, so one failing row rolls the entire file
+   * back. The caller is responsible for committing; the audit row is still written inside
+   * the same transaction, so the "commit the write and its audit row together" rule holds
+   * whichever way the function was called.
+   */
+  tx?: Queryable | null;
   intent?: string | null;
 }
 
@@ -1149,14 +1163,7 @@ export async function updateArticlePrice(
     intent: meta.intent ?? null,
   });
 
-  const outcome = await auditedMutation({
-    principal,
-    action: "mdm.article.price.update",
-    entityType: "article_price",
-    chainId,
-    source: meta.source ?? "api",
-    intent: meta.intent ?? null,
-    run: async (tx) => {
+  const run = async (tx: Queryable): Promise<MutationOutcome> => {
       const rows = await tx.query<{
         article_id: string;
         version_id: string;
@@ -1225,14 +1232,42 @@ export async function updateArticlePrice(
 
       await tx.query(`update article set updated_at = now() where id = $1`, [row.article_id]);
 
-      return {
-        entityId: inserted[0]?.id ?? null,
-        // The audit row carries both windows: what was closed and what was opened.
-        before: before ? { ...before, priceId: row.price_id, effectiveTo: effectiveFrom } : null,
-        after: { amount: input.amount, currencyCode, outletCode, effectiveFrom },
-      };
-    },
-  });
+    return {
+      entityId: inserted[0]?.id ?? null,
+      // The audit row carries both windows: what was closed and what was opened.
+      before: before ? { ...before, priceId: row.price_id, effectiveTo: effectiveFrom } : null,
+      after: { amount: input.amount, currencyCode, outletCode, effectiveFrom },
+    };
+  };
+
+  let outcome: MutationOutcome;
+  if (meta.tx) {
+    outcome = await run(meta.tx);
+    await writeAudit(meta.tx, {
+      principal,
+      action: "mdm.article.price.update",
+      entityType: "article_price",
+      entityId: outcome.entityId ?? null,
+      chainId,
+      beforeState: outcome.before ?? null,
+      afterState: outcome.after ?? null,
+      outcome: "success",
+      source: meta.source ?? "api",
+      intent: meta.intent ?? null,
+      batchId: meta.batchId ?? null,
+    });
+  } else {
+    outcome = await auditedMutation({
+      principal,
+      action: "mdm.article.price.update",
+      entityType: "article_price",
+      chainId,
+      source: meta.source ?? "api",
+      intent: meta.intent ?? null,
+      batchId: meta.batchId ?? null,
+      run,
+    });
+  }
 
   const before = outcome.before as (Money & { priceId?: string }) | null;
   return {
@@ -1333,5 +1368,1044 @@ export async function setArticleAvailability(
     outletCode,
     before: String((outcome.before as { availability: string }).availability),
     after: input.availability,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// The create/edit path (§7.2, §7.3, §16)
+// ---------------------------------------------------------------------------
+/**
+ * Why these two functions exist, and why they are here rather than inside the import
+ * module: **an import is not a second way to write an article.** The bulk-import pipeline
+ * (§16, §23) calls exactly the functions a create screen or a chatbot intent calls, so the
+ * capability checks, the reference resolution, the jurisdiction rules, the effective-dating
+ * behaviour and the audit shape are the same code path — and a rule the UI enforces cannot
+ * be walked around by uploading a spreadsheet.
+ *
+ * Two conventions the import depends on and a screen gets for free:
+ *
+ *   1. **A refusal carries a code, not only prose.** `invalid(code, column, params)` builds a
+ *      `ValidationError` whose `details` name the message and the field. The screen would
+ *      render the message; the import report renders the same code against the line number
+ *      in the operator's own file. Neither invents wording for the other.
+ *   2. **A no-op is not a write.** `updateArticle` diffs first and only opens a transaction
+ *      when something actually differs, which is what makes re-importing a file idempotent
+ *      rather than a stream of audit rows saying nothing changed (§23.3 layer 2).
+ */
+export type ArticleType = "food" | "beverage" | "retail" | "service";
+export type DietaryMark = "veg" | "non_veg" | "egg" | "vegan" | "none";
+export type OutletAvailability = "available" | "seasonal" | "unavailable";
+
+export interface ArticlePriceInput {
+  outletCode: string;
+  amount: number;
+  currencyCode: string;
+  /** ISO 8601 (YYYY-MM-DD); defaults to today, and the default is reported (§16 item 3). */
+  effectiveFrom?: string | null;
+}
+
+export interface ArticleWriteInput {
+  code: string;
+  name: string;
+  shortName?: string | null;
+  categoryCode: string;
+  articleType: ArticleType;
+  dietaryMark?: DietaryMark | null;
+  taxClassCode?: string | null;
+  hsnSacCode?: string | null;
+  baseUomCode: string;
+  servingSizeQty?: number | null;
+  servingSizeUomCode?: string | null;
+  caloriesKcal?: number | null;
+  channels?: string[];
+  allergens?: { code: string; mayContain: boolean }[];
+  nutrients?: { code: string; value: number; basis: string }[];
+  prices?: ArticlePriceInput[];
+  availability?: OutletAvailability | null;
+  externalRef?: string | null;
+  sourceSystem?: string | null;
+}
+
+export interface ArticleWriteResult {
+  id: string;
+  code: string;
+  /** The record's lifecycle state after the call (§6). */
+  status: string;
+  version: number;
+  outcome: "created" | "updated" | "unchanged";
+  /** Field-level names of what changed (empty for a create or a no-op). */
+  changed: string[];
+  pricesWritten: number;
+  /** Required-in-jurisdiction fields the row did not carry; non-empty means the record
+   * could not reach `active` and landed lower, which the report says out loud. */
+  missingRequired: string[];
+}
+
+/** A coded validation refusal. `column` is the field the operator must look at. */
+export function invalid(
+  code: string,
+  column: string,
+  params: Record<string, string | number> = {}
+): ValidationError {
+  return new ValidationError(`${code}:${column}`, { code, column, params });
+}
+
+interface ArticleRefs {
+  categoryId: string;
+  taxClassId: string | null;
+  baseUomId: string;
+  servingUomId: string | null;
+  /** The code travels with the id: the audit diff and the "unchanged" comparison are about
+   * what a person reads, and an id is not that. */
+  allergens: { id: string; code: string; mayContain: boolean }[];
+  nutrients: { id: string; code: string; value: number; basis: string }[];
+  outlets: { id: string; code: string; currency: string }[];
+}
+
+/**
+ * Resolves every reference an article row names, or refuses with the code and the column.
+ *
+ * Nothing here writes. It is deliberately *all* the resolution in one place because the
+ * import's dry run needs the same answers as its commit: a dry run that resolved references
+ * differently from the commit would be a report nobody could trust.
+ */
+async function resolveArticleRefs(
+  tx: Queryable,
+  chainId: string,
+  input: ArticleWriteInput
+): Promise<ArticleRefs> {
+  const category = await tx.query<{ id: string }>(
+    `select id from article_category where chain_id = $1 and lower(code) = lower($2)`,
+    [chainId, input.categoryCode]
+  );
+  if (!category[0]) {
+    throw invalid("validation.unknownReference", "category", {
+      kind: "category",
+      code: input.categoryCode,
+    });
+  }
+
+  // A tax class must resolve in a jurisdiction the chain actually trades in (§7.1): a
+  // class from another market is not a class this article can be sold under.
+  const jurisdictions = await tradedJurisdictions(chainId);
+  let taxClassId: string | null = null;
+  if (input.taxClassCode) {
+    const rows = await tx.query<{ id: string; jurisdiction_code: string }>(
+      `select id, jurisdiction_code from tax_class
+        where chain_id = $1 and lower(code) = lower($2)`,
+      [chainId, input.taxClassCode]
+    );
+    const match = rows.find((row) => jurisdictions.includes(row.jurisdiction_code)) ?? rows[0];
+    if (!match) {
+      throw invalid("validation.unknownReference", "taxClass", {
+        kind: "tax class",
+        code: input.taxClassCode,
+      });
+    }
+    if (!jurisdictions.includes(match.jurisdiction_code)) {
+      throw invalid("validation.jurisdiction.required", "taxClass", {
+        field: "tax class",
+        jurisdiction: match.jurisdiction_code,
+      });
+    }
+    taxClassId = match.id;
+  }
+
+  const uom = async (code: string, column: string): Promise<string> => {
+    const rows = await tx.query<{ id: string }>(
+      `select id from uom
+        where lower(code) = lower($1) and (chain_id is null or chain_id = $2)
+        order by chain_id nulls last
+        limit 1`,
+      [code, chainId]
+    );
+    if (!rows[0]) throw invalid("validation.unknownReference", column, { kind: "unit", code });
+    return rows[0].id;
+  };
+  const baseUomId = await uom(input.baseUomCode, "baseUom");
+  const servingUomId = input.servingSizeUomCode
+    ? await uom(input.servingSizeUomCode, "servingUom")
+    : null;
+
+  const allergens: { id: string; code: string; mayContain: boolean }[] = [];
+  for (const entry of input.allergens ?? []) {
+    const rows = await tx.query<{ id: string }>(
+      `select id from allergen
+        where lower(code) = lower($1) and (chain_id is null or chain_id = $2)
+        order by chain_id nulls last limit 1`,
+      [entry.code, chainId]
+    );
+    if (!rows[0]) {
+      throw invalid("validation.unknownReference", "allergens", {
+        kind: "allergen",
+        code: entry.code,
+      });
+    }
+    allergens.push({ id: rows[0].id, code: entry.code, mayContain: entry.mayContain });
+  }
+
+  const nutrients: { id: string; code: string; value: number; basis: string }[] = [];
+  for (const entry of input.nutrients ?? []) {
+    const rows = await tx.query<{ id: string }>(
+      `select id from nutrient
+        where lower(code) = lower($1) and (chain_id is null or chain_id = $2)
+        order by chain_id nulls last limit 1`,
+      [entry.code, chainId]
+    );
+    if (!rows[0]) {
+      throw invalid("validation.unknownReference", "nutrition", {
+        kind: "nutrient",
+        code: entry.code,
+      });
+    }
+    nutrients.push({ id: rows[0].id, code: entry.code, value: entry.value, basis: entry.basis });
+  }
+
+  const outlets: { id: string; code: string; currency: string }[] = [];
+  for (const price of input.prices ?? []) {
+    const rows = await tx.query<{ id: string; currency: string }>(
+      `select o.id, coalesce(s.currency, 'INR') as currency
+         from outlet o join site s on s.id = o.site_id
+        where o.chain_id = $1 and lower(o.code) = lower($2)`,
+      [chainId, price.outletCode]
+    );
+    if (!rows[0]) {
+      throw invalid("validation.unknownOutlet", "prices", { code: price.outletCode });
+    }
+    if (rows[0].currency !== price.currencyCode) {
+      // The same rule `updateArticlePrice` enforces for a hand edit (§7.1): a price is in
+      // the currency of the site it is sold at, and a file cannot talk us into another.
+      throw invalid("validation.money.currencyMismatch", "prices", {
+        outlet: price.outletCode,
+        currency: rows[0].currency,
+        given: price.currencyCode,
+      });
+    }
+    outlets.push({ id: rows[0].id, code: price.outletCode, currency: rows[0].currency });
+  }
+
+  return { categoryId: category[0].id, taxClassId, baseUomId, servingUomId, allergens, nutrients, outlets };
+}
+
+/** The fields a market's profile requires for an article, and which of them are missing. */
+async function complianceGaps(
+  tx: Queryable,
+  chainId: string,
+  input: ArticleWriteInput
+): Promise<string[]> {
+  const jurisdictions = await tradedJurisdictions(chainId);
+  const missing = new Set<string>();
+  for (const jurisdiction of jurisdictions) {
+    const required = await requiredFields(tx, jurisdiction, "article");
+    for (const field of required) {
+      const present = (() => {
+        switch (field) {
+          case "dietaryMark":
+            return Boolean(input.dietaryMark);
+          case "hsnSacCode":
+            return Boolean(input.hsnSacCode);
+          case "caloriesKcal":
+            return input.caloriesKcal !== null && input.caloriesKcal !== undefined;
+          case "servingSize":
+            return input.servingSizeQty !== null && input.servingSizeQty !== undefined;
+          case "taxClass":
+            return Boolean(input.taxClassCode);
+          case "allergens":
+            // Declaring "none" is a positive statement (§7.1): the field is present when the
+            // row says so explicitly, which is what an empty cell cannot express.
+            return input.allergens !== undefined;
+          default:
+            return true;
+        }
+      })();
+      if (!present) missing.add(field);
+    }
+  }
+  return [...missing];
+}
+
+/** Whether the chain holds the approval-gated golden-record feature (§6). */
+async function approvalGated(tx: Queryable, chainId: string): Promise<boolean> {
+  const rows = await tx.query<{ enabled: boolean }>(
+    `select cf.enabled
+       from chain_feature cf join feature f on f.code = cf.feature_code
+      where cf.chain_id = $1 and f.code = 'mdm_approval_gated'`,
+    [chainId]
+  );
+  return Boolean(rows[0]?.enabled);
+}
+
+/**
+ * Creates an article and its first version, plus the content, compliance and price rows a
+ * hand-entered article would carry.
+ *
+ * `mdm.article.create` is the gate, exactly as §3 says — a role holding only
+ * `mdm.article.import` gets no further than the batch, and the import reports that refusal
+ * per row rather than pretending the column was wrong.
+ */
+export async function createArticle(
+  principal: Principal,
+  input: ArticleWriteInput,
+  meta: MutationMeta = {}
+): Promise<ArticleWriteResult> {
+  const code = input.code?.trim();
+  if (!code) throw invalid("validation.required", "code", { field: "code" });
+  if (!input.name?.trim()) throw invalid("validation.required", "name", { field: "name" });
+  if (!input.categoryCode?.trim()) {
+    throw invalid("validation.required", "category", { field: "category" });
+  }
+  if (!input.baseUomCode?.trim()) {
+    throw invalid("validation.required", "baseUom", { field: "baseUom" });
+  }
+  if (!["food", "beverage", "retail", "service"].includes(input.articleType)) {
+    throw invalid("validation.invalidEnum", "articleType", { values: "food, beverage, retail, service" });
+  }
+
+  const chainId = resolveChainId(principal, null);
+  await guard({
+    principal,
+    action: "mdm.article.create",
+    entityType: "article",
+    chainId,
+    target: `article ${code}`,
+    source: meta.source,
+    intent: meta.intent ?? null,
+  });
+
+  const run = async (tx: Queryable): Promise<ArticleWriteResult> => {
+    const refs = await resolveArticleRefs(tx, chainId, input);
+    const gaps = await complianceGaps(tx, chainId, input);
+
+    // Landing state (§6): the chain's approval switch decides, and where it is off only a
+    // holder of `*.approve` can take a record straight to `active`. Anything else lands as
+    // a draft, which is a fact the report states rather than an error it invents.
+    const gated = await approvalGated(tx, chainId);
+    const mayApprove = await can(principal, "mdm.article.approve", { chainId });
+    const status: string = gated || gaps.length > 0 ? "draft" : mayApprove ? "active" : "draft";
+    const versionStatus = status === "draft" ? "draft" : "active";
+
+    const inserted = await tx.query<{ id: string }>(
+      `insert into article (chain_id, code, category_id, article_type, status, base_uom_id,
+                            external_ref, source_system)
+       values ($1, $2, $3, $4, $5, $6, $7, $8)
+       returning id`,
+      [
+        chainId,
+        code,
+        refs.categoryId,
+        input.articleType,
+        status,
+        refs.baseUomId,
+        input.externalRef ?? null,
+        input.sourceSystem ?? null,
+      ]
+    );
+    const articleId = inserted[0]?.id;
+    if (!articleId) throw new ValidationError("article insert returned no id");
+
+    const version = await tx.query<{ id: string }>(
+      `insert into article_version (chain_id, article_id, version, status, dietary_mark,
+                                    tax_class_id, hsn_sac_code, serving_size_qty,
+                                    serving_size_uom_id, calories_kcal, channel_flags,
+                                    effective_from, approved_at, approved_by_user_id,
+                                    created_by_user_id)
+       values ($1, $2, 1, $3, $4, $5, $6, $7, $8, $9, $10::text[],
+               $11::date, $12, $13, $14)
+       returning id`,
+      [
+        chainId,
+        articleId,
+        versionStatus,
+        input.dietaryMark ?? null,
+        refs.taxClassId,
+        input.hsnSacCode ?? null,
+        input.servingSizeQty ?? null,
+        refs.servingUomId,
+        input.caloriesKcal ?? null,
+        input.channels ?? [],
+        dayOrNull(input.prices?.[0]?.effectiveFrom),
+        status === "active" ? new Date() : null,
+        status === "active" ? principal.userId : null,
+        principal.userId,
+      ]
+    );
+    const versionId = version[0]?.id;
+    if (!versionId) throw new ValidationError("article version insert returned no id");
+
+    await tx.query(`update article set current_version_id = $2 where id = $1`, [articleId, versionId]);
+    await tx.query(
+      `insert into article_version_text (chain_id, article_version_id, locale, name, short_name)
+       values ($1, $2, $3, $4, $5)`,
+      [chainId, versionId, meta.locale ?? "en-IN", input.name.trim(), input.shortName?.trim() || null]
+    );
+
+    for (const jurisdiction of await tradedJurisdictions(chainId)) {
+      await tx.query(
+        `insert into article_version_jurisdiction (chain_id, article_version_id, jurisdiction_code,
+                                                   tax_class_id, hsn_sac_code, calories_kcal,
+                                                   serving_size_qty, serving_size_uom_id, overrides)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9::text[])
+         on conflict (article_version_id, jurisdiction_code) do nothing`,
+        [
+          chainId,
+          versionId,
+          jurisdiction,
+          refs.taxClassId,
+          input.hsnSacCode ?? null,
+          input.caloriesKcal ?? null,
+          input.servingSizeQty ?? null,
+          refs.servingUomId,
+          refs.taxClassId ? ["taxClass"] : [],
+        ]
+      );
+    }
+
+    for (const allergen of refs.allergens) {
+      await tx.query(
+        `insert into article_version_allergen (chain_id, article_version_id, allergen_id, may_contain, source)
+         values ($1, $2, $3, $4, 'declared')
+         on conflict (article_version_id, allergen_id) do update set may_contain = excluded.may_contain`,
+        [chainId, versionId, allergen.id, allergen.mayContain]
+      );
+    }
+    for (const nutrient of refs.nutrients) {
+      await tx.query(
+        `insert into article_version_nutrient (chain_id, article_version_id, nutrient_id, value, basis)
+         values ($1, $2, $3, $4, $5)
+         on conflict (article_version_id, nutrient_id, basis) do update set value = excluded.value`,
+        [chainId, versionId, nutrient.id, nutrient.value, nutrient.basis]
+      );
+    }
+
+    let pricesWritten = 0;
+    const prices = input.prices ?? [];
+    for (const [index, price] of prices.entries()) {
+      const outlet = refs.outlets[index];
+      if (!outlet) continue;
+      await tx.query(
+        `insert into article_price (chain_id, article_id, article_version_id, outlet_id, amount,
+                                    currency_code, effective_from, created_by_user_id)
+         values ($1, $2, $3, $4, $5, $6, $7::date, $8)`,
+        [
+          chainId,
+          articleId,
+          versionId,
+          outlet.id,
+          price.amount,
+          price.currencyCode,
+          price.effectiveFrom?.trim() || new Date().toISOString().slice(0, 10),
+          principal.userId,
+        ]
+      );
+      if (input.availability) {
+        await tx.query(
+          `insert into article_availability (chain_id, article_id, outlet_id, availability, source, updated_by_user_id)
+           values ($1, $2, $3, $4, 'user', $5)
+           on conflict (article_id, outlet_id) do update
+             set availability = excluded.availability, updated_at = now()`,
+          [chainId, articleId, outlet.id, input.availability, principal.userId]
+        );
+      }
+      pricesWritten += 1;
+    }
+
+    await writeAudit(tx, {
+      principal,
+      action: "mdm.article.create",
+      entityType: "article",
+      entityId: articleId,
+      chainId,
+      beforeState: null,
+      afterState: {
+        code,
+        version: 1,
+        versionId,
+        status,
+        // The audit row a support query starts from: what the create actually wrote.
+        category: input.categoryCode,
+        articleType: input.articleType,
+        prices: prices.map((price) => ({
+          outletCode: price.outletCode,
+          amount: price.amount,
+          currencyCode: price.currencyCode,
+          effectiveFrom: price.effectiveFrom?.trim() || new Date().toISOString().slice(0, 10),
+        })),
+        externalRef: input.externalRef ?? null,
+        sourceSystem: input.sourceSystem ?? null,
+      },
+      outcome: "success",
+      source: meta.source ?? "api",
+      intent: meta.intent ?? null,
+      batchId: meta.batchId ?? null,
+    });
+
+    return {
+      id: articleId,
+      code,
+      status,
+      version: 1,
+      outcome: "created" as const,
+      changed: ["article", "version", "prices"],
+      pricesWritten,
+      missingRequired: gaps,
+    };
+  };
+
+  if (meta.tx) return run(meta.tx);
+  return withTransaction(run);
+}
+
+/** A `YYYY-MM-DD` date or null — never a silent `Invalid Date`. */
+function dayOrNull(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+/**
+ * Edits the current version's content: the non-financial half of the record.
+ *
+ * Prices are deliberately **not** here — a price change is `mdm.article.price.update` with
+ * its own audit trail and its own effective-dated window (`updateArticlePrice`), and folding
+ * it into a general update is exactly the merge §3 forbids.
+ *
+ * A call that changes nothing writes nothing and audits nothing, which is what makes a
+ * re-import idempotent (§23.3 layer 2) instead of a wall of no-op audit rows.
+ */
+export async function updateArticle(
+  principal: Principal,
+  input: ArticleWriteInput,
+  meta: MutationMeta = {}
+): Promise<ArticleWriteResult> {
+  const code = input.code?.trim();
+  if (!code) throw invalid("validation.required", "code", { field: "code" });
+
+  const chainId = resolveChainId(principal, null);
+  await guard({
+    principal,
+    action: "mdm.article.update",
+    entityType: "article",
+    chainId,
+    target: `article ${code}`,
+    source: meta.source,
+    intent: meta.intent ?? null,
+  });
+
+  const run = async (tx: Queryable): Promise<ArticleWriteResult> => {
+    const current = await loadArticleSnapshot(tx, chainId, code, meta.locale ?? "en-IN");
+    if (!current) throw new NotFound("Article", code);
+    const refs = await resolveArticleRefs(tx, chainId, input);
+    const gaps = await complianceGaps(tx, chainId, input);
+    const changed = diffArticleContent(current, input, refs);
+
+    if (changed.length === 0) {
+      return {
+        id: current.id,
+        code,
+        status: current.status,
+        version: current.version,
+        outcome: "unchanged" as const,
+        changed: [],
+        pricesWritten: 0,
+        missingRequired: gaps,
+      };
+    }
+
+    const before: Record<string, unknown> = {};
+    const after: Record<string, unknown> = {};
+    for (const field of changed) {
+      before[field] = auditValue(current, field);
+      after[field] = auditValue(
+        {
+          name: input.name?.trim() ?? null,
+          short_name: input.shortName?.trim() ?? null,
+          dietary_mark: input.dietaryMark ?? null,
+          tax_class_code: input.taxClassCode ?? current.taxClassCode ?? null,
+          hsn_sac_code: input.hsnSacCode ?? null,
+          serving_size_qty: input.servingSizeQty ?? null,
+          calories_kcal: input.caloriesKcal ?? null,
+          article_type: input.articleType ?? null,
+          external_ref: input.externalRef ?? null,
+          source_system: input.sourceSystem ?? null,
+          channel_flags: input.channels ?? null,
+          allergen_codes: refs.allergens.filter((entry) => !entry.mayContain).map((e) => e.code),
+          nutrition: refs.nutrients.map((n) => n.code),
+        },
+        field
+      );
+    }
+
+    await tx.query(
+      `update article
+          set category_id = $2, article_type = $3, external_ref = $4, source_system = $5,
+              updated_at = now()
+        where id = $1`,
+      [
+        current.id,
+        refs.categoryId,
+        input.articleType || current.articleType,
+        input.externalRef ?? current.externalRef,
+        input.sourceSystem ?? current.sourceSystem,
+      ]
+    );
+    await tx.query(
+      `update article_version
+          set dietary_mark = $2, tax_class_id = $3, hsn_sac_code = $4, serving_size_qty = $5,
+              serving_size_uom_id = $6, calories_kcal = $7,
+              channel_flags = coalesce($8::text[], channel_flags),
+              updated_at = now()
+        where id = $1`,
+      [
+        current.versionId,
+        input.dietaryMark ?? current.dietaryMark,
+        refs.taxClassId ?? current.taxClassId,
+        input.hsnSacCode ?? current.hsnSacCode,
+        input.servingSizeQty ?? current.servingSizeQty,
+        refs.servingUomId ?? current.servingSizeUomId,
+        input.caloriesKcal ?? current.caloriesKcal,
+        input.channels ?? null,
+      ]
+    );
+    if (changed.includes("name") || changed.includes("shortName")) {
+      await tx.query(
+        `insert into article_version_text (chain_id, article_version_id, locale, name, short_name)
+         values ($1, $2, $3, $4, $5)
+         on conflict (article_version_id, locale) do update
+           set name = excluded.name, short_name = excluded.short_name, updated_at = now()`,
+        [
+          chainId,
+          current.versionId,
+          meta.locale ?? "en-IN",
+          input.name?.trim() || current.name || code,
+          input.shortName?.trim() ?? current.shortName,
+        ]
+      );
+    }
+    if (input.allergens) {
+      // A declared set is replaced wholesale: "none declared" is a positive statement (§7.1),
+      // so a merged set would be a lie about what the row said.
+      await tx.query(`delete from article_version_allergen where article_version_id = $1`, [
+        current.versionId,
+      ]);
+      for (const allergen of refs.allergens) {
+        await tx.query(
+          `insert into article_version_allergen (chain_id, article_version_id, allergen_id, may_contain, source)
+           values ($1, $2, $3, $4, 'declared')`,
+          [chainId, current.versionId, allergen.id, allergen.mayContain]
+        );
+      }
+    }
+    if (input.nutrients) {
+      await tx.query(`delete from article_version_nutrient where article_version_id = $1`, [
+        current.versionId,
+      ]);
+      for (const nutrient of refs.nutrients) {
+        await tx.query(
+          `insert into article_version_nutrient (chain_id, article_version_id, nutrient_id, value, basis)
+           values ($1, $2, $3, $4, $5)`,
+          [chainId, current.versionId, nutrient.id, nutrient.value, nutrient.basis]
+        );
+      }
+    }
+    if (input.availability && refs.outlets.length > 0) {
+      for (const outlet of refs.outlets) {
+        await tx.query(
+          `insert into article_availability (chain_id, article_id, outlet_id, availability, source, updated_by_user_id)
+           values ($1, $2, $3, $4, 'user', $5)
+           on conflict (article_id, outlet_id) do update
+             set availability = excluded.availability, updated_at = now()`,
+          [chainId, current.id, outlet.id, input.availability, principal.userId]
+        );
+      }
+    }
+
+    await writeAudit(tx, {
+      principal,
+      action: "mdm.article.update",
+      entityType: "article",
+      entityId: current.id,
+      chainId,
+      beforeState: before,
+      afterState: { ...after, versionId: current.versionId, version: current.version },
+      outcome: "success",
+      source: meta.source ?? "api",
+      intent: meta.intent ?? null,
+      batchId: meta.batchId ?? null,
+    });
+
+    return {
+      id: current.id,
+      code,
+      status: current.status,
+      version: current.version,
+      outcome: "updated" as const,
+      changed,
+      pricesWritten: 0,
+      missingRequired: gaps,
+    };
+  };
+
+  if (meta.tx) return run(meta.tx);
+  return withTransaction(run);
+}
+
+function num(value: string | number | null | undefined): number | null {
+  if (value === null || value === undefined) return null;
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function auditValue(source: object, field: string): unknown {
+  const row = source as Record<string, unknown>;
+  switch (field) {
+    case "name":
+      return row.name ?? null;
+    case "shortName":
+      return row.short_name ?? null;
+    case "dietaryMark":
+      return row.dietary_mark ?? null;
+    case "taxClass":
+      return row.tax_class_code ?? null;
+    case "hsnSacCode":
+      return row.hsn_sac_code ?? null;
+    case "servingSize":
+      return row.serving_size_qty ?? null;
+    case "caloriesKcal":
+      return row.calories_kcal ?? null;
+    case "articleType":
+      return row.article_type ?? null;
+    case "externalRef":
+      return row.external_ref ?? null;
+    case "sourceSystem":
+      return row.source_system ?? null;
+    case "channels":
+      return row.channel_flags ?? null;
+    default:
+      return row[field] ?? null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// The write *plan* — one decision point shared by the write path and a dry run
+// ---------------------------------------------------------------------------
+/**
+ * A dry run has to answer "what would happen to this row" without writing it, and the
+ * answer has to be the one the write would actually produce. The way this file keeps the
+ * two honest is not a second validator: it is these three functions, which the dry run and
+ * the write path both call.
+ *
+ *   * `loadArticleSnapshot` — the record as it stands (content, declared set, open prices).
+ *   * `diffArticleContent`  — field-level difference between the file's row and that record;
+ *     the write path applies exactly the fields this reports as changed.
+ *   * `landingStatus`       — the lifecycle state a brand-new record lands in (§6).
+ *
+ * What this does *not* claim: the commit's report is built from what the domain functions
+ * actually returned, not from the plan. If the two ever disagreed, the commit's own numbers
+ * are what the operator sees — a dry run that can lie about a write is worse than no dry run.
+ */
+export interface ArticleSnapshot {
+  id: string;
+  versionId: string;
+  version: number;
+  status: string;
+  name: string | null;
+  shortName: string | null;
+  categoryId: string;
+  articleType: string;
+  dietaryMark: string | null;
+  taxClassId: string | null;
+  taxClassCode: string | null;
+  hsnSacCode: string | null;
+  servingSizeQty: number | null;
+  servingSizeUomId: string | null;
+  caloriesKcal: number | null;
+  channelFlags: string[];
+  externalRef: string | null;
+  sourceSystem: string | null;
+  allergens: { code: string; mayContain: boolean }[];
+  nutrients: { code: string; value: number; basis: string }[];
+  prices: { outletCode: string; amount: number; currencyCode: string; effectiveFrom: string }[];
+}
+
+export async function loadArticleSnapshot(
+  tx: Queryable,
+  chainId: string,
+  code: string,
+  locale: string
+): Promise<ArticleSnapshot | null> {
+  const found = await tx.query<{
+    id: string;
+    version_id: string | null;
+    version: number | null;
+    status: string;
+    name: string | null;
+    short_name: string | null;
+    category_id: string;
+    article_type: string;
+    dietary_mark: string | null;
+    tax_class_id: string | null;
+    tax_class_code: string | null;
+    hsn_sac_code: string | null;
+    serving_size_qty: string | null;
+    serving_size_uom_id: string | null;
+    calories_kcal: string | null;
+    channel_flags: string[];
+    external_ref: string | null;
+    source_system: string | null;
+    allergens: { code: string; may_contain: boolean }[] | null;
+    nutrients: { code: string; value: string; basis: string }[] | null;
+    prices: { outlet_code: string; amount: string; currency_code: string; effective_from: string }[] | null;
+  }>(
+    `select a.id, a.current_version_id as version_id, v.version, a.status, a.category_id,
+            a.article_type, a.external_ref, a.source_system,
+            v.dietary_mark, v.tax_class_id, tc.code as tax_class_code, v.hsn_sac_code,
+            v.serving_size_qty, v.serving_size_uom_id, v.calories_kcal, v.channel_flags,
+            t.name, t.short_name,
+            (select jsonb_agg(jsonb_build_object('code', al.code, 'may_contain', aa.may_contain)
+                              order by al.code)
+               from article_version_allergen aa join allergen al on al.id = aa.allergen_id
+              where aa.article_version_id = v.id) as allergens,
+            (select jsonb_agg(jsonb_build_object('code', n.code, 'value', an.value, 'basis', an.basis)
+                              order by n.code, an.basis)
+               from article_version_nutrient an join nutrient n on n.id = an.nutrient_id
+              where an.article_version_id = v.id) as nutrients,
+            (select jsonb_agg(jsonb_build_object('outlet_code', o.code, 'amount', p.amount,
+                                                 'currency_code', p.currency_code,
+                                                 'effective_from', to_char(p.effective_from, 'YYYY-MM-DD'))
+                              order by o.code)
+               from article_price p join outlet o on o.id = p.outlet_id
+              where p.article_version_id = v.id and p.effective_to is null) as prices
+       from article a
+       left join article_version v on v.id = a.current_version_id
+       left join tax_class tc on tc.id = v.tax_class_id
+       left join article_version_text t on t.article_version_id = v.id and t.locale = $3
+      where a.chain_id = $1 and lower(a.code) = lower($2)`,
+    [chainId, code, locale]
+  );
+  const row = found[0];
+  if (!row || !row.version_id) return null;
+  return {
+    id: row.id,
+    versionId: row.version_id,
+    version: row.version ?? 1,
+    status: row.status,
+    name: row.name,
+    shortName: row.short_name,
+    categoryId: row.category_id,
+    articleType: row.article_type,
+    dietaryMark: row.dietary_mark,
+    taxClassId: row.tax_class_id,
+    taxClassCode: row.tax_class_code,
+    hsnSacCode: row.hsn_sac_code,
+    servingSizeQty: num(row.serving_size_qty),
+    servingSizeUomId: row.serving_size_uom_id,
+    caloriesKcal: num(row.calories_kcal),
+    channelFlags: row.channel_flags ?? [],
+    externalRef: row.external_ref,
+    sourceSystem: row.source_system,
+    allergens: (row.allergens ?? []).map((entry) => ({
+      code: entry.code,
+      mayContain: entry.may_contain,
+    })),
+    nutrients: (row.nutrients ?? []).map((entry) => ({
+      code: entry.code,
+      value: Number(entry.value),
+      basis: entry.basis,
+    })),
+    prices: (row.prices ?? []).map((entry) => ({
+      outletCode: entry.outlet_code,
+      amount: Number(entry.amount),
+      currencyCode: entry.currency_code,
+      effectiveFrom: entry.effective_from,
+    })),
+  };
+}
+
+/** The fields this row would change, by name. Empty means the row is a no-op. */
+export function diffArticleContent(
+  current: ArticleSnapshot,
+  input: ArticleWriteInput,
+  refs: ArticleRefs
+): string[] {
+  const changed: string[] = [];
+  if (input.name?.trim() && input.name.trim() !== current.name) changed.push("name");
+  if ((input.shortName?.trim() ?? null) !== (current.shortName ?? null)) changed.push("shortName");
+  if ((input.dietaryMark ?? null) !== (current.dietaryMark ?? null)) changed.push("dietaryMark");
+  if ((input.hsnSacCode ?? null) !== (current.hsnSacCode ?? null)) changed.push("hsnSacCode");
+  if (refs.taxClassId !== null && refs.taxClassId !== current.taxClassId) changed.push("taxClass");
+  if (num(input.servingSizeQty) !== current.servingSizeQty) changed.push("servingSize");
+  if (num(input.caloriesKcal) !== current.caloriesKcal) changed.push("caloriesKcal");
+  if (refs.categoryId !== current.categoryId) changed.push("category");
+  if (input.articleType && input.articleType !== current.articleType) changed.push("articleType");
+  if (input.externalRef !== undefined && (input.externalRef ?? null) !== current.externalRef) {
+    changed.push("externalRef");
+  }
+  if (input.sourceSystem !== undefined && (input.sourceSystem ?? null) !== current.sourceSystem) {
+    changed.push("sourceSystem");
+  }
+  if (input.channels) {
+    const before = [...current.channelFlags].sort().join(",");
+    const after = [...input.channels].sort().join(",");
+    if (before !== after) changed.push("channels");
+  }
+  if (input.allergens) {
+    const before = current.allergens
+      .filter((entry) => !entry.mayContain)
+      .map((entry) => entry.code)
+      .sort()
+      .join(",");
+    const after = refs.allergens
+      .filter((entry) => !entry.mayContain)
+      .map((entry) => entry.code)
+      .sort()
+      .join(",");
+    if (before !== after) changed.push("allergens");
+    const beforeMay = current.allergens
+      .filter((entry) => entry.mayContain)
+      .map((entry) => entry.code)
+      .sort()
+      .join(",");
+    const afterMay = refs.allergens
+      .filter((entry) => entry.mayContain)
+      .map((entry) => entry.code)
+      .sort()
+      .join(",");
+    if (beforeMay !== afterMay) changed.push("mayContain");
+  }
+  if (input.nutrients) {
+    const before = current.nutrients
+      .map((row) => `${row.code}=${row.value}@${row.basis}`)
+      .sort()
+      .join("|");
+    const after = refs.nutrients
+      .map((row) => `${row.code}=${row.value}@${row.basis}`)
+      .sort()
+      .join("|");
+    if (before !== after) changed.push("nutrition");
+  }
+  return changed;
+}
+
+/**
+ * Where a brand-new record lands (§6).
+ *
+ * Three answers, all of them the spec's own: an approval-gated chain (Gold's
+ * `mdm_approval_gated`) needs a named approver, so the row lands `pending_review`; where the
+ * switch is off, a holder of `*.approve` may take it straight to `active`; anyone else lands
+ * `draft`. A record that is missing a field its market requires cannot reach `active` at all
+ * — that is the compliance gate working, not an error.
+ */
+export function landingStatus(
+  approvalGated: boolean,
+  mayApprove: boolean,
+  gaps: string[]
+): "draft" | "pending_review" | "active" {
+  if (gaps.length > 0) return "draft";
+  if (approvalGated) return "pending_review";
+  return mayApprove ? "active" : "draft";
+}
+
+export interface ArticlePricePlan {
+  outletCode: string;
+  amount: number;
+  currencyCode: string;
+  /** The open row this would close, when there is one. */
+  from: { amount: number; currencyCode: string } | null;
+  effectiveFrom: string;
+}
+
+export interface ArticleWritePlan {
+  existing: boolean;
+  outcome: "created" | "updated" | "unchanged";
+  gaps: string[];
+  approvalGated: boolean;
+  mayApprove: boolean;
+  landing: "draft" | "pending_review" | "active";
+  /** Capability codes the caller does not hold, and would therefore be refused on. */
+  missingCapabilities: string[];
+  contentChanged: string[];
+  /** The article's id when the row matches an existing record — the report links to it even
+   * for an `unchanged` row, which is the row an operator most wants to look at. */
+  existingId: string | null;
+  priceChanges: ArticlePricePlan[];
+  priceUnchanged: string[];
+  /** Values the row did not state and the platform filled in, so a wrong default is visible
+   *  rather than silent (§16 item 3). */
+  defaulted: string[];
+}
+
+/**
+ * What a row would do, without doing any of it. Reads only — every write this plan implies
+ * goes through `createArticle` / `updateArticle` / `updateArticlePrice`, which is what makes
+ * a dry run a preview of the real path rather than a second opinion about it.
+ */
+export async function planArticleWrite(
+  tx: Queryable,
+  principal: Principal,
+  chainId: string,
+  input: ArticleWriteInput,
+  options: { locale?: string | null; today?: string } = {}
+): Promise<ArticleWritePlan> {
+  const refs = await resolveArticleRefs(tx, chainId, input);
+  const gaps = await complianceGaps(tx, chainId, input);
+  const gated = await approvalGated(tx, chainId);
+  const mayApprove = await can(principal, "mdm.article.approve", { chainId });
+  const current = await loadArticleSnapshot(tx, chainId, input.code, options.locale ?? "en-IN");
+  const today = options.today ?? new Date().toISOString().slice(0, 10);
+
+  const missingCapabilities: string[] = [];
+  const requires = current ? ["mdm.article.update"] : ["mdm.article.create"];
+  for (const code of requires) {
+    if (!(await can(principal, code, { chainId }))) missingCapabilities.push(code);
+  }
+
+  const priceChanges: ArticlePricePlan[] = [];
+  const priceUnchanged: string[] = [];
+  for (const [index, price] of (input.prices ?? []).entries()) {
+    const outlet = refs.outlets[index];
+    if (!outlet) continue;
+    const open = current?.prices.find((row) => row.outletCode === outlet.code) ?? null;
+    if (open && open.amount === price.amount && open.currencyCode === price.currencyCode) {
+      priceUnchanged.push(outlet.code);
+      continue;
+    }
+    if (!(await can(principal, "mdm.article.price.update", { chainId }))) {
+      if (!missingCapabilities.includes("mdm.article.price.update")) {
+        missingCapabilities.push("mdm.article.price.update");
+      }
+    }
+    priceChanges.push({
+      outletCode: outlet.code,
+      amount: price.amount,
+      currencyCode: price.currencyCode,
+      from: open ? { amount: open.amount, currencyCode: open.currencyCode } : null,
+      effectiveFrom: price.effectiveFrom?.trim() || today,
+    });
+  }
+
+  const contentChanged = current ? diffArticleContent(current, input, refs) : [];
+  const outcome: ArticleWritePlan["outcome"] = !current
+    ? "created"
+    : contentChanged.length > 0 || priceChanges.length > 0
+      ? "updated"
+      : "unchanged";
+
+  const defaulted: string[] = [];
+  if ((input.prices ?? []).some((price) => !price.effectiveFrom?.trim())) {
+    defaulted.push("priceEffectiveFrom");
+  }
+
+  return {
+    existing: Boolean(current),
+    outcome,
+    gaps,
+    approvalGated: gated,
+    mayApprove,
+    landing: landingStatus(gated, mayApprove, gaps),
+    missingCapabilities,
+    contentChanged,
+    existingId: current?.id ?? null,
+    priceChanges,
+    priceUnchanged,
+    defaulted,
   };
 }
