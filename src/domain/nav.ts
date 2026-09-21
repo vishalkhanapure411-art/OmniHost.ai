@@ -87,6 +87,12 @@ export const NAV_ITEMS: NavEntry[] = [
     requires: ["mdm.site.view"],
   },
   {
+    to: "/mdm/import",
+    label: "Import master data",
+    description: "Upload a chain export, see exactly what would happen row by row, then commit it.",
+    requires: ["mdm.article.import"],
+  },
+  {
     to: "/audit",
     label: "Audit trail",
     description: "Who did what, with before and after state.",

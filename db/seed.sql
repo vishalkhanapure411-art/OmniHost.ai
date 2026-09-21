@@ -608,6 +608,11 @@ with mdm_grant (role_code, permission_like) as (
     ('CENTRAL_MDM_HEAD', 'mdm.%'),
     ('CENTRAL_MDM_TEAM', 'mdm.%.view'),
     ('CENTRAL_MDM_TEAM', 'mdm.%.search'),
+    -- Spec §3: "CENTRAL_MDM_TEAM | every mdm.*.view/.search, create, update, propose, import,
+    -- deactivate, reactivate, bank.view". The `%.view`/`%.search` patterns never reached the
+    -- `.import` codes, so the seeded Team could not import anything while the spec says it
+    -- can. Written explicitly, like the Site Head rows above, rather than relying on a LIKE.
+    ('CENTRAL_MDM_TEAM', 'mdm.%.import'),
     ('CENTRAL_MDM_TEAM', 'mdm.article.create'),
     ('CENTRAL_MDM_TEAM', 'mdm.article.update'),
     ('CENTRAL_MDM_TEAM', 'mdm.article.price.update'),

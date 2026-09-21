@@ -33,6 +33,7 @@ import type { PublicPrincipal } from "~/domain/principal";
 export type { NavItem } from "~/domain/nav";
 export type { PublicPrincipal } from "~/domain/principal";
 import { canReadAudit, listApprovals, listAuditEntries } from "~/domain/inbox";
+import { commitImport, dryRunImport } from "~/domain/import";
 import { currentPrincipal } from "~/server/context";
 import { resolveDisplayPreferences } from "~/server/locale";
 import { Unauthenticated, isHttpError, toErrorResponse } from "~/server/errors";
@@ -726,6 +727,57 @@ export const getSiteFn = createServerFn({ method: "GET" })
     if (!principal) return failure(new Unauthenticated());
     try {
       return { ok: true as const, site: await getSite(principal, data.code) };
+    } catch (error) {
+      return failure(error);
+    }
+  });
+
+// ---------------------------------------------------------------------------
+// Bulk import (§16) — the two phases, and nothing else
+// ---------------------------------------------------------------------------
+/**
+ * Two server functions, deliberately separate rather than one with a flag: a dry run and a
+ * commit are different acts by a different decision, the screen offers them as two buttons,
+ * and a caller who can do the first cannot accidentally do the second.
+ *
+ * The file's text is uploaded from the browser and parsed on the server — one place, the
+ * server's, because that is where the validation lives and where the answer has to be
+ * authoritative. Capability checks, audit rows and the report all happen behind these two
+ * functions; neither screen nor client holds a rule.
+ */
+export const dryRunImportFn = createServerFn({ method: "POST" })
+  .validator((input: unknown) => input as { entity: "article"; fileName: string; content: string })
+  .handler(async ({ data }) => {
+    const principal = await currentPrincipal();
+    if (!principal) return failure(new Unauthenticated());
+    try {
+      return {
+        ok: true as const,
+        report: await dryRunImport(principal, {
+          entity: "article",
+          fileName: data.fileName,
+          content: data.content,
+        }),
+      };
+    } catch (error) {
+      return failure(error);
+    }
+  });
+
+export const commitImportFn = createServerFn({ method: "POST" })
+  .validator((input: unknown) => input as { entity: "article"; fileName: string; content: string })
+  .handler(async ({ data }) => {
+    const principal = await currentPrincipal();
+    if (!principal) return failure(new Unauthenticated());
+    try {
+      return {
+        ok: true as const,
+        report: await commitImport(principal, {
+          entity: "article",
+          fileName: data.fileName,
+          content: data.content,
+        }),
+      };
     } catch (error) {
       return failure(error);
     }

@@ -26,7 +26,7 @@ import type { Principal } from "~/server/session";
  *      an auditor or a chain's security team actually asks about.
  */
 
-export type AuditSource = "screen" | "chatbot" | "api" | "system";
+export type AuditSource = "screen" | "chatbot" | "api" | "system" | "import";
 export type AuditOutcome = "success" | "denied" | "error";
 
 export interface AuditEntry {
@@ -45,6 +45,14 @@ export interface AuditEntry {
   intent?: string | null;
   source?: AuditSource;
   requestId?: string | null;
+  /**
+   * The import batch this row belongs to (spec §5, §23.5).
+   *
+   * It is what turns "what did that import change" from a search into one query, and it is
+   * set on the batch's own row *and* on every row the batch applied — the same id in both
+   * places, which is the whole point. Null for everything that is not an import.
+   */
+  batchId?: string | null;
 }
 
 /**
@@ -78,10 +86,10 @@ export async function writeAudit(tx: Queryable, entry: AuditEntry): Promise<stri
     `insert into audit_log (
         chain_id, site_id, actor_user_id, actor_role_code, actor_scope,
         action, entity_type, entity_id, before_state, after_state,
-        outcome, reason, intent, request_source, session_id, request_id
+        outcome, reason, intent, request_source, session_id, request_id, batch_id
      ) values (
         $1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb,
-        $11, $12, $13, $14, $15, $16
+        $11, $12, $13, $14, $15, $16, $17
      ) returning id`,
     [
       entry.chainId ?? null,
@@ -100,6 +108,7 @@ export async function writeAudit(tx: Queryable, entry: AuditEntry): Promise<stri
       entry.source ?? "api",
       entry.principal.sessionId,
       entry.requestId ?? null,
+      entry.batchId ?? null,
     ]
   );
   return rows[0]?.id ?? "";
@@ -179,6 +188,8 @@ export interface AuditedMutationArgs {
   intent?: string | null;
   source?: AuditSource;
   requestId?: string | null;
+  /** The import batch, when this mutation was applied by one (spec §5). */
+  batchId?: string | null;
   /**
    * The work. Receives the transaction handle; returns the entity id plus the state
    * before and after so the caller cannot forget to supply them.
@@ -208,6 +219,7 @@ export async function auditedMutation(args: AuditedMutationArgs): Promise<Mutati
       intent: args.intent ?? null,
       source: args.source ?? "api",
       requestId: args.requestId ?? null,
+      batchId: args.batchId ?? null,
     });
     return outcome;
   });
