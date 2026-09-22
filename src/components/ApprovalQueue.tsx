@@ -1,8 +1,11 @@
 import { useState, type ReactNode } from "react";
 
 import { ApprovalStateBadge, CategoryBadge, SeverityBadge, type ApprovalState, type Severity } from "~/components/status";
-import { Button, Card, ConfirmSummary, Dialog, EmptyState } from "~/components/ui";
+import { Button, Card, ConfirmSummary, Dialog, EmptyState, Field, Select, Textarea } from "~/components/ui";
 import { Clock, Layers } from "~/components/icons";
+import { ARTICLE_REVIEW_REASONS, isArticleReviewReason } from "~/domain/approvals";
+import type { ArticleReviewReasonCode } from "~/domain/approvals";
+import type { MessageKey } from "~/i18n/catalog-en";
 import { MoneyValue, TimestampValue } from "~/components/values";
 import { useI18n } from "~/i18n";
 import type { Money } from "~/i18n/format";
@@ -16,9 +19,14 @@ import type { Money } from "~/i18n/format";
  * in the row, not the first, because deciding is the end of the thought, not the start.
  *
  * Decisions go through the same confirm-before-commit dialog as every other
- * money- or stock-affecting action. `onDecide` is the caller's business: today it is
- * unwired (the modules that raise items ship with their own phases), and the component
- * says so rather than pretending.
+ * money- or stock-affecting action, and the dialog is where the approver sees *what* they
+ * are deciding: `review` is the version's own content, composed by the caller, so the
+ * component stays presentational and the copy stays in the catalogs.
+ *
+ * A send-back carries a reason code and, optionally, the reviewer's words. The code is
+ * required by the server as well as offered here — the control is on the server, this is
+ * the surface that makes it usable — and the field is deliberately left empty by default
+ * so the requirement is a thing an operator meets rather than a thing they never see.
  */
 export interface ApprovalRowView {
   id: string;
@@ -34,9 +42,19 @@ export interface ApprovalRowView {
   raisedByRole: string;
   assignedRole?: string | null;
   value?: Money | null;
+  /** What the approver is approving, as label/value facts. Composed by the caller. */
+  review?: { label: string; value: string }[];
+  /** What the task points at — the caller decides whether a decision path exists at all. */
+  entityType?: string;
 }
 
 export type ApprovalDecision = "approve" | "sendBack";
+
+/** What a decision carries beyond the decision itself. */
+export interface ApprovalDecisionExtras {
+  reasonCode?: ArticleReviewReasonCode | null;
+  note?: string | null;
+}
 
 export function ApprovalQueueList({
   items,
@@ -45,7 +63,7 @@ export function ApprovalQueueList({
   emptyState,
 }: {
   items: ApprovalRowView[];
-  onDecide?: (item: ApprovalRowView, decision: ApprovalDecision) => void;
+  onDecide?: (item: ApprovalRowView, decision: ApprovalDecision, extras: ApprovalDecisionExtras) => void;
   /** Ids already decided in this session — removed from the queue optimistically. */
   decided?: string[];
   emptyState?: ReactNode;
@@ -69,10 +87,12 @@ export function ApprovalQueueRow({
   onDecide,
 }: {
   item: ApprovalRowView;
-  onDecide?: (item: ApprovalRowView, decision: ApprovalDecision) => void;
+  onDecide?: (item: ApprovalRowView, decision: ApprovalDecision, extras: ApprovalDecisionExtras) => void;
 }) {
   const { t } = useI18n();
   const [pending, setPending] = useState<ApprovalDecision | null>(null);
+  const [reasonCode, setReasonCode] = useState<ArticleReviewReasonCode | "">("");
+  const [note, setNote] = useState("");
   const overdue = item.state === "overdue";
 
   return (
@@ -139,7 +159,12 @@ export function ApprovalQueueRow({
             <Button
               variant="primary"
               onClick={() => {
-                if (pending) onDecide?.(item, pending);
+                if (pending) {
+                  onDecide?.(item, pending, {
+                    reasonCode: pending === "sendBack" && isArticleReviewReason(reasonCode) ? reasonCode : null,
+                    note: note.trim() || null,
+                  });
+                }
                 setPending(null);
               }}
             >
@@ -148,6 +173,23 @@ export function ApprovalQueueRow({
           </>
         }
       >
+        {item.review && item.review.length > 0 ? (
+          <div className="mb-3 flex flex-col gap-2">
+            <p className="text-2xs font-semibold tracking-wide text-fg-subtle uppercase">
+              {t("approval.review.title")}
+            </p>
+            <dl className="divide-y divide-border rounded-md border border-border">
+              {item.review.map((fact) => (
+                <div key={fact.label} className="flex items-baseline justify-between gap-4 px-3 py-1.5">
+                  <dt className="text-2xs font-semibold tracking-wide text-fg-subtle uppercase">
+                    {fact.label}
+                  </dt>
+                  <dd className="text-sm text-fg">{fact.value}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        ) : null}
         <ConfirmSummary
           items={[
             { label: t("approvals.column.item"), value: item.title },
@@ -159,6 +201,37 @@ export function ApprovalQueueRow({
             },
           ]}
         />
+        {pending === "sendBack" ? (
+          <div className="mt-3 flex flex-col gap-3">
+            <Field id="approval-send-back-reason" label={t("approval.reason.label")} required>
+              <Select
+                id="approval-send-back-reason"
+                value={reasonCode}
+                onChange={(value) => {
+                  setReasonCode(isArticleReviewReason(value) ? value : "");
+                }}
+                emptyLabel={t("approval.reason.choose")}
+                options={ARTICLE_REVIEW_REASONS.map((code) => ({
+                  value: code,
+                  label: t(`approval.reason.${code}` as MessageKey),
+                }))}
+              />
+            </Field>
+            <Field
+              id="approval-send-back-note"
+              label={t("approval.reason.note")}
+              hint={t("approval.reason.noteHint")}
+            >
+              <Textarea
+                id="approval-send-back-note"
+                value={note}
+                onChange={setNote}
+                rows={2}
+                placeholder={t("approval.reason.notePlaceholder")}
+              />
+            </Field>
+          </div>
+        ) : null}
       </Dialog>
     </li>
   );
