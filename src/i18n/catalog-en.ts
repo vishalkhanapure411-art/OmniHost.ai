@@ -364,6 +364,10 @@ export const enIN = {
   "approval.notice.approved": "{item} is approved and now active.",
   "approval.notice.sentBack": "{item} was sent back: {reason}.",
   "approval.notice.refused": "Refused: {reason}",
+  // Not a refusal: the screen could not tell whether the decision landed, so it says exactly
+  // that rather than nothing at all. Rendered in the same panel, in the neutral tone.
+  "approval.notice.decisionFailed":
+    "No answer came back from the platform, so this screen cannot say whether the decision was recorded. Refresh and look at the item: if it is still awaiting a decision, decide it again — the audit trail records what happened either way.",
   // The two decisions, named. The queue's buttons, its dialog titles and its commits all read
   // from here, so "which button publishes and which rejects" has one answer per decision.
   "approval.action.approve": "Approve",

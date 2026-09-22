@@ -399,6 +399,10 @@ export async function decideArticleReview(
         throw coded("validation.review.jurisdictionIncomplete", "status", {
           field: first.field,
           jurisdiction: first.jurisdiction,
+          // The profile the requirement is written on, so the sentence can name the market in
+          // words (`IN` → "India") instead of handing the reader a code to decode — and so it
+          // keeps saying which *law* it is: an `IN-KA` site inherits `IN`'s article profile.
+          declaredFor: first.declaredFor,
         });
       }
     }

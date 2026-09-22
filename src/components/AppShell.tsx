@@ -7,6 +7,7 @@ import { Badge, Button, Select } from "~/components/ui";
 import { TimestampValue } from "~/components/values";
 import { LOCALES, catalogCoverage } from "~/i18n/locales";
 import { useI18n } from "~/i18n";
+import type { MessageKey } from "~/i18n/catalog-en";
 import type { LocaleCode } from "~/i18n/locales";
 import type { NavItem } from "~/domain/nav";
 import type { PublicPrincipal } from "~/domain/principal";
@@ -96,7 +97,7 @@ export function AppShell({
           {grouped.map((group) => (
             <div key={group.key} className="mb-3 last:mb-0">
               <p className="px-2 pb-1 text-2xs font-semibold tracking-wider text-fg-subtle uppercase">
-                {group.title}
+                {t(group.title as MessageKey)}
               </p>
               <ul className="flex flex-col gap-0.5">
                 {group.items.map((item) => (

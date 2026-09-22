@@ -28,6 +28,7 @@ import { ARTICLE_APPROVER_ROLE } from "~/domain/approvals";
 import type { ErpOwnedField } from "~/domain/mdm";
 import { useI18n } from "~/i18n";
 import type { MessageKey } from "~/i18n/catalog-en";
+import { sentenceParams } from "~/i18n/labels";
 import {
   getArticleFn,
   setArticleAvailabilityFn,
@@ -306,7 +307,7 @@ function ArticlePending() {
 function ArticleScreen() {
   const result = Route.useLoaderData();
   const { principal } = Route.useRouteContext();
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -342,11 +343,22 @@ function ArticleScreen() {
    * anything else — a missing capability, most of all — is shown as the server sent it,
    * because the capability it names *is* the message.
    */
-  function refusalText(response: { code: string | null; message: string }): string {
+  function refusalText(response: {
+    code: string | null;
+    message: string;
+    permission?: string | null;
+    params?: Record<string, string | number> | null;
+  }): string {
     if (response.code) {
       const key = response.code as MessageKey;
-      const translated = t(key);
+      // Same treatment as the approvals screen: a parameterised refusal renders its values, so
+      // `validation.review.jurisdictionIncomplete` names the field and the market in words
+      // instead of printing the literals `{field}` and `{jurisdiction}` at the reader.
+      const translated = t(key, sentenceParams(t, locale, response.params ?? null));
       if (translated !== key) return translated;
+    }
+    if (response.permission) {
+      return t("error.forbidden.needs", { permission: response.permission });
     }
     return response.message;
   }

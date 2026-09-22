@@ -8,6 +8,7 @@ import { Button, Card, CardHeader, EmptyState, ErrorState, PageHeader, Segmented
 import { TimestampValue } from "~/components/values";
 import { useI18n } from "~/i18n";
 import type { MessageKey } from "~/i18n/catalog-en";
+import { complianceFieldLabel, marketName, sentenceParams } from "~/i18n/labels";
 import { ARTICLE_VERSION_ENTITY } from "~/domain/approvals";
 import type { ApprovalQueueScope } from "~/domain/inbox";
 import type { ArticleVersionReview } from "~/domain/mdm-approvals";
@@ -69,7 +70,7 @@ export const Route = createFileRoute("/_shell/approvals")({
 function ApprovalsScreen() {
   const { waiting, decided, reviews } = Route.useLoaderData();
   const { principal } = Route.useRouteContext();
-  const { t, format, money } = useI18n();
+  const { t, format, locale, money } = useI18n();
   const router = useRouter();
   const [scope, setScope] = useState<ApprovalQueueScope>("waiting");
   const [notice, setNotice] = useState<string | null>(null);
@@ -95,19 +96,28 @@ function ApprovalsScreen() {
    * A coded refusal is looked up in the catalog — with the code's own parameters — so an
    * operator reading Hindi is not handed an English sentence, and so a refusal that must
    * name a field and a market (`validation.review.jurisdictionIncomplete`) renders those
-   * words rather than the literals `{field}` and `{jurisdiction}`. A refusal with no code —
-   * a missing capability — is shown as it arrived, since the point of that message is the
-   * capability it names.
+   * words rather than the literals `{field}` and `{jurisdiction}` — and the words are the
+   * catalog's own for the field and the market, not the machine names the domain evaluated
+   * (`caloriesKcal` in `IN-KA`). A refusal with no code is a missing capability, and the
+   * catalog has the sentence for one, naming the capability: the server's own
+   * `Not permitted: <capability>` is true and unusable in equal measure.
    */
   function refusalText(response: {
     code: string | null;
     message: string;
+    permission?: string | null;
     params?: Record<string, string | number> | null;
   }): string {
     if (response.code) {
       const key = response.code as MessageKey;
-      const translated = t(key, response.params ?? undefined);
+      const translated = t(key, sentenceParams(t, locale, response.params ?? null));
       if (translated !== key) return translated;
+    }
+    // An uncoded refusal is a missing *capability* — `guard()` runs before the four-eyes check,
+    // so a caller who may propose but not approve lands here rather than on the four-eyes
+    // sentence, and that must keep reading as a sentence.
+    if (response.permission) {
+      return t("error.forbidden.needs", { permission: response.permission });
     }
     return response.message;
   }
@@ -194,7 +204,13 @@ function ApprovalsScreen() {
     const review = reviews[taskId];
     if (!review) return [];
     return review.complianceGaps.map((gap) =>
-      t("approval.review.missingRequired.item", { field: gap.field, jurisdiction: gap.jurisdiction })
+      t("approval.review.missingRequired.item", {
+        // The review read hands over machine names (`caloriesKcal`, `IN-KA`) and this is the
+        // sentence a person reads *before* deciding, so it says "Energy per serving required in
+        // India" — the field's own label and the market in words.
+        field: complianceFieldLabel(t, gap.field),
+        jurisdiction: marketName(locale, gap.declaredFor ?? gap.jurisdiction),
+      })
     );
   }
 
@@ -217,8 +233,16 @@ function ApprovalsScreen() {
           note: extras.note ?? null,
         },
       });
-      if (!response.ok) {
-        setRefusal({ text: refusalText(response), policy: isPolicyRefusal(response) });
+      // A decision is recorded only when the server says it was. Every other answer — a coded
+      // refusal, an uncoded one, or a shape this screen does not recognise — is put in front of
+      // the person who clicked: a decision that silently does nothing is the exact failure
+      // maker-checker exists to prevent, and `!response.ok` alone let an answer that was not the
+      // envelope at all fall out of the branch and set nothing.
+      if (!response || response.ok !== true) {
+        setRefusal({
+          text: response ? refusalText(response) : t("approval.notice.decisionFailed"),
+          policy: Boolean(response && isPolicyRefusal(response)),
+        });
         return;
       }
       setNotice(
@@ -233,6 +257,12 @@ function ApprovalsScreen() {
             })
       );
       await router.invalidate();
+    } catch (error) {
+      // The call itself failed — a dropped connection, or a response this client could not read.
+      // It says what it can: the screen cannot tell whether the decision landed, so it must not
+      // leave the operator guessing whether their click did anything at all.
+      console.error("[omnihost] approval decision failed", error);
+      setRefusal({ text: t("approval.notice.decisionFailed"), policy: true });
     } finally {
       setBusy(false);
     }
@@ -342,6 +372,8 @@ function ApprovalsScreen() {
             />
             {refusal ? (
               <p
+                role="status"
+                aria-live="polite"
                 className={`border-b border-border px-3 py-1.5 text-xs text-fg ${
                   refusal.policy ? "bg-surface-sunken" : "bg-danger-soft"
                 }`}
@@ -434,5 +466,7 @@ const STATUS_LABEL: Record<string, MessageKey> = {
   draft: "mdm.article.status.draft",
   pending_review: "mdm.article.status.pending_review",
   active: "mdm.article.status.active",
+  superseded: "mdm.article.version.status.superseded",
+  seasonal: "mdm.article.status.seasonal",
   discontinued: "mdm.article.status.discontinued",
 };
