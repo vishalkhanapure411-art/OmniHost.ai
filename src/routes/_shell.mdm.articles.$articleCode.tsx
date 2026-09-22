@@ -20,13 +20,20 @@ import {
   SegmentedControl,
   Select,
   Skeleton,
+  Textarea,
   TextInput,
 } from "~/components/ui";
 import { MoneyValue, NumberValue, QuantityValue, TimestampValue } from "~/components/values";
+import { ARTICLE_APPROVER_ROLE } from "~/domain/approvals";
 import type { ErpOwnedField } from "~/domain/mdm";
 import { useI18n } from "~/i18n";
 import type { MessageKey } from "~/i18n/catalog-en";
-import { getArticleFn, setArticleAvailabilityFn, updateArticlePriceFn } from "~/server-fns";
+import {
+  getArticleFn,
+  setArticleAvailabilityFn,
+  submitArticleForReviewFn,
+  updateArticlePriceFn,
+} from "~/server-fns";
 
 /**
  * The article record — `/mdm/articles/ART-1042` (spec §7.5, Part II §25).
@@ -306,6 +313,8 @@ function ArticleScreen() {
   const [notice, setNotice] = useState<string | null>(null);
   const [priceOutlet, setPriceOutlet] = useState<string | null>(null);
   const [availabilityOutlet, setAvailabilityOutlet] = useState<string | null>(null);
+  const [submitOpen, setSubmitOpen] = useState(false);
+  const [submitNote, setSubmitNote] = useState("");
 
   if (!result.ok) {
     return <ArticleFailure result={result} />;
@@ -314,6 +323,42 @@ function ArticleScreen() {
   const article = result.article;
   const canPrice = principal.permissions.includes("mdm.article.price.update");
   const canAvailability = principal.permissions.includes("mdm.article.update");
+  // Maker-checker: submitting a draft is a proposal, not an approval (`mdm.article.propose`),
+  // which is exactly the capability the demo Culinary Team holds.
+  const canPropose = principal.permissions.includes("mdm.article.propose");
+
+  /**
+   * The record's own words for a refusal: a coded refusal is looked up in the catalog, and
+   * anything else — a missing capability, most of all — is shown as the server sent it,
+   * because the capability it names *is* the message.
+   */
+  function refusalText(response: { code: string | null; message: string }): string {
+    if (response.code) {
+      const key = response.code as MessageKey;
+      const translated = t(key);
+      if (translated !== key) return translated;
+    }
+    return response.message;
+  }
+
+  async function submitForReview() {
+    if (!result.ok) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const response = await submitArticleForReviewFn({
+        data: { code: result.article.code, note: submitNote.trim() || null },
+      });
+      setSubmitOpen(false);
+      setSubmitNote("");
+      await afterWrite(
+        response.ok ? response : { ok: false, message: refusalText(response) },
+        t("mdm.article.notice.submitted", { code: result.article.code })
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function afterWrite(response: { ok: boolean; message?: string }, success: string) {
     setBusy(false);
@@ -948,6 +993,79 @@ function ArticleScreen() {
             title={t("mdm.article.section.versions")}
             subtitle={t("mdm.article.versions.subtitle")}
           />
+          {article.currentVersion.status === "draft" ? (
+            canPropose ? (
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
+                <p className="text-xs text-fg-subtle">
+                  {t("mdm.article.review.capabilityHint", { permission: "mdm.article.propose" })}
+                </p>
+                <Button
+                  variant="primary"
+                  disabled={busy}
+                  onClick={() => {
+                    setError(null);
+                    setSubmitOpen(true);
+                  }}
+                >
+                  {t("mdm.article.action.submitForReview")}
+                </Button>
+              </div>
+            ) : (
+              <div className="px-4 pt-3">
+                <Banner tone="info" compact>
+                  {t("mdm.article.review.readOnly", { permission: "mdm.article.propose" })}
+                </Banner>
+              </div>
+            )
+          ) : null}
+          <Dialog
+            open={submitOpen}
+            onClose={() => {
+              setSubmitOpen(false);
+            }}
+            title={t("mdm.article.review.dialog.title")}
+            description={t("mdm.article.review.dialog.what", {
+              version: String(article.currentVersion.version),
+              code: article.code,
+              role: ARTICLE_APPROVER_ROLE,
+            })}
+            footer={
+              <>
+                <Button
+                  variant="ghost"
+                  disabled={busy}
+                  onClick={() => {
+                    setSubmitOpen(false);
+                  }}
+                >
+                  {t("action.cancel")}
+                </Button>
+                <Button
+                  variant="primary"
+                  disabled={busy}
+                  onClick={() => {
+                    void submitForReview();
+                  }}
+                >
+                  {t("mdm.article.review.dialog.confirm")}
+                </Button>
+              </>
+            }
+          >
+            <div className="flex flex-col gap-3">
+              <p className="text-xs text-fg-muted">{t("mdm.article.review.dialog.effect")}</p>
+              <Banner tone="info" compact>
+                {t("mdm.article.review.dialog.self")}
+              </Banner>
+              <Field
+                id="submit-review-note"
+                label={t("mdm.article.review.dialog.note")}
+                hint={t("mdm.article.action.submitForReviewHint")}
+              >
+                <Textarea id="submit-review-note" value={submitNote} onChange={setSubmitNote} rows={2} />
+              </Field>
+            </div>
+          </Dialog>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>

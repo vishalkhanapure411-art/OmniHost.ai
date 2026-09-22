@@ -33,6 +33,7 @@ import type { PublicPrincipal } from "~/domain/principal";
 export type { NavItem } from "~/domain/nav";
 export type { PublicPrincipal } from "~/domain/principal";
 import { canReadAudit, listApprovals, listAuditEntries } from "~/domain/inbox";
+import type { ApprovalQueueScope } from "~/domain/inbox";
 import { commitImport, dryRunImport, importScreenAccess } from "~/domain/import";
 import { currentPrincipal } from "~/server/context";
 import { resolveDisplayPreferences } from "~/server/locale";
@@ -238,15 +239,20 @@ export const setChainFeatureFn = createServerFn({ method: "POST" })
     }
   });
 
-export const listApprovalsFn = createServerFn({ method: "GET" }).handler(async () => {
-  const principal = await currentPrincipal();
-  if (!principal) return failure(new Unauthenticated());
-  try {
-    return { ok: true as const, inbox: await listApprovals(principal) };
-  } catch (error) {
-    return failure(error);
-  }
-});
+export const listApprovalsFn = createServerFn({ method: "GET" })
+  .validator((input: unknown) => (input ?? {}) as { scope?: ApprovalQueueScope })
+  .handler(async ({ data }) => {
+    const principal = await currentPrincipal();
+    if (!principal) return failure(new Unauthenticated());
+    try {
+      // Two scopes, one query: the caller's waiting items and the caller's decided history.
+      // Filtered server-side rather than hidden in the screen, so a decided item cannot be
+      // counted as pending work by anything that reads this function.
+      return { ok: true as const, inbox: await listApprovals(principal, { scope: data.scope }) };
+    } catch (error) {
+      return failure(error);
+    }
+  });
 
 export const listAuditFn = createServerFn({ method: "GET" }).handler(async () => {
   const principal = await currentPrincipal();

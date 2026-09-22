@@ -4,11 +4,12 @@ import { useState } from "react";
 import { ApprovalQueueList, type ApprovalDecision, type ApprovalDecisionExtras, type ApprovalRowView } from "~/components/ApprovalQueue";
 import { ListToolbar, MasterDetail } from "~/components/MasterDetail";
 import { Check, Plus } from "~/components/icons";
-import { Button, Card, CardHeader, EmptyState, ErrorState, PageHeader } from "~/components/ui";
+import { Button, Card, CardHeader, EmptyState, ErrorState, PageHeader, SegmentedControl } from "~/components/ui";
 import { TimestampValue } from "~/components/values";
 import { useI18n } from "~/i18n";
 import type { MessageKey } from "~/i18n/catalog-en";
 import { ARTICLE_VERSION_ENTITY } from "~/domain/approvals";
+import type { ApprovalQueueScope } from "~/domain/inbox";
 import type { ArticleVersionReview } from "~/domain/mdm-approvals";
 import { decideArticleApprovalFn, getArticleVersionReviewFn, listApprovalsFn } from "~/server-fns";
 
@@ -25,6 +26,13 @@ import { decideArticleApprovalFn, getArticleVersionReviewFn, listApprovalsFn } f
  * is still refusable on its merits: a self-approval is refused with `mdm.approve.self`
  * whatever this screen offered.
  *
+ * **Two halves, read once.** The screen reads the *waiting* half and the *decided* half in
+ * one loader pass and switches between them with no round trip, so a decided item can
+ * never be counted as pending work: it is absent from the waiting read, and its count is
+ * the decided read's own. The same rule reaches a task sent back to the person who raised
+ * it — `returnedToMe` — which stays in the waiting half (the work really is theirs again)
+ * under a badge that says so rather than pretending to be a fresh request.
+ *
  * Master-data items can be *read* before they are decided. Every other article read joins
  * `article.current_version_id`, so a version under review is invisible to them by design —
  * the review read exists so an approver has something to approve, and it is composed into
@@ -34,13 +42,16 @@ import { decideArticleApprovalFn, getArticleVersionReviewFn, listApprovalsFn } f
 export const Route = createFileRoute("/_shell/approvals")({
   staticData: { titleKey: "nav.route./approvals" },
   loader: async () => {
-    const inbox = await listApprovalsFn();
+    const [waiting, decided] = await Promise.all([
+      listApprovalsFn({ data: { scope: "waiting" } }),
+      listApprovalsFn({ data: { scope: "decided" } }),
+    ]);
     // What each open master-data task is asking to approve. Fetched per item because the
     // review read is a read of one version, and the queue is small by construction: it is
     // already filtered to the items routed to this caller.
     const reviews: Record<string, ArticleVersionReview> = {};
-    if (inbox.ok) {
-      const pending = inbox.inbox.items.filter(
+    if (waiting.ok) {
+      const pending = waiting.inbox.items.filter(
         (item) => item.entityType === ARTICLE_VERSION_ENTITY && item.status === "open"
       );
       const fetched = await Promise.all(
@@ -50,19 +61,24 @@ export const Route = createFileRoute("/_shell/approvals")({
         if (result.ok) reviews[pending[index].id] = result.review;
       });
     }
-    return { inbox, reviews };
+    return { waiting, decided, reviews };
   },
   component: ApprovalsScreen,
 });
 
 function ApprovalsScreen() {
-  const { inbox: result, reviews } = Route.useLoaderData();
+  const { waiting, decided, reviews } = Route.useLoaderData();
   const { principal } = Route.useRouteContext();
   const { t, format, money } = useI18n();
   const router = useRouter();
+  const [scope, setScope] = useState<ApprovalQueueScope>("waiting");
   const [notice, setNotice] = useState<string | null>(null);
   const [refusal, setRefusal] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const result = scope === "waiting" ? waiting : decided;
+  /** The figure the header shows: what the caller still has to act on (waiting), or what has
+   *  been decided (history). Each scope counts its own half — the two cannot be confused. */
+  const headline = result.ok ? (scope === "waiting" ? result.inbox.mine : result.inbox.decided) : 0;
 
   /**
    * The server's own words for a refusal, translated when the domain gave a code.
@@ -187,7 +203,9 @@ function ApprovalsScreen() {
     chainName: item.chainName,
     siteName: item.siteName,
     category: item.category,
-    state: item.status === "open" ? "open" : "closed",
+    // Three states, not two: a task sent back to its author is decided *and* still the
+    // author's work, and collapsing it into "closed" is what would hide the send-back.
+    state: item.status === "open" ? "open" : item.returnedToMe ? "returned" : "closed",
     dueAt: item.dueAt,
     raisedBy: item.raisedBy,
     raisedByRole: item.raisedByRole,
@@ -205,7 +223,8 @@ function ApprovalsScreen() {
         meta={
           result.ok ? (
             <span className="text-2xs text-fg-subtle">
-              {format.integer(result.inbox.mine)} · {t("approvals.queue.title")}
+              {format.integer(headline)} ·{" "}
+              {t(scope === "waiting" ? "approvals.queue.title" : "approvals.history.title")}
             </span>
           ) : undefined
         }
@@ -216,7 +235,32 @@ function ApprovalsScreen() {
         master={
           <>
             <ListToolbar
-              meta={result.ok ? format.integer(items.length) : undefined}
+              filter={
+                <SegmentedControl<ApprovalQueueScope>
+                  size="sm"
+                  value={scope}
+                  onChange={(next) => {
+                    setRefusal(null);
+                    setNotice(null);
+                    setScope(next);
+                  }}
+                  ariaLabel={t("approvals.filter.label")}
+                  options={[
+                    { value: "waiting", label: t("approvals.queue.title") },
+                    { value: "decided", label: t("approvals.history.title") },
+                  ]}
+                />
+              }
+              meta={
+                result.ok
+                  ? scope === "waiting"
+                    ? t("approvals.queue.count", {
+                        open: format.integer(result.inbox.open),
+                        returned: format.integer(result.inbox.returned),
+                      })
+                    : t("approvals.history.count", { decided: format.integer(result.inbox.decided) })
+                  : undefined
+              }
               actions={
                 <Button
                   size="sm"
@@ -263,8 +307,12 @@ function ApprovalsScreen() {
                 emptyState={
                   <EmptyState
                     icon={<Check size={20} />}
-                    title={t("approvals.empty.title")}
-                    description={t("approvals.empty.description")}
+                    title={scope === "waiting" ? t("approvals.empty.title") : t("approvals.history.empty.title")}
+                    description={
+                      scope === "waiting"
+                        ? t("approvals.empty.description")
+                        : t("approvals.history.empty.description")
+                    }
                   />
                 }
               />

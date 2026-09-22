@@ -298,6 +298,14 @@ export const enIN = {
   "approvals.description":
     "Items routed to a role you hold. Maker-checker actions land with the approver, never back with the requester.",
   "approvals.queue.title": "Waiting on you",
+  "approval.state.returned": "Sent back to you",
+  "approvals.filter.label": "Queue half",
+  "approvals.queue.count": "{open} awaiting a decision · {returned} sent back to you",
+  "approvals.history.title": "Decided",
+  "approvals.history.count": "{decided} decided",
+  "approvals.history.empty.title": "Nothing decided yet",
+  "approvals.history.empty.description":
+    "Items your roles have already decided appear here - approved, sent back or cancelled. Nothing here means no item routed to you has been decided yet; the waiting half of the queue is where the open work is.",
   "approvals.queue.assignedTo": "Assigned to {role}",
   "approvals.queue.unassigned": "Unassigned",
   "approvals.queue.due": "Due {when}",
@@ -950,6 +958,16 @@ export const enIN = {
   "mdm.article.detail.back": "Back to the list",
   "mdm.article.action.submitForReview": "Submit for review",
   "mdm.article.action.submitForReviewHint": "Sends the draft to the Central MDM Head. You cannot approve your own submission.",
+  "mdm.article.review.capabilityHint": "Submitting a draft for review needs {permission}.",
+  "mdm.article.review.readOnly":
+    "Read-only: sending this draft to an approver needs {permission}, which this account does not hold.",
+  "mdm.article.review.dialog.title": "Submit for review",
+  "mdm.article.review.dialog.what": "Version {version} of {code} goes to the {role} for a decision.",
+  "mdm.article.review.dialog.effect":
+    "The version becomes pending review, and the article keeps its current state, its prices and its guest-facing listing until the approver decides. Nothing changes for a guest while it waits.",
+  "mdm.article.review.dialog.self": "You cannot approve your own submission - a different role must decide it.",
+  "mdm.article.review.dialog.note": "Note for the approver (optional)",
+  "mdm.article.review.dialog.confirm": "Submit for review",
   "mdm.article.notice.submitted": "{code} is now pending review.",
   "mdm.article.detail.scope":
     "Prices and availability are edited here and written through the audited domain API — the same call the chatbot will make. Everything else on this record is read-only in this slab.",

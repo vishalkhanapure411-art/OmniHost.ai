@@ -385,6 +385,13 @@ export async function decideArticleReview(
     await tx.query(
       `update approval_task
           set status = $2,
+              -- A send-back is the *author's* work again, and the queue routes by assignment:
+              -- a task left assigned to the approver's role would never appear to the person
+              -- who has to fix it. So the send-back re-routes the task to whoever raised it,
+              -- in this same transaction as the decision. An approval has no return path —
+              -- nothing is left for the author to do beyond reading the article, whose status
+              -- this transaction has already moved — so it keeps its assignment untouched.
+              assigned_user_id = case when $2 = 'rejected' then raised_by_user_id else assigned_user_id end,
               decided_by_user_id = $3,
               decided_at = now(),
               decision_note = $4,
@@ -403,6 +410,8 @@ export async function decideArticleReview(
             note,
             versionStatus: approve ? "active" : "draft",
             decidedByUserId: principal.userId,
+            /** Where the task was routed as part of the decision. `null` for an approval. */
+            reroutedToUserId: approve ? null : row.raised_by_user_id,
           },
         }),
       ]
@@ -418,6 +427,9 @@ export async function decideArticleReview(
         decision,
         reasonCode,
         note,
+        // Read back by the caller's confirmation, and written into the audit row: "who has
+        // this now" is the fact a send-back turns on.
+        returnedToUserId: approve ? null : row.raised_by_user_id,
       },
       // A send-back's reason is the audit row's `reason` as well as the task's, so the
       // audit trail answers "why was this refused" without a join.

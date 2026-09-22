@@ -75,11 +75,15 @@ export function SeverityBadge({ severity }: { severity: Severity }) {
   return <Badge tone={SEVERITY_TONE[severity]}>{t(`severity.${severity}` as never)}</Badge>;
 }
 
-export type ApprovalState = "open" | "in_review" | "closed" | "overdue";
+export type ApprovalState = "open" | "in_review" | "returned" | "closed" | "overdue";
 
 const APPROVAL_TONE: Record<ApprovalState, BadgeTone> = {
   open: "info",
   in_review: "warn",
+  // A send-back is not a success and not a fresh request: the decision went against the
+  // caller and the work is theirs again. Its own state, because collapsing it into either
+  // of the other two tells the author something untrue.
+  returned: "warn",
   closed: "ok",
   overdue: "danger",
 };
@@ -89,6 +93,7 @@ export function ApprovalStateBadge({ state }: { state: ApprovalState }) {
   const labels: Record<ApprovalState, string> = {
     open: t("approvals.queue.title"),
     in_review: t("action.review"),
+    returned: t("approval.state.returned"),
     closed: t("audit.outcome.success"),
     overdue: t("approvals.queue.overdue"),
   };
