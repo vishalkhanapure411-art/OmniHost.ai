@@ -311,6 +311,9 @@ export const enIN = {
   "approvals.queue.due": "Due {when}",
   "approvals.queue.raisedBy": "Raised by {who}, {role}",
   "approvals.queue.overdue": "Overdue",
+  // A null due_at is a state, not a blank: an SLA that was never set. An icon with no words
+  // beside it said nothing about which of the two it was.
+  "approvals.queue.noSla": "No SLA set",
   "approvals.empty.title": "Nothing waiting on you",
   "approvals.empty.description":
     "No maker-checker item is routed to your roles yet. Receiving approvals, waste write-offs and refund sign-offs start raising items when their modules ship — an empty inbox here is the honest state, not a broken screen.",
@@ -321,6 +324,9 @@ export const enIN = {
   "approvals.how.paragraph2":
     "An SLA breach escalates one level — Team to Head, Head to Site Head or Operations — and closure requires the raising role or their Head to verify the fix, per the spec's ticketing rules.",
   "approvals.how.footer": "Signed in as {name} with {roles} — that is what this queue is filtered to.",
+  // The task categories the queue routes today. A category with no entry renders its own code
+  // (a feature-registry module name), which is a word an operator already reads elsewhere.
+  "approvals.category.mdm": "Master data",
   "approvals.column.item": "Item",
   "approvals.column.chain": "Chain",
   "approvals.column.category": "Category",
@@ -358,6 +364,36 @@ export const enIN = {
   "approval.notice.approved": "{item} is approved and now active.",
   "approval.notice.sentBack": "{item} was sent back: {reason}.",
   "approval.notice.refused": "Refused: {reason}",
+  // The two decisions, named. The queue's buttons, its dialog titles and its commits all read
+  // from here, so "which button publishes and which rejects" has one answer per decision.
+  "approval.action.approve": "Approve",
+  "approval.action.sendBack": "Send back",
+  // The thing being decided, as a dialog must name it — an approval is of a *version*, not of
+  // a record's display name.
+  "approval.dialog.subject": "version {version} of {code}",
+  "approval.dialog.approve.title": "Approve {subject}?",
+  "approval.dialog.sendBack.title": "Send back {subject}?",
+  "approval.dialog.approve.commit": "Approve version",
+  "approval.dialog.sendBack.commit": "Send it back",
+  // §16: every transition restates what becomes usable, before the click rather than after.
+  "approval.dialog.approve.effect":
+    "Approving makes this version active and the one the chain sells from: outlets priced against it resolve those prices, and the decision is recorded against your name.",
+  "approval.dialog.sendBack.effect":
+    "Sending it back returns the version to a draft. Nothing is activated, the reason you choose is recorded against your name and shown to {author}, who has to fix the record and submit it again.",
+  // A decision's outcome, in the words a person reads. Not the audit vocabulary: `Succeeded`
+  // describes the write, and it answers neither "approved?" nor "rejected?".
+  "approval.state.awaiting": "Awaiting a decision",
+  "approval.state.approved": "Approved",
+  "approval.state.sentBack": "Sent back",
+  // The send-back, told to the person it was told *about*: who, when, why. Without this the
+  // returned row's only free text was the author's own submission note — which reads like a
+  // reason and is not one.
+  "approval.returned.line": "Sent back by {who} on {when} — {reason}",
+  "approval.returned.note": "Note from the approver: {note}",
+  // The honest absent state: `getArticleVersionReview` reads one version, so there is no pair
+  // to diff, and a dialog that stayed silent would read as "nothing changes".
+  "approval.review.noComparison":
+    "No comparison view: this is the version as it stands, not what changed against the version in use today. A before/after view is not built yet.",
 
   "severity.low": "Low",
   "severity.medium": "Medium",
@@ -1929,6 +1965,10 @@ export const enIN = {
   "validation.review.jurisdictionIncomplete":
     "{field} is required in {jurisdiction}, so this version cannot go live. Fix the record and resubmit it.", 
   "validation.articleVersionLocked": "This version is under review: send it back rather than editing it.",
+  // A *policy* refusal, rendered as a sentence in a neutral tone: the rule working, not a
+  // failure. The audit row keeps `reason = mdm.approve.self`; this is what the person reads.
+  "permission.mdm.approve.self":
+    "Refused by the four-eyes rule: the person who submits a version cannot decide it, so a second approver has to. Ask a colleague who holds mdm.article.approve to approve it or to send it back with a reason — this refusal is recorded and nothing has changed.",
   "validation.number.invalid": "{value} is not a number.",
   "validation.date.format": "{value} is not a date. Use {format}.",
   "validation.invalidEnum": "{value} is not one of {values}.",

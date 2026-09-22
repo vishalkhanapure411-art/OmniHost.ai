@@ -1898,11 +1898,15 @@ export async function updateArticle(
   const run = async (tx: Queryable): Promise<ArticleWriteResult> => {
     const current = await loadArticleSnapshot(tx, chainId, code, meta.locale ?? "en-IN");
     if (!current) throw new NotFound("Article", code);
-    if (current.status === "pending_review") {
+    if (current.versionStatus === "pending_review" || current.status === "pending_review") {
       // A version under review is immutable to its author as well as to everyone else:
       // editing it in place would mean the approver approved something that no longer
       // exists. The send-back is what unlocks it, and it leaves a coded reason behind.
-      throw invalid("validation.articleVersionLocked", "status", { status: current.status });
+      //
+      // The check reads the *version's* status as well as the article's, because that is the
+      // field the plan reads: two different fields deciding whether this call refuses is how
+      // a dry run and a commit end up disagreeing about the same row.
+      throw invalid("validation.articleVersionLocked", "status", { status: current.versionStatus });
     }
     const refs = await resolveArticleRefs(tx, chainId, input);
     const gaps = await complianceGaps(tx, chainId, input);
@@ -2117,7 +2121,18 @@ export interface ArticleSnapshot {
   id: string;
   versionId: string;
   version: number;
+  /** The *article header's* lifecycle state. */
   status: string;
+  /**
+   * The **version's** own lifecycle state — the field the write path is frozen on.
+   *
+   * A plan has to know it. While a version is `pending_review` the domain refuses every
+   * write to it (`validation.articleVersionLocked`), so a plan that did not read the
+   * version's status would report a row as `updated` that the commit then refuses — failing
+   * the *entire* file with every row rejected. That disagreement between the two phases is
+   * the one thing this pipeline exists to prevent.
+   */
+  versionStatus: string;
   name: string | null;
   shortName: string | null;
   categoryId: string;
@@ -2148,6 +2163,7 @@ export async function loadArticleSnapshot(
     version_id: string | null;
     version: number | null;
     status: string;
+    version_status: string | null;
     name: string | null;
     short_name: string | null;
     category_id: string;
@@ -2166,7 +2182,8 @@ export async function loadArticleSnapshot(
     nutrients: { code: string; value: string; basis: string }[] | null;
     prices: { outlet_code: string; amount: string; currency_code: string; effective_from: string }[] | null;
   }>(
-    `select a.id, a.current_version_id as version_id, v.version, a.status, a.category_id,
+    `select a.id, a.current_version_id as version_id, v.version, a.status, v.status as version_status,
+            a.category_id,
             a.article_type, a.external_ref, a.source_system,
             v.dietary_mark, v.tax_class_id, tc.code as tax_class_code, v.hsn_sac_code,
             v.serving_size_qty, v.serving_size_uom_id, v.calories_kcal, v.channel_flags,
@@ -2199,6 +2216,7 @@ export async function loadArticleSnapshot(
     versionId: row.version_id,
     version: row.version ?? 1,
     status: row.status,
+    versionStatus: row.version_status ?? "draft",
     name: row.name,
     shortName: row.short_name,
     categoryId: row.category_id,
@@ -2331,6 +2349,23 @@ export interface ArticleWritePlan {
   approvalGated: boolean;
   mayApprove: boolean;
   landing: "draft" | "pending_review" | "active";
+  /** The current version's lifecycle state, as the database holds it. */
+  versionStatus: string | null;
+  /**
+   * True when the current version is under review *and* this row would change it.
+   *
+   * The write path refuses exactly this case (`updateArticle` and `updateArticlePrice` both
+   * throw `validation.articleVersionLocked`), so a caller that reported `updated` here would
+   * be promising a write the commit refuses. The import turns it into a row error, which is
+   * what keeps the dry run and the commit saying the same thing.
+   */
+  lockedUnderReview: boolean;
+  /**
+   * The lifecycle state an existing record already holds — what it *is*, not what it would
+   * land as. `landing` only ever describes a create; reporting it for a record that has one
+   * would put a prediction in the "Lands as" column.
+   */
+  existingStatus: string | null;
   /** Capability codes the caller does not hold, and would therefore be refused on. */
   missingCapabilities: string[];
   contentChanged: string[];
@@ -2412,6 +2447,12 @@ export async function planArticleWrite(
     approvalGated: gated,
     mayApprove,
     landing: landingStatus(gated, mayApprove, gaps),
+    versionStatus: current?.versionStatus ?? null,
+    // A row that changes nothing is never refused: the write path only reaches its status
+    // check when there is something to write, so `unchanged` stays a legal answer for a
+    // version under review — re-importing a file for a pending record writes nothing.
+    lockedUnderReview: current?.versionStatus === "pending_review" && outcome === "updated",
+    existingStatus: current?.status ?? null,
     missingCapabilities,
     contentChanged,
     existingId: current?.id ?? null,

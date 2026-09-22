@@ -53,6 +53,32 @@ export interface ApprovalRowView {
    * what it is given and composes no sentence of its own.
    */
   blockers?: string[];
+  /**
+   * The thing being decided, named the way the decision dialogs must name it — the caller
+   * composes `version 1 of DEMO-MC-GATED` from the review read. Without it the dialog can
+   * only name the record by its display name, which is not what an approval is *of*.
+   */
+  decisionSubject?: string | null;
+  /**
+   * The decision that was taken against the caller, for a returned item.
+   *
+   * A send-back that says only "sent back to you" leaves the author to guess what has to
+   * change — the reason is the whole point of the transition. `reasonCode` is the raw code
+   * and is resolved through `approval.reason.<code>` here, so the row reads as a sentence
+   * and the audit trail keeps the code.
+   */
+  returned?: {
+    by?: string | null;
+    at?: string | null;
+    reasonCode?: string | null;
+    note?: string | null;
+  } | null;
+  /**
+   * An honest note about what this dialog cannot show. The review read returns one version,
+   * not a pair, so there is no before/after to draw: saying nothing would imply the version
+   * as shown *is* the change.
+   */
+  reviewNote?: string | null;
   /** What the task points at — the caller decides whether a decision path exists at all. */
   entityType?: string;
 }
@@ -98,11 +124,24 @@ export function ApprovalQueueRow({
   item: ApprovalRowView;
   onDecide?: (item: ApprovalRowView, decision: ApprovalDecision, extras: ApprovalDecisionExtras) => void;
 }) {
-  const { t } = useI18n();
+  const { t, format } = useI18n();
   const [pending, setPending] = useState<ApprovalDecision | null>(null);
   const [reasonCode, setReasonCode] = useState<ArticleReviewReasonCode | "">("");
   const [note, setNote] = useState("");
   const overdue = item.state === "overdue";
+  const subject = item.decisionSubject ?? item.title;
+  // The catalog label for the coded reason. An unknown code falls back to the code itself
+  // rather than to `approval.reason.<code>`, which would be a developer error shown to an
+  // operator as prose.
+  const reasonKey = item.returned?.reasonCode
+    ? (`approval.reason.${item.returned.reasonCode}` as MessageKey)
+    : null;
+  const reasonLabel = reasonKey ? t(reasonKey) : null;
+  const sendBackReason = reasonKey
+    ? reasonLabel === reasonKey
+      ? item.returned?.reasonCode ?? null
+      : reasonLabel
+    : null;
 
   return (
     <li className="list-row flex flex-wrap items-start gap-x-4 gap-y-2 hover:bg-surface-muted">
@@ -113,6 +152,22 @@ export function ApprovalQueueRow({
           <ApprovalStateBadge state={item.state} />
         </div>
         {item.summary ? <p className="mt-0.5 max-w-prose text-xs text-fg-muted">{item.summary}</p> : null}
+        {item.returned ? (
+          <div className="mt-1 flex flex-col gap-0.5">
+            <p className="text-xs text-fg-muted">
+              {t("approval.returned.line", {
+                who: item.returned.by ?? t("common.unknown"),
+                when: item.returned.at ? format.dateTime(item.returned.at) : t("common.unknown"),
+                reason: sendBackReason ?? t("approval.reason.other"),
+              })}
+            </p>
+            {item.returned.note ? (
+              <p className="text-xs text-fg-subtle">
+                {t("approval.returned.note", { note: item.returned.note })}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
         <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-2xs text-fg-subtle">
           <span className="inline-flex items-center gap-1">
             <span aria-hidden="true">
@@ -140,15 +195,21 @@ export function ApprovalQueueRow({
             <Clock size={11} />
           </span>
           {item.dueAt ? t("approvals.queue.due", { when: "" }) : null}
-          {item.dueAt ? <TimestampValue value={item.dueAt} mode="weekday" /> : null}
+          {item.dueAt ? (
+            <TimestampValue value={item.dueAt} mode="weekday" />
+          ) : (
+            // A null due_at is a real state — no SLA has been set on this item — and an
+            // icon with no words next to it said nothing about which state it was.
+            t("approvals.queue.noSla")
+          )}
         </span>
         {onDecide ? (
           <div className="flex items-center gap-1.5">
             <Button size="sm" variant="secondary" onClick={() => { setPending("sendBack"); }}>
-              {t("action.review")}
+              {t("approval.action.sendBack")}
             </Button>
             <Button size="sm" variant="primary" onClick={() => { setPending("approve"); }}>
-              {t("action.confirm")}
+              {t("approval.action.approve")}
             </Button>
           </div>
         ) : null}
@@ -157,16 +218,23 @@ export function ApprovalQueueRow({
       <Dialog
         open={pending !== null}
         onClose={() => { setPending(null); }}
-        title={pending === "approve" ? t("action.confirm") : t("action.review")}
+        title={
+          pending === "approve"
+            ? t("approval.dialog.approve.title", { subject })
+            : t("approval.dialog.sendBack.title", { subject })
+        }
         description={item.title}
-        tone={pending === "approve" ? "default" : "default"}
+        // A send-back is the destructive half: it puts someone's work back and refuses it.
+        // The two dialogs are otherwise the same shape, so the footer's own tone is what
+        // separates "this publishes" from "this rejects" at a glance.
+        tone={pending === "approve" ? "default" : "danger"}
         footer={
           <>
             <Button variant="ghost" onClick={() => { setPending(null); }}>
               {t("action.cancel")}
             </Button>
             <Button
-              variant="primary"
+              variant={pending === "approve" ? "primary" : "danger"}
               onClick={() => {
                 if (pending) {
                   onDecide?.(item, pending, {
@@ -177,11 +245,20 @@ export function ApprovalQueueRow({
                 setPending(null);
               }}
             >
-              {t("action.confirm")}
+              {pending === "approve"
+                ? t("approval.dialog.approve.commit")
+                : t("approval.dialog.sendBack.commit")}
             </Button>
           </>
         }
       >
+        <p className="mb-3 text-xs text-fg-muted">
+          {pending === "approve"
+            ? t("approval.dialog.approve.effect")
+            : t("approval.dialog.sendBack.effect", {
+                author: item.raisedBy ?? t("common.unknown"),
+              })}
+        </p>
         {item.blockers && item.blockers.length > 0 ? (
           <div className="mb-3">
             <Banner tone="warn" title={t("approval.review.missingRequired")}>
@@ -193,6 +270,11 @@ export function ApprovalQueueRow({
               </ul>
             </Banner>
           </div>
+        ) : null}
+        {item.reviewNote ? (
+          // The absent state, said out loud. `getArticleVersionReview` reads one version, so
+          // there is no pair to diff — silence here would read as "nothing changes".
+          <p className="mb-3 text-2xs text-fg-subtle">{item.reviewNote}</p>
         ) : null}
         {item.review && item.review.length > 0 ? (
           <div className="mb-3 flex flex-col gap-2">

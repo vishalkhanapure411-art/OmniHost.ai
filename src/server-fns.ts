@@ -64,6 +64,15 @@ function failure(error: unknown): {
    * fall back to the server's message only when it has no entry.
    */
   code: string | null;
+  /**
+   * The code's own parameters, so a parameterised refusal survives the wire.
+   *
+   * `validation.review.jurisdictionIncomplete` must name the field and the market it is
+   * required in. Carrying only the code left the screen calling `t(key)` with no arguments,
+   * which renders the literals `{field}` and `{jurisdiction}` to the operator — worse than
+   * the English sentence it replaced, because it looks like corruption.
+   */
+  params: Record<string, string | number> | null;
 } {
   const { status, body } = toErrorResponse(error);
   return {
@@ -73,6 +82,7 @@ function failure(error: unknown): {
     message: String(body.message ?? "Request failed."),
     permission: deniedPermission(error),
     code: codedErrorCode(error),
+    params: codedErrorParams(error),
   };
 }
 
@@ -81,6 +91,22 @@ function codedErrorCode(error: unknown): string | null {
   if (!isHttpError(error)) return null;
   const code = (error.details as { code?: unknown } | undefined)?.code;
   return typeof code === "string" ? code : null;
+}
+
+/**
+ * The parameters a coded refusal needs to be understandable, read from the same details the
+ * code comes from. Only serialisable scalars cross the boundary: a nested object would be an
+ * interpolation value nobody can render.
+ */
+function codedErrorParams(error: unknown): Record<string, string | number> | null {
+  if (!isHttpError(error)) return null;
+  const raw = (error.details as { params?: unknown } | undefined)?.params;
+  if (!raw || typeof raw !== "object") return null;
+  const params: Record<string, string | number> = {};
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof value === "string" || typeof value === "number") params[key] = value;
+  }
+  return Object.keys(params).length > 0 ? params : null;
 }
 /**
  * The permission a refusal was about, read from the domain error's own details. A screen

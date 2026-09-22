@@ -45,6 +45,19 @@ export interface ApprovalItem {
    */
   returnedToMe: boolean;
   createdAt: string;
+  /**
+   * The decision against the caller, so a returned row can say *why* and *by whom*.
+   *
+   * A send-back is the one item whose free text is otherwise the author's own submission
+   * note — a paragraph that reads like a reason and is not one. The reason code is the
+   * approver's, and it is a code: the screen resolves it through the catalog
+   * (`approval.reason.<code>`) rather than printing `pricing_wrong` at an operator.
+   */
+  decisionReason: string | null;
+  /** The approver's own words, when they left any. */
+  decisionNote: string | null;
+  decidedBy: string | null;
+  decidedAt: string | null;
 }
 
 /** Which half of the queue a read wants. */
@@ -116,6 +129,10 @@ export async function listApprovals(
     raised_by_role_code: string;
     assigned_role_code: string | null;
     assigned_user_id: string | null;
+    decided_by: string | null;
+    decided_at: Date | null;
+    decision_note: string | null;
+    decision_reason: string | null;
     created_at: Date;
   }>`
     select t.id, t.chain_id, c.name as chain_name, t.site_id, s.name as site_name,
@@ -124,11 +141,16 @@ export async function listApprovals(
            t.payload ->> 'code' as article_code,
            (t.payload ->> 'version')::int as article_version,
            u.display_name as raised_by, t.raised_by_role_code, t.assigned_role_code,
-           t.assigned_user_id, t.created_at
+           t.assigned_user_id, t.created_at,
+           du.display_name as decided_by, t.decided_at, t.decision_note,
+           -- The coded reason lives in the decision payload: decided_by_user_id alone
+           -- answers "who" and leaves "why" to a second query nobody was making.
+           t.payload -> 'decision' ->> 'reasonCode' as decision_reason
       from approval_task t
       join chain c on c.id = t.chain_id
       left join site s on s.id = t.site_id
       left join "user" u on u.id = t.raised_by_user_id
+      left join "user" du on du.id = t.decided_by_user_id
      where (${allowed}::uuid[] is null or t.chain_id = any(${allowed}::uuid[]))
        and (${identity.chainId}::uuid is null or t.chain_id = ${identity.chainId})
        and (${identity.siteId}::uuid is null or t.site_id is null or t.site_id = ${identity.siteId})
@@ -170,6 +192,13 @@ export async function listApprovals(
     assignedRole: row.assigned_role_code,
     returnedToMe: row.status === "rejected" && row.assigned_user_id === principal.userId,
     createdAt: row.created_at.toISOString(),
+    decisionReason: row.decision_reason,
+    // `decision_note` carries the reviewer's note *or*, when they left none, the reason code
+    // itself (`decideArticleReview`). Showing the code twice as prose helps nobody, so the
+    // note is only the note.
+    decisionNote: row.decision_note && row.decision_note !== row.decision_reason ? row.decision_note : null,
+    decidedBy: row.decided_by,
+    decidedAt: row.decided_at ? row.decided_at.toISOString() : null,
   }));
 
   const open = items.filter((item) => item.status === "open").length;

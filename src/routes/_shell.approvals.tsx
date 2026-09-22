@@ -73,7 +73,15 @@ function ApprovalsScreen() {
   const router = useRouter();
   const [scope, setScope] = useState<ApprovalQueueScope>("waiting");
   const [notice, setNotice] = useState<string | null>(null);
-  const [refusal, setRefusal] = useState<string | null>(null);
+  /**
+   * A refusal, with the tone it deserves.
+   *
+   * `policy` is the four-eyes rule and anything else the domain answers with a coded
+   * *policy* sentence (`permission.*`): the platform did its job and nothing is broken, so
+   * it is not painted danger red. Everything else — a validation refusal, a missing
+   * capability — keeps the error tone, because it is one.
+   */
+  const [refusal, setRefusal] = useState<{ text: string; policy: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
   const result = scope === "waiting" ? waiting : decided;
   /** The figure the header shows: what the caller still has to act on (waiting), or what has
@@ -81,20 +89,39 @@ function ApprovalsScreen() {
   const headline = result.ok ? (scope === "waiting" ? result.inbox.mine : result.inbox.decided) : 0;
 
   /**
-   * The server's own words for a refusal, translated when the domain gave a code.
+   * The server's own words for a refusal, translated and parameterised when the domain gave
+   * a code.
    *
-   * A coded validation refusal (`validation.review.reasonRequired`) is looked up in the
-   * catalog so an operator reading Hindi is not handed an English sentence; a refusal with
-   * no code — a missing capability, or the four-eyes rule — is shown as it arrived, since
-   * the point of that message is the capability or reason code it names.
+   * A coded refusal is looked up in the catalog — with the code's own parameters — so an
+   * operator reading Hindi is not handed an English sentence, and so a refusal that must
+   * name a field and a market (`validation.review.jurisdictionIncomplete`) renders those
+   * words rather than the literals `{field}` and `{jurisdiction}`. A refusal with no code —
+   * a missing capability — is shown as it arrived, since the point of that message is the
+   * capability it names.
    */
-  function refusalText(response: { code: string | null; message: string }): string {
+  function refusalText(response: {
+    code: string | null;
+    message: string;
+    params?: Record<string, string | number> | null;
+  }): string {
     if (response.code) {
       const key = response.code as MessageKey;
-      const translated = t(key);
+      const translated = t(key, response.params ?? undefined);
       if (translated !== key) return translated;
     }
     return response.message;
+  }
+
+  /** True when the refusal is a coded policy sentence rather than a data or capability error. */
+  function isPolicyRefusal(response: { code: string | null }): boolean {
+    return Boolean(response.code && response.code.startsWith("permission."));
+  }
+
+  /** What is being decided, in the decision dialogs' own words: `version 1 of DEMO-MC-GATED`. */
+  function decisionSubject(taskId: string): string | null {
+    const review = reviews[taskId];
+    if (!review) return null;
+    return t("approval.dialog.subject", { version: String(review.version), code: review.code });
   }
 
   function reviewFacts(taskId: string): { label: string; value: string }[] {
@@ -191,7 +218,7 @@ function ApprovalsScreen() {
         },
       });
       if (!response.ok) {
-        setRefusal(refusalText(response));
+        setRefusal({ text: refusalText(response), policy: isPolicyRefusal(response) });
         return;
       }
       setNotice(
@@ -218,15 +245,38 @@ function ApprovalsScreen() {
     chainName: item.chainName,
     siteName: item.siteName,
     category: item.category,
-    // Three states, not two: a task sent back to its author is decided *and* still the
-    // author's work, and collapsing it into "closed" is what would hide the send-back.
-    state: item.status === "open" ? "open" : item.returnedToMe ? "returned" : "closed",
+    // The badge is where an operator reads the outcome, so it names the outcome: an open
+    // item is awaiting a decision, a decided one was approved or sent back. A task sent back
+    // to its author is decided *and* still the author's work, and collapsing it into
+    // "closed" is what would hide the send-back.
+    state:
+      item.status === "open"
+        ? "awaiting"
+        : item.returnedToMe
+          ? "returned"
+          : item.status === "approved"
+            ? "approved"
+            : item.status === "rejected"
+              ? "sent_back"
+              : "closed",
     dueAt: item.dueAt,
     raisedBy: item.raisedBy,
     raisedByRole: item.raisedByRole,
     assignedRole: item.assignedRole,
     review: reviewFacts(item.id),
     blockers: reviewBlockers(item.id),
+    decisionSubject: decisionSubject(item.id),
+    returned: item.returnedToMe
+      ? {
+          by: item.decidedBy,
+          at: item.decidedAt,
+          reasonCode: item.decisionReason,
+          note: item.decisionNote,
+        }
+      : null,
+    // The review read returns one version, not a pair, so no before/after can be drawn. The
+    // dialog says so rather than implying that what it shows is the change.
+    reviewNote: reviews[item.id] ? t("approval.review.noComparison") : null,
     entityType: item.entityType,
   }));
 
@@ -291,8 +341,14 @@ function ApprovalsScreen() {
               }
             />
             {refusal ? (
-              <p className="border-b border-border bg-danger-soft px-3 py-1.5 text-xs text-fg">
-                {t("approval.notice.refused", { reason: refusal })}
+              <p
+                className={`border-b border-border px-3 py-1.5 text-xs text-fg ${
+                  refusal.policy ? "bg-surface-sunken" : "bg-danger-soft"
+                }`}
+              >
+                {refusal.policy
+                  ? refusal.text
+                  : t("approval.notice.refused", { reason: refusal.text })}
               </p>
             ) : null}
             {notice ? (

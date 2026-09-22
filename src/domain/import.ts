@@ -949,14 +949,21 @@ async function planRow(
   }
 
   const refusals = capabilityIssues(plan);
-  issues.push(...planWarnings(plan));
-  if (refusals.length > 0) {
+  // A version under review is frozen, and the write path refuses an edit of it. Planned
+  // here as the same refusal rather than discovered at commit time: a commit that throws on
+  // row 400 rejects the whole file, so a dry run that called this row `updated` would have
+  // promised an import that cannot run.
+  const locked: ImportIssue[] = plan.lockedUnderReview
+    ? [issue("status", "validation.articleVersionLocked", {}, "error")]
+    : [];
+  issues.push(...locked, ...planWarnings(plan));
+  if (refusals.length > 0 || locked.length > 0) {
     return {
       lineNumber: record.lineNumber,
       code: parsedRow.input.code,
       outcome: "rejected",
       entityId: null,
-      landing: null,
+      landing: plan.existingStatus,
       changed: [],
       issues: [...issues, ...refusals],
     };
@@ -967,7 +974,9 @@ async function planRow(
     code: parsedRow.input.code,
     outcome: plan.outcome,
     entityId: null,
-    landing: plan.landing,
+    // What the record holds (an existing one) or what a create would land as — never the
+    // landing state of a create quoted at an existing record.
+    landing: plan.existing ? plan.existingStatus : plan.landing,
     changed: [...plan.contentChanged, ...plan.priceChanges.map((change) => `price:${change.outletCode}`)],
     issues,
   };
@@ -1265,7 +1274,13 @@ async function applyRow(
   // answer is what the dry run showed; this is what the commit did, and the two are only
   // the same because both call `landingStatus` — see `createArticle`. Echoing the plan
   // here would have made the two reports agree by construction and proven nothing.
-  let landing: string | null = plan.landing;
+  //
+  // An existing record is never described by a create's landing state: it already holds one,
+  // and `landingStatus` is a statement about a record being born. This reports that state,
+  // and the writes below replace it with what they actually wrote. A row that writes nothing
+  // therefore reports nothing that "landed" — an existing record's own status, which is a
+  // fact, rather than a prediction about it.
+  let landing: string | null = plan.existing ? plan.existingStatus : null;
 
   if (!plan.existing) {
     const created = await createArticle(principal, input, meta);

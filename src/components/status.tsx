@@ -75,15 +75,35 @@ export function SeverityBadge({ severity }: { severity: Severity }) {
   return <Badge tone={SEVERITY_TONE[severity]}>{t(`severity.${severity}` as never)}</Badge>;
 }
 
-export type ApprovalState = "open" | "in_review" | "returned" | "closed" | "overdue";
+/**
+ * The states a maker-checker item can be shown in.
+ *
+ * `approved` and `sent_back` are separate states rather than one `closed`, because a badge
+ * is where an operator reads the outcome: the audit vocabulary's `Succeeded` describes the
+ * *transition* ("the write worked"), and it is the wrong word for what a person wants to
+ * know about a decision ("approved, or rejected?"). `awaiting` is the open state's own
+ * words, so a row does not repeat the queue's heading back at the person reading it.
+ */
+export type ApprovalState =
+  | "awaiting"
+  | "open"
+  | "in_review"
+  | "returned"
+  | "approved"
+  | "sent_back"
+  | "closed"
+  | "overdue";
 
 const APPROVAL_TONE: Record<ApprovalState, BadgeTone> = {
+  awaiting: "info",
   open: "info",
   in_review: "warn",
   // A send-back is not a success and not a fresh request: the decision went against the
   // caller and the work is theirs again. Its own state, because collapsing it into either
   // of the other two tells the author something untrue.
   returned: "warn",
+  approved: "ok",
+  sent_back: "warn",
   closed: "ok",
   overdue: "danger",
 };
@@ -91,9 +111,14 @@ const APPROVAL_TONE: Record<ApprovalState, BadgeTone> = {
 export function ApprovalStateBadge({ state }: { state: ApprovalState }) {
   const t = useT();
   const labels: Record<ApprovalState, string> = {
+    awaiting: t("approval.state.awaiting"),
+    // Kept for the items whose queue heading is the honest label — nothing raised by this
+    // path uses it, and removing it would be a silent behaviour change for a caller.
     open: t("approvals.queue.title"),
     in_review: t("action.review"),
     returned: t("approval.state.returned"),
+    approved: t("approval.state.approved"),
+    sent_back: t("approval.state.sentBack"),
     closed: t("audit.outcome.success"),
     overdue: t("approvals.queue.overdue"),
   };
@@ -124,9 +149,16 @@ export function SourceBadge({ source }: { source: string }) {
 
 /** A ticket category, as the support queue and the approval queue both render it. */
 export function CategoryBadge({ category }: { category: string }) {
+  const t = useT();
+  // `approvals.category.<code>` names the categories the queue actually routes; anything
+  // else is a module code from the feature registry, which is already a word an operator
+  // reading the chain's configuration recognises. A category with no entry renders as the
+  // raw code rather than as a guess.
+  const key = `approvals.category.${category}`;
+  const label = t(key as never);
   return (
     <Badge tone="neutral" shape={false} mono>
-      {category}
+      {label === key ? category : label}
     </Badge>
   );
 }

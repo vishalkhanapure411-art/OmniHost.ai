@@ -52,6 +52,16 @@ function coded(code: string, column: string, params: Record<string, string | num
   return new ValidationError(`${code}:${column}`, { code, column, params });
 }
 
+/**
+ * The message-catalog key the four-eyes refusal is rendered by.
+ *
+ * A constant rather than a literal in two places, and under the `permission.` prefix by
+ * convention: a *policy* refusal — the platform doing exactly what it promises — is rendered
+ * as a sentence in a neutral tone, while a validation or capability refusal keeps the error
+ * tone. The screen applies that rule by prefix, and this is the refusal it exists for.
+ */
+export const SELF_APPROVAL_REFUSAL_CODE = "permission.mdm.approve.self";
+
 /** The caller's chain. Every task in this path, and every check, is chain-scoped. */
 function resolveChainId(principal: Principal): string {
   if (!principal.chainId) {
@@ -320,7 +330,12 @@ export async function decideArticleReview(
       intent: meta.intent ?? "self-approval attempt",
       source: meta.source ?? "api",
     });
+    // The ledger keeps the code, the operator gets the sentence: `reason` stays the seeded
+    // `mdm.approve.self` (in the audit row above and in this error's own details), while
+    // `code` is a message-catalog key so the screen can render a sentence that explains the
+    // four-eyes rule instead of printing the machine code at the person.
     throw new PermissionDenied("mdm.article.approve", "mdm.approve.self", {
+      code: SELF_APPROVAL_REFUSAL_CODE,
       reasonCode: "mdm.approve.self",
       taskId,
     });
@@ -353,6 +368,7 @@ export async function decideArticleReview(
     // one is the check that cannot be raced.
     if (row.raised_by_user_id === principal.userId) {
       throw new PermissionDenied("mdm.article.approve", "mdm.approve.self", {
+        code: SELF_APPROVAL_REFUSAL_CODE,
         reasonCode: "mdm.approve.self",
       });
     }
