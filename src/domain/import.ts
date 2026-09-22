@@ -1261,16 +1261,23 @@ async function applyRow(
   const changed: string[] = [];
   let outcome: ImportRowOutcome = "unchanged";
   let entityId: string | null = plan.existingId;
+  // The landing state the *write* produced, not the one the plan predicted. The plan's
+  // answer is what the dry run showed; this is what the commit did, and the two are only
+  // the same because both call `landingStatus` — see `createArticle`. Echoing the plan
+  // here would have made the two reports agree by construction and proven nothing.
+  let landing: string | null = plan.landing;
 
   if (!plan.existing) {
     const created = await createArticle(principal, input, meta);
     entityId = created.id;
     outcome = "created";
+    landing = created.status;
     changed.push("article", "version", "prices");
   } else {
     if (plan.contentChanged.length > 0) {
       const updated = await updateArticle(principal, input, meta);
       entityId = updated.id;
+      landing = updated.status;
       changed.push(...updated.changed);
       if (updated.outcome === "updated") outcome = "updated";
     }
@@ -1298,7 +1305,7 @@ async function applyRow(
     code: input.code,
     outcome,
     entityId,
-    landing: plan.landing,
+    landing,
     changed,
     // The warnings the plan produced travel with the row into the committed report, exactly
     // as the dry run showed them. Without this the commit report said `succeeded` and listed

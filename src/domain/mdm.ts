@@ -2,6 +2,7 @@ import "@tanstack/react-start/server-only";
 
 import { poolQueryable, withTransaction, type Queryable } from "~/db";
 import { auditedMutation, guard, writeAudit, type MutationOutcome } from "~/server/audit";
+import { raiseArticleReviewTask } from "~/domain/mdm-approvals";
 import { can } from "~/server/permissions";
 import { NotFound, ValidationError } from "~/server/errors";
 import type { Principal } from "~/server/session";
@@ -1681,8 +1682,12 @@ export async function createArticle(
     // a draft, which is a fact the report states rather than an error it invents.
     const gated = await approvalGated(tx, chainId);
     const mayApprove = await can(principal, "mdm.article.approve", { chainId });
-    const status: string = gated || gaps.length > 0 ? "draft" : mayApprove ? "active" : "draft";
-    const versionStatus = status === "draft" ? "draft" : "active";
+    // One answer to "where does a brand-new record land": `landingStatus`, the same
+    // function the import's dry run calls. The two used to disagree — the dry run promised
+    // `pending_review` on an approval-gated chain while this inline rule could only ever
+    // produce `draft` or `active`, so the same file reported two different landings.
+    const status = landingStatus(gated, mayApprove, gaps);
+    const versionStatus: string = status;
 
     const inserted = await tx.query<{ id: string }>(
       `insert into article (chain_id, code, category_id, article_type, status, base_uom_id,
@@ -1733,6 +1738,20 @@ export async function createArticle(
     if (!versionId) throw new ValidationError("article version insert returned no id");
 
     await tx.query(`update article set current_version_id = $2 where id = $1`, [articleId, versionId]);
+    if (status === "pending_review") {
+      // A gated chain's new record lands *in review*, which is only a real state if the
+      // queue has an item in it: status alone would be a dead end nobody can act on. The
+      // task joins this transaction, so a create either lands with its review task or
+      // does not land at all.
+      await raiseArticleReviewTask(tx, {
+        chainId,
+        principal,
+        code,
+        articleId,
+        versionId,
+        version: 1,
+      });
+    }
     await tx.query(
       `insert into article_version_text (chain_id, article_version_id, locale, name, short_name)
        values ($1, $2, $3, $4, $5)`,
@@ -1893,6 +1912,12 @@ export async function updateArticle(
   const run = async (tx: Queryable): Promise<ArticleWriteResult> => {
     const current = await loadArticleSnapshot(tx, chainId, code, meta.locale ?? "en-IN");
     if (!current) throw new NotFound("Article", code);
+    if (current.status === "pending_review") {
+      // A version under review is immutable to its author as well as to everyone else:
+      // editing it in place would mean the approver approved something that no longer
+      // exists. The send-back is what unlocks it, and it leaves a coded reason behind.
+      throw invalid("validation.articleVersionLocked", "status", { status: current.status });
+    }
     const refs = await resolveArticleRefs(tx, chainId, input);
     const gaps = await complianceGaps(tx, chainId, input);
     const changed = diffArticleContent(current, input, refs);

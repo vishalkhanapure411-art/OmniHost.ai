@@ -54,6 +54,15 @@ function failure(error: unknown): {
   error: string;
   message: string;
   permission: string | null;
+  /**
+   * The domain's own code for the refusal, when it has one (`validation.review.reasonRequired`).
+   *
+   * A screen that renders `message` alone shows `validation.review.reasonRequired:reasonCode`
+   * to an operator, in English, whatever language they are reading the console in. With the
+   * code carried across the boundary the screen can look the refusal up in the catalog and
+   * fall back to the server's message only when it has no entry.
+   */
+  code: string | null;
 } {
   const { status, body } = toErrorResponse(error);
   return {
@@ -62,7 +71,15 @@ function failure(error: unknown): {
     error: String(body.error ?? "error"),
     message: String(body.message ?? "Request failed."),
     permission: deniedPermission(error),
+    code: codedErrorCode(error),
   };
+}
+
+/** The domain's error code, for a screen that wants to translate the refusal itself. */
+function codedErrorCode(error: unknown): string | null {
+  if (!isHttpError(error)) return null;
+  const code = (error.details as { code?: unknown } | undefined)?.code;
+  return typeof code === "string" ? code : null;
 }
 /**
  * The permission a refusal was about, read from the domain error's own details. A screen
@@ -797,6 +814,95 @@ export const commitImportFn = createServerFn({ method: "POST" })
           fileName: data.fileName,
           content: data.content,
         }),
+      };
+    } catch (error) {
+      return failure(error);
+    }
+  });
+
+// ---------------------------------------------------------------------------
+// Phase 1 master data: the maker-checker review path for articles
+// ---------------------------------------------------------------------------
+/**
+ * Three functions, in the order the path runs: submit a draft for review, read what is
+ * under review, decide it.
+ *
+ * The read exists because of a real gap: every other article read joins
+ * `article.current_version_id`, so a version under review could not be read at all and an
+ * approver had nothing to approve. It is a *read* — guarded on `mdm.article.view`, and it
+ * resolves no price that any billing path uses.
+ */
+import {
+  decideArticleReview,
+  getArticleVersionReview,
+  submitArticleForReview,
+} from "~/domain/mdm-approvals";
+
+export const getArticleVersionReviewFn = createServerFn({ method: "GET" })
+  .validator(
+    (input: unknown) => input as { taskId?: string | null; versionId?: string | null }
+  )
+  .handler(async ({ data }) => {
+    const principal = await currentPrincipal();
+    if (!principal) return failure(new Unauthenticated());
+    try {
+      return {
+        ok: true as const,
+        review: await getArticleVersionReview(principal, {
+          taskId: data.taskId ?? null,
+          versionId: data.versionId ?? null,
+        }),
+      };
+    } catch (error) {
+      return failure(error);
+    }
+  });
+
+export const submitArticleForReviewFn = createServerFn({ method: "POST" })
+  .validator((input: unknown) => input as { code: string; note?: string | null })
+  .handler(async ({ data }) => {
+    const principal = await currentPrincipal();
+    if (!principal) return failure(new Unauthenticated());
+    try {
+      return {
+        ok: true as const,
+        result: await submitArticleForReview(
+          principal,
+          { code: data.code, note: data.note ?? null },
+          { source: "screen", intent: "mdm.article.propose" }
+        ),
+      };
+    } catch (error) {
+      return failure(error);
+    }
+  });
+
+export const decideArticleApprovalFn = createServerFn({ method: "POST" })
+  .validator(
+    (input: unknown) =>
+      input as {
+        taskId: string;
+        decision: "approve" | "sendBack";
+        reasonCode?: string | null;
+        note?: string | null;
+      }
+  )
+  .handler(async ({ data }) => {
+    const principal = await currentPrincipal();
+    if (!principal) return failure(new Unauthenticated());
+    try {
+      return {
+        ok: true as const,
+        result: await decideArticleReview(
+          principal,
+          {
+            taskId: data.taskId,
+            decision: data.decision,
+            reasonCode: data.reasonCode ?? null,
+            note: data.note ?? null,
+          },
+          { source: "screen", intent: `mdm.article.approve:${data.decision}` }
+        ),
       };
     } catch (error) {
       return failure(error);

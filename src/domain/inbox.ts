@@ -20,6 +20,18 @@ export interface ApprovalItem {
   title: string;
   summary: string | null;
   status: string;
+  /**
+   * What the task points at. The queue row uses it to decide whether there is a decision
+   * path behind the item, and the review read needs it: `approval_task.entity_id` is
+   * already a version id, so the run-time UUID becomes plain text in the projection and
+   * stays text on the way to the screen.
+   */
+  entityType: string;
+  entityId: string | null;
+  /** Denormalised from the task's payload: the queue shows which record is waiting without
+   *  a second round trip per row, and both fields are typed rather than a jsonb blob. */
+  articleCode: string | null;
+  articleVersion: number | null;
   dueAt: string | null;
   raisedBy: string | null;
   raisedByRole: string;
@@ -56,6 +68,10 @@ export async function listApprovals(principal: Principal, limit = 50): Promise<I
     title: string;
     summary: string | null;
     status: string;
+    entity_type: string;
+    entity_id: string | null;
+    article_code: string | null;
+    article_version: number | null;
     due_at: Date | null;
     raised_by: string | null;
     raised_by_role_code: string;
@@ -64,6 +80,9 @@ export async function listApprovals(principal: Principal, limit = 50): Promise<I
   }>`
     select t.id, t.chain_id, c.name as chain_name, t.site_id, s.name as site_name,
            t.category, t.title, t.summary, t.status, t.due_at,
+           t.entity_type, t.entity_id,
+           t.payload ->> 'code' as article_code,
+           (t.payload ->> 'version')::int as article_version,
            u.display_name as raised_by, t.raised_by_role_code, t.assigned_role_code, t.created_at
       from approval_task t
       join chain c on c.id = t.chain_id
@@ -87,6 +106,10 @@ export async function listApprovals(principal: Principal, limit = 50): Promise<I
     title: row.title,
     summary: row.summary,
     status: row.status,
+    entityType: row.entity_type,
+    entityId: row.entity_id,
+    articleCode: row.article_code,
+    articleVersion: row.article_version === null ? null : Number(row.article_version),
     dueAt: row.due_at ? row.due_at.toISOString() : null,
     raisedBy: row.raised_by,
     raisedByRole: row.raised_by_role_code,
