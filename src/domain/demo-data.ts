@@ -288,6 +288,16 @@ export const DEMO_ACCOUNTS: DemoAccount[] = [
     grants: [],
   },
   {
+    email: "culinary.team@saffron.example",
+    displayName: "Kavita Menon",
+    password: "Saffron!Culinary#2026",
+    locale: "en-IN",
+    blurb:
+      "Central Culinary Team — reads, searches and proposes changes to one chain's master data, but holds no price capability: the refusal case for mdm.article.price.update.",
+    assignments: [{ roleCode: "CENTRAL_CULINARY_TEAM", chainCode: "saffron-table" }],
+    grants: [],
+  },
+  {
     email: "site.head@saffron.example",
     displayName: "Anita Kulkarni",
     password: "Saffron!SiteHead#2026",
