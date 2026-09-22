@@ -1,7 +1,7 @@
 # AGENTS.md — repo conventions for OmniHost.ai
 
-Repo-specific facts only: where code lives, what you may write, what "done" means. Product
-scope is in `Documentation/` and the team's business plan; read those separately.
+Repo-specific facts only: where code lives, what you may write, what "done" means. Product scope
+is in `Documentation/` and the team's business plan — read those separately.
 
 ## Where the code lives
 
@@ -10,15 +10,18 @@ scope is in `Documentation/` and the team's business plan; read those separately
   (`$OMNIHOST_REPO_DIR`, default `$HOME/work/OmniHost.ai`) and commits and pushes.
 - **The mirror deletes.** The script is `rsync -a --delete`, so anything in the clone that is
   not in the site directory is removed, unless it is in the script's exclude list
-  (`Documentation/`, `README.md`, `skills`, `node_modules`, `.git`, `dist`, `.run`,
-  `.tanstack`, `.env*`, `src/routeTree.gen.ts`). **`docs/` is not excluded**: a file authored
+  (`Documentation/`, `README.md`, `skills`, `node_modules`, `.git`, build and cache output —
+  `dist`, `.output`, `.vercel`, `.cache`, `.run`, `.tanstack` — `.env*`,
+  `src/routeTree.gen.ts`). **`docs/` is not excluded**: a file authored
   straight into the clone is deleted by the next sync anybody runs. Author in the site
   directory first, then sync. If you add a repo-only file, add it to the exclude list too.
 - **Push gotcha.** The script runs `git checkout -B <branch> origin/main`, which re-points the
   branch's upstream at `origin/main`, so a plain `--force-with-lease` fails with *stale info*
   rather than "behind". Either push with the expected old value —
   `git push --force-with-lease=<branch>:<old-sha> origin <branch>` — or re-sync onto the
-  existing branch with `OMNIHOST_BASE_BRANCH=<branch>` to fast-forward it. `gh` needs
+  existing branch with `OMNIHOST_BASE_BRANCH=<branch>` to fast-forward it. The second route
+  needs the branch fetched first — the shared clone's fetch refspec is `refs/heads/main` only,
+  so `git fetch origin <branch>:refs/remotes/origin/<branch>` before re-syncing. `gh` needs
   `GH_TOKEN` in the environment (`git push` does not), and `git push` prints nothing useful on
   success — verify with `git ls-remote origin <branch>`.
 - The shared clone can be stale, and a stale tree produces confident findings about code that
@@ -29,8 +32,7 @@ scope is in `Documentation/` and the team's business plan; read those separately
 - `DATABASE_URL` is set in the shell **and** in the dev server's environment, and points at the
   owner's Neon Postgres (Singapore). **There is no local database** — `env -u DATABASE_URL` no
   longer means "local". The working preview and the published site read the same database.
-- A full seed against Neon takes roughly 15 minutes: run it in the background, and say so
-  first.
+- A full seed against Neon takes roughly 15 minutes: run it in the background, and say so first.
 - Keep test writes tiny, deliberate and reversible, and name in your report exactly which rows
   you touched. Never run a seed, bulk import or destructive script without flagging it first.
   If a task needs heavy test data, ask the lead for a scratch database.
@@ -65,6 +67,6 @@ scope is in `Documentation/` and the team's business plan; read those separately
 
 - Branch, push, open a pull request; the team lead reviews and merges. **Never merge or publish
   your own work.**
-- **Commit and push as soon as the code compiles.** A delegation session can be cut off at any
-  moment, and a session that ends with a pushed branch plus one sentence saying what remains is
-  worth far more than a perfect change nobody can see. Do not wait for it to be finished.
+- **Commit and push as soon as the code compiles.** A session can be cut off at any moment, and
+  a pushed branch plus one sentence saying what remains is worth far more than a perfect change
+  nobody can see. Do not wait for it to be finished.
