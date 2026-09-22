@@ -4,6 +4,7 @@ import { poolQueryable, type Queryable } from "~/db";
 import { guard, toJsonState, type JsonState } from "~/server/audit";
 import { NotFound, ValidationError } from "~/server/errors";
 import type { Principal } from "~/server/session";
+import { jurisdictionFieldRules } from "~/domain/jurisdiction";
 import type { ErpOwnedField, ErpOwnershipRow, ErpSystemView, MutationMeta } from "~/domain/mdm";
 
 /**
@@ -315,15 +316,16 @@ async function siteFieldRules(
 ): Promise<{ jurisdiction: string; field: string; requirement: string; legalRef: string | null }[]> {
   const rules: { jurisdiction: string; field: string; requirement: string; legalRef: string | null }[] = [];
   for (const jurisdiction of jurisdictions) {
-    const rows = await tx.query<{ field: string; requirement: string; legal_ref: string | null }>(
-      `select distinct on (field) field, requirement, legal_ref
-         from jurisdiction_field_rule
-        where jurisdiction_code = $1 and entity = 'site' and effective_from <= current_date
-        order by field, effective_from desc`,
-      [jurisdiction]
-    );
-    for (const row of rows) {
-      rules.push({ jurisdiction, field: row.field, requirement: row.requirement, legalRef: row.legal_ref });
+    // Inherited (`IN-KA` → `IN`), like every other profile read: the rules a site is held to
+    // include the ones written on its country, which an exact code match never found. See
+    // `~/domain/jurisdiction`.
+    for (const rule of await jurisdictionFieldRules(tx, jurisdiction, "site")) {
+      rules.push({
+        jurisdiction,
+        field: rule.field,
+        requirement: rule.requirement,
+        legalRef: rule.legalRef,
+      });
     }
   }
   return rules;
@@ -691,13 +693,7 @@ export async function getSite(principal: Principal, code: string): Promise<SiteD
   });
 
   const articleRules = jurisdictionCode
-    ? await db.query<{ field: string; requirement: string; legal_ref: string | null }>(
-        `select distinct on (field) field, requirement, legal_ref
-           from jurisdiction_field_rule
-          where jurisdiction_code = $1 and entity = 'article' and effective_from <= current_date
-          order by field, effective_from desc`,
-        [jurisdictionCode]
-      )
+    ? await jurisdictionFieldRules(db, jurisdictionCode, "article")
     : [];
 
   const orgUnits = await db.query<{
@@ -865,7 +861,7 @@ export async function getSite(principal: Principal, code: string): Promise<SiteD
     articleRequirements: articleRules.map((rule) => ({
       field: rule.field,
       requirement: rule.requirement,
-      legalRef: rule.legal_ref,
+      legalRef: rule.legalRef,
     })),
     erpOrgUnits: orgUnits.map((unit) => ({
       id: unit.id,

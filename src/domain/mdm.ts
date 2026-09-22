@@ -3,6 +3,12 @@ import "@tanstack/react-start/server-only";
 import { poolQueryable, withTransaction, type Queryable } from "~/db";
 import { auditedMutation, guard, writeAudit, type MutationOutcome } from "~/server/audit";
 import { raiseArticleReviewTask } from "~/domain/mdm-approvals";
+import {
+  articleFieldPresent,
+  jurisdictionFieldRules,
+  requiredFieldsFor,
+  tradedJurisdictions,
+} from "~/domain/jurisdiction";
 import { can } from "~/server/permissions";
 import { NotFound, ValidationError } from "~/server/errors";
 import type { Principal } from "~/server/session";
@@ -155,45 +161,23 @@ function isUniqueViolation(error: unknown): boolean {
 }
 
 /**
- * The jurisdictions a chain actually trades in: its own `tax_jurisdiction` plus the
- * distinct jurisdictions of its sites (§14 — "there is no separate list to maintain").
+ * Where the jurisdictions a chain trades in, and what each market's profile requires, are
+ * resolved: `~/domain/jurisdiction`. Both moved there in the slab 3c-1 fix pass, because the
+ * approve transition has to ask the same question and this module imports the approvals module
+ * at runtime — a shared leaf module is the only shape both sides can import.
+ *
+ * The resolution is an inheritance now (`IN-KA` → `IN`). The old read matched the jurisdiction
+ * code exactly, so the seeded national (`IN`) rules were invisible to a chain whose sites are
+ * `IN-KA`/`IN-MH`: every gap came back empty, `landingStatus` could not answer `draft`, and the
+ * compliance gate never fired. See that module's header for why this is a resolution fix rather
+ * than a seeding fix.
  */
-export async function tradedJurisdictions(chainId: string): Promise<string[]> {
-  const rows = await poolQueryable().query<{ code: string }>(
-    `select distinct code from (
-       select c.tax_jurisdiction as code from chain c where c.id = $1 and c.tax_jurisdiction is not null
-       union
-       select coalesce(s.jurisdiction_code, s.tax_jurisdiction) as code
-         from site s
-        where s.chain_id = $1
-          and coalesce(s.jurisdiction_code, s.tax_jurisdiction) is not null
-     ) t
-     order by code`,
-    [chainId]
-  );
-  return rows.map((row) => row.code);
-}
+export { tradedJurisdictions };
 
-/**
- * The required fields a market's profile states for an entity, today. Effective-dated:
- * the rule in force is the newest row at or before today, which is what keeps a change to
- * a market's law from rewriting history.
- */
-async function requiredFields(
-  tx: Queryable,
-  jurisdiction: string,
-  entity: string
-): Promise<string[]> {
-  const rows = await tx.query<{ field: string }>(
-    `select distinct on (field) field
-       from jurisdiction_field_rule
-      where jurisdiction_code = $1 and entity = $2 and requirement = 'required'
-        and effective_from <= current_date
-      order by field, effective_from desc`,
-    [jurisdiction, entity]
-  );
-  return rows.map((row) => row.field);
-}
+// The required-fields read that used to live here is `requiredFieldsFor` in
+// `~/domain/jurisdiction`: it resolves the market's own profile and then its country's, which
+// is the difference between a rule set that applies and one that never fired (see that
+// module's header). One definition, because the approve transition asks the same question.
 
 // ---------------------------------------------------------------------------
 // List
@@ -216,7 +200,7 @@ export async function listArticles(
   // The compliance column is evaluated against the first traded jurisdiction; a chain
   // trading in several sees the per-market matrix on the record instead (§7.4).
   const jurisdiction = filters.jurisdiction?.trim() || jurisdictions[0] || "IN";
-  const required = await requiredFields(db, jurisdiction, "article");
+  const required = await requiredFieldsFor(db, jurisdiction, "article");
 
   const where: string[] = ["a.chain_id = $1"];
   const values: unknown[] = [chainId];
@@ -891,14 +875,9 @@ export async function getArticle(principal: Principal, code: string): Promise<Ar
   // change re-evaluates every record the next time it is read, with no data migration.
   const compliance: ArticleComplianceCell[] = [];
   for (const jurisdiction of jurisdictions) {
-    const rules = await db.query<{ field: string; requirement: string; legal_ref: string | null }>(
-      `select distinct on (field) field, requirement, legal_ref
-         from jurisdiction_field_rule
-        where jurisdiction_code = $1 and entity = 'article'
-          and effective_from <= current_date
-        order by field, effective_from desc`,
-      [jurisdiction]
-    );
+    // Resolved with inheritance (`IN-KA` → `IN`), so a market column shows the rules that
+    // actually apply there rather than only the rows written under that exact code.
+    const rules = await jurisdictionFieldRules(db, jurisdiction, "article");
     for (const rule of rules) {
       const predicate = FIELD_PREDICATES[rule.field];
       const checked = rule.requirement !== "optional" && rule.requirement !== "forbidden";
@@ -918,7 +897,7 @@ export async function getArticle(principal: Principal, code: string): Promise<Ar
         requirement: rule.requirement,
         satisfied,
         checked: predicate !== undefined,
-        legalRef: rule.legal_ref,
+        legalRef: rule.legalRef,
       });
     }
   }
@@ -1168,18 +1147,21 @@ export async function updateArticlePrice(
       const rows = await tx.query<{
         article_id: string;
         version_id: string;
+        version_status: string | null;
         outlet_id: string;
         site_currency: string;
         price_id: string | null;
         amount: string | null;
         currency_code: string | null;
       }>(
-        `select a.id as article_id, a.current_version_id as version_id, o.id as outlet_id,
+        `select a.id as article_id, a.current_version_id as version_id,
+                cv.status as version_status, o.id as outlet_id,
                 coalesce(s.currency, 'INR') as site_currency,
                 p.id as price_id, p.amount, p.currency_code
            from article a
            join outlet o on o.chain_id = a.chain_id and o.code = $3
            join site s on s.id = o.site_id
+           join article_version cv on cv.id = a.current_version_id
            left join article_price p
                   on p.article_version_id = a.current_version_id
                  and p.outlet_id = o.id and p.effective_to is null
@@ -1189,6 +1171,16 @@ export async function updateArticlePrice(
       const row = rows[0];
       if (!row) throw new NotFound("Article or outlet", `${code} / ${outletCode}`);
       if (!row.version_id) throw new ValidationError(`${code} has no current version`);
+
+      // Money is frozen while a version is under review. A price write targets the article's
+      // *current* version, and submit-for-review leaves the version under review as the current
+      // one — so without this check a figure could be changed while it sat in an approver's
+      // queue, and approving it would publish a number the approver never saw. That is the exact
+      // failure maker-checker exists to prevent, and it needs the same refusal `updateArticle`
+      // gives: one keyed answer for "this version is not editable right now".
+      if (row.version_status === "pending_review") {
+        throw invalid("validation.articleVersionLocked", "status", { status: row.version_status });
+      }
 
       // The price's currency is the outlet's site currency (§7.1). A caller that sends a
       // different code is asking for something the model does not offer, so it is refused
@@ -1595,31 +1587,25 @@ async function complianceGaps(
   input: ArticleWriteInput
 ): Promise<string[]> {
   const jurisdictions = await tradedJurisdictions(chainId);
+  // The values a rule is tested against, keyed by the rule's own field names. The same
+  // predicate answers for a create (here, from what the operator stated) and for a stored
+  // version (in `~/domain/jurisdiction`, from the columns) — the approve transition reads
+  // that one, and the two must not be able to disagree about what "complete" means.
+  const values = {
+    name: input.name,
+    dietaryMark: input.dietaryMark,
+    taxClass: input.taxClassCode,
+    hsnSacCode: input.hsnSacCode,
+    servingSize: input.servingSizeQty,
+    caloriesKcal: input.caloriesKcal,
+    // Declaring "none" is a positive statement (§7.1): the field is present when the row
+    // says so explicitly, which is what an empty cell cannot express.
+    allergensDeclared: input.allergens !== undefined,
+  };
   const missing = new Set<string>();
   for (const jurisdiction of jurisdictions) {
-    const required = await requiredFields(tx, jurisdiction, "article");
-    for (const field of required) {
-      const present = (() => {
-        switch (field) {
-          case "dietaryMark":
-            return Boolean(input.dietaryMark);
-          case "hsnSacCode":
-            return Boolean(input.hsnSacCode);
-          case "caloriesKcal":
-            return input.caloriesKcal !== null && input.caloriesKcal !== undefined;
-          case "servingSize":
-            return input.servingSizeQty !== null && input.servingSizeQty !== undefined;
-          case "taxClass":
-            return Boolean(input.taxClassCode);
-          case "allergens":
-            // Declaring "none" is a positive statement (§7.1): the field is present when the
-            // row says so explicitly, which is what an empty cell cannot express.
-            return input.allergens !== undefined;
-          default:
-            return true;
-        }
-      })();
-      if (!present) missing.add(field);
+    for (const field of await requiredFieldsFor(tx, jurisdiction, "article")) {
+      if (!articleFieldPresent(field, values)) missing.add(field);
     }
   }
   return [...missing];

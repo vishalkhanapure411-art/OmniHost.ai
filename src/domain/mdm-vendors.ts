@@ -4,6 +4,7 @@ import { poolQueryable, type Queryable } from "~/db";
 import { auditedMutation, guard, recordAudit, toJsonState, type JsonState } from "~/server/audit";
 import { NotFound, ValidationError } from "~/server/errors";
 import type { Principal } from "~/server/session";
+import { jurisdictionFieldRules } from "~/domain/jurisdiction";
 import type { ErpOwnedField, ErpOwnershipRow, ErpSystemView } from "~/domain/mdm";
 import type { MutationMeta } from "~/domain/mdm";
 
@@ -113,19 +114,15 @@ async function vendorFieldRules(
 ): Promise<{ jurisdiction: string; field: string; requirement: string; legalRef: string | null }[]> {
   const rules: { jurisdiction: string; field: string; requirement: string; legalRef: string | null }[] = [];
   for (const jurisdiction of jurisdictions) {
-    const rows = await tx.query<{ field: string; requirement: string; legal_ref: string | null }>(
-      `select distinct on (field) field, requirement, legal_ref
-         from jurisdiction_field_rule
-        where jurisdiction_code = $1 and entity = 'vendor' and effective_from <= current_date
-        order by field, effective_from desc`,
-      [jurisdiction]
-    );
-    for (const row of rows) {
+    // Resolved through the market's own profile and then its country's (`IN-KA` → `IN`): the
+    // national vendor rules are what a Karnataka supplier is actually held to, and an exact
+    // code match found none of them. See `~/domain/jurisdiction`.
+    for (const rule of await jurisdictionFieldRules(tx, jurisdiction, "vendor")) {
       rules.push({
         jurisdiction,
-        field: row.field,
-        requirement: row.requirement,
-        legalRef: row.legal_ref,
+        field: rule.field,
+        requirement: rule.requirement,
+        legalRef: rule.legalRef,
       });
     }
   }

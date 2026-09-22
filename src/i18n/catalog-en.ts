@@ -339,6 +339,12 @@ export const enIN = {
   "approval.review.allergens": "Allergens declared",
   "approval.review.submittedBy": "Raised by",
   "approval.review.submittedAt": "Submitted",
+  // What an approver would be waiving if they approved anyway. Read from the stored version by
+  // the same function the approve transition refuses on, so the list and the refusal agree.
+  "approval.review.missingRequired": "Missing required fields",
+  "approval.review.missingRequired.item": "{field} required in {jurisdiction}",
+  "approval.review.missingRequired.note":
+    "A version cannot go live while a market the chain trades in requires a field it does not carry. An approval of this one will be refused.", 
   "approval.reason.label": "Reason for sending back",
   "approval.reason.choose": "Choose a reason…",
   "approval.reason.note": "Note for the author (optional)",
@@ -1039,6 +1045,11 @@ export const enIN = {
   "mdm.article.price.dialog.effectiveFromHint": "Defaults to today; a future date opens the window later.",
   "mdm.article.price.dialog.confirm": "Change the price",
   "mdm.article.price.saved": "Price updated for {outlet}.",
+  // Money is frozen while a version sits in an approver's queue (slab 3c-1): a price write
+  // targets the article's current version, so editing one under review would change the
+  // figure the approver is about to publish.
+  "mdm.article.price.lockedUnderReview":
+    "This version is under review, so its prices are frozen. A send-back is what unlocks them - nothing changes while it waits.",
   "mdm.article.price.readOnly":
     "You can read prices but not move them: changing a price needs mdm.article.price.update, which this role does not hold. The server refuses the write whatever this screen offers.",
   "mdm.article.price.empty.title": "No price row at any outlet",
@@ -1913,6 +1924,10 @@ export const enIN = {
   "validation.review.alreadyDecided": "This item has already been decided.",
   "validation.review.notPending": "This version is not under review.",
   "validation.review.unknownDecision": "A decision is either an approval or a send-back.",
+  // §15: an article cannot reach `active` while a market the chain trades in has a missing
+  // required field. The refusal names the field and the market, never "compliance failed".
+  "validation.review.jurisdictionIncomplete":
+    "{field} is required in {jurisdiction}, so this version cannot go live. Fix the record and resubmit it.", 
   "validation.articleVersionLocked": "This version is under review: send it back rather than editing it.",
   "validation.number.invalid": "{value} is not a number.",
   "validation.date.format": "{value} is not a date. Use {format}.",

@@ -322,6 +322,16 @@ function ArticleScreen() {
 
   const article = result.article;
   const canPrice = principal.permissions.includes("mdm.article.price.update");
+  /**
+   * Money is frozen while the version sits in an approver's queue (slab 3c-1).
+   *
+   * A price write targets the article's *current* version, and submitting a draft leaves that
+   * version under review — so before the lock, a figure could be changed in the approver's
+   * queue and the approval would publish a number they never saw. The server refuses the write;
+   * this stops the screen offering it, and the banner says why rather than leaving an operator
+   * to guess from a missing button.
+   */
+  const versionUnderReview = article.currentVersion.status === "pending_review";
   const canAvailability = principal.permissions.includes("mdm.article.update");
   // Maker-checker: submitting a draft is a proposal, not an approval (`mdm.article.propose`),
   // which is exactly the capability the demo Culinary Team holds.
@@ -596,7 +606,13 @@ function ArticleScreen() {
               title={t("mdm.article.price.title")}
               count={String(article.prices.length)}
             />
-            {canPrice ? (
+            {versionUnderReview ? (
+              <div className="px-4 pt-3">
+                <Banner tone="warn" compact>
+                  {t("mdm.article.price.lockedUnderReview")}
+                </Banner>
+              </div>
+            ) : canPrice ? (
               <p className="px-4 pt-3 text-xs text-fg-subtle">
                 {t("mdm.article.price.capabilityHint", {
                   permission: "mdm.article.price.update",
@@ -654,7 +670,7 @@ function ArticleScreen() {
                           <TimestampValue value={price.effectiveFrom} mode="date" />
                         </td>
                         <td className="w-0 px-4 py-2 whitespace-nowrap">
-                          {canPrice ? (
+                          {canPrice && !versionUnderReview ? (
                             <Button
                               size="sm"
                               variant="secondary"

@@ -288,6 +288,16 @@ export const DEMO_ACCOUNTS: DemoAccount[] = [
     grants: [],
   },
   {
+    email: "mdm.approver@saffron.example",
+    displayName: "Suresh Nair",
+    password: "Saffron!MdmApprover#2026",
+    locale: "en-IN",
+    blurb:
+      "Second Central MDM Head — a second signer for the maker-checker walk-through. The four-eyes rule refuses a self-approval, so the article review path cannot be walked end to end by one person: this account is the same role as the MDM Head, held by a different person, and exists so the approve branch is reachable by two real logins.",
+    assignments: [{ roleCode: "CENTRAL_MDM_HEAD", chainCode: "saffron-table" }],
+    grants: [],
+  },
+  {
     email: "culinary.team@saffron.example",
     displayName: "Kavita Menon",
     password: "Saffron!Culinary#2026",

@@ -3,6 +3,7 @@ import "@tanstack/react-start/server-only";
 import { poolQueryable, type Queryable } from "~/db";
 import { auditedMutation, guard, primaryRoleCode, recordAudit, type MutationOutcome } from "~/server/audit";
 import { NotFound, PermissionDenied, ValidationError } from "~/server/errors";
+import { articleVersionComplianceGaps } from "~/domain/jurisdiction";
 import { ARTICLE_APPROVER_ROLE, ARTICLE_VERSION_ENTITY, MDM_APPROVAL_CATEGORY, isArticleReviewReason } from "~/domain/approvals";
 import type { ArticleReviewReasonCode, MdmReviewDecision } from "~/domain/approvals";
 import type { MutationMeta } from "~/domain/mdm";
@@ -363,6 +364,28 @@ export async function decideArticleReview(
     }
 
     const approve = decision === "approve";
+    if (approve) {
+      // §15, and the review finding that this branch never asked: the create door refuses a
+      // record missing a field its market requires, and an approval must not be the other door
+      // into `active`. Evaluated here — inside the same transaction as the status write, and
+      // against the *stored* version rather than whatever the approver's screen last showed,
+      // which is the only version of the answer that cannot be stale.
+      //
+      // `article_version.compliance_override` exists for §14's case (a record that became
+      // incomplete after a profile change) but nothing writes it yet, so an override would need
+      // a reasoned writer of its own. Passing silently here because the column exists would be
+      // the same defect this check closes.
+      const gaps = await articleVersionComplianceGaps(tx, chainId, row.version_id);
+      const first = gaps[0];
+      if (first) {
+        // The refusal names one field and the market it is required in; the review read hands
+        // the approver the whole list before they decide, so nothing is discovered afterwards.
+        throw coded("validation.review.jurisdictionIncomplete", "status", {
+          field: first.field,
+          jurisdiction: first.jurisdiction,
+        });
+      }
+    }
     await tx.query(
       `update article_version
           set status = $2,
@@ -485,6 +508,14 @@ export interface ArticleVersionReview {
   raisedByRole: string | null;
   prices: { outletCode: string; amount: number; currencyCode: string }[];
   allergens: { code: string; mayContain: boolean }[];
+  /**
+   * The fields this version's chain's markets require and the version does not carry.
+   *
+   * Non-empty means an approval will be refused — so an approver reads what they are being
+   * asked to waive *before* they click, not after. Read from the stored version by the same
+   * function the approve branch refuses on, so the two cannot disagree.
+   */
+  complianceGaps: { field: string; jurisdiction: string; declaredFor: string }[];
 }
 
 /**
@@ -569,7 +600,7 @@ export async function getArticleVersionReview(
   const row = rows[0];
   if (!row) throw new NotFound("Article version", versionId ?? taskId ?? "");
 
-  const [outlets, allergens] = await Promise.all([
+  const [outlets, allergens, gaps] = await Promise.all([
     poolQueryable().query<{ outlet_code: string; amount: string; currency_code: string }>(
       `select o.code as outlet_code, p.amount, p.currency_code
          from article_price p
@@ -586,6 +617,7 @@ export async function getArticleVersionReview(
         order by al.code`,
       [row.version_id]
     ),
+    articleVersionComplianceGaps(poolQueryable(), chainId, row.version_id),
   ]);
 
   return {
@@ -620,6 +652,11 @@ export async function getArticleVersionReview(
     allergens: allergens.map((allergen) => ({
       code: allergen.code,
       mayContain: allergen.may_contain,
+    })),
+    complianceGaps: gaps.map((gap) => ({
+      field: gap.field,
+      jurisdiction: gap.jurisdiction,
+      declaredFor: gap.declaredFor,
     })),
   };
 }

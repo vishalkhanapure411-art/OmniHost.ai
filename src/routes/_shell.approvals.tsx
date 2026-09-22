@@ -156,6 +156,21 @@ function ApprovalsScreen() {
     return facts;
   }
 
+  /**
+   * What would stop an approval of this item, in the approver's own words.
+   *
+   * The review read carries the version's unmet market requirements, and the approve
+   * transition refuses on exactly those — so this is not a second opinion, it is the refusal
+   * arriving early enough to be useful.
+   */
+  function reviewBlockers(taskId: string): string[] {
+    const review = reviews[taskId];
+    if (!review) return [];
+    return review.complianceGaps.map((gap) =>
+      t("approval.review.missingRequired.item", { field: gap.field, jurisdiction: gap.jurisdiction })
+    );
+  }
+
   async function decide(item: ApprovalRowView, decision: ApprovalDecision, extras: ApprovalDecisionExtras) {
     setNotice(null);
     setRefusal(null);
@@ -211,6 +226,7 @@ function ApprovalsScreen() {
     raisedByRole: item.raisedByRole,
     assignedRole: item.assignedRole,
     review: reviewFacts(item.id),
+    blockers: reviewBlockers(item.id),
     entityType: item.entityType,
   }));
 

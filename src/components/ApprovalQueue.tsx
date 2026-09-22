@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 
 import { ApprovalStateBadge, CategoryBadge, SeverityBadge, type ApprovalState, type Severity } from "~/components/status";
-import { Button, Card, ConfirmSummary, Dialog, EmptyState, Field, Select, Textarea } from "~/components/ui";
+import { Banner, Button, Card, ConfirmSummary, Dialog, EmptyState, Field, Select, Textarea } from "~/components/ui";
 import { Clock, Layers } from "~/components/icons";
 import { ARTICLE_REVIEW_REASONS, isArticleReviewReason } from "~/domain/approvals";
 import type { ArticleReviewReasonCode } from "~/domain/approvals";
@@ -44,6 +44,15 @@ export interface ApprovalRowView {
   value?: Money | null;
   /** What the approver is approving, as label/value facts. Composed by the caller. */
   review?: { label: string; value: string }[];
+  /**
+   * Reasons this item cannot be decided in its favour, as sentences the caller composed.
+   *
+   * Shown in the dialog, above the facts, *before* the decision is taken: the server refuses
+   * such a decision anyway (slab 3c-1's compliance gate), and an operator who only learns why
+   * after clicking has been told too late. The component stays presentational — it renders
+   * what it is given and composes no sentence of its own.
+   */
+  blockers?: string[];
   /** What the task points at — the caller decides whether a decision path exists at all. */
   entityType?: string;
 }
@@ -173,6 +182,18 @@ export function ApprovalQueueRow({
           </>
         }
       >
+        {item.blockers && item.blockers.length > 0 ? (
+          <div className="mb-3">
+            <Banner tone="warn" title={t("approval.review.missingRequired")}>
+              <p>{t("approval.review.missingRequired.note")}</p>
+              <ul className="mt-1 list-disc ps-4">
+                {item.blockers.map((blocker) => (
+                  <li key={blocker}>{blocker}</li>
+                ))}
+              </ul>
+            </Banner>
+          </div>
+        ) : null}
         {item.review && item.review.length > 0 ? (
           <div className="mb-3 flex flex-col gap-2">
             <p className="text-2xs font-semibold tracking-wide text-fg-subtle uppercase">
