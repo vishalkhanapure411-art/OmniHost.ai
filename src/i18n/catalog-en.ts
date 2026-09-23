@@ -394,6 +394,8 @@ export const enIN = {
   // reason and is not one.
   "approval.returned.line": "Sent back by {who} on {when} — {reason}",
   "approval.returned.note": "Note from the approver: {note}",
+  "approval.returned.correction":
+    "Correct it by re-importing the corrected row, then submit it again.",
   // The honest absent state: `getArticleVersionReview` reads one version, so there is no pair
   // to diff, and a dialog that stayed silent would read as "nothing changes".
   "approval.review.noComparison":
@@ -1188,6 +1190,19 @@ export const enIN = {
   "mdm.article.versions.column.effectiveFrom": "Selling from",
   "mdm.article.versions.column.approvedAt": "Approved at",
   "mdm.article.versions.current": "Current",
+  /**
+   * The draft-version rule on the record (slab 3c-2). The card shows the sellable version and
+   * the proposed one at once, so every line that could be read as describing "the" version
+   * names which one it means — and the two badges are the labels that stop an operator reading
+   * a proposed figure as what guests pay.
+   */
+  "mdm.article.versions.onSaleNow": "On sale now: version {version}.",
+  "mdm.article.versions.onSaleNowProposed":
+    "On sale now: version {onSale}. Version {proposed} is proposed — nothing on the menu changes until it is approved.",
+  "mdm.article.versions.onSale": "On sale",
+  "mdm.article.versions.proposed": "Proposed",
+  "mdm.article.price.dialog.proposalTarget":
+    "This change is proposed in version {proposed}. Version {onSale} stays what guests pay until {proposed} is approved.",
   "mdm.article.version.status.superseded": "Superseded",
   "mdm.article.audit.note":
     "Every price and availability change writes its audit row in the same transaction as the change, carrying this record's before and after values. The record's id above is what a support query quotes; the trail itself is on the audit screen.",
