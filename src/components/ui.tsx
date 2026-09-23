@@ -11,6 +11,7 @@ import {
 } from "react";
 
 import { AlertTriangle, Check, Close, InfoCircle, Spinner, XCircle } from "~/components/icons";
+import { useT } from "~/i18n";
 
 /**
  * Console primitives.
@@ -769,6 +770,7 @@ export function Dialog({
   tone?: "default" | "danger";
   width?: "sm" | "md" | "lg";
 }) {
+  const t = useT();
   const titleId = useId();
   const descriptionId = useId();
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -846,7 +848,7 @@ export function Dialog({
               </p>
             ) : null}
           </div>
-          <IconButton label="Close" onClick={onClose}>
+          <IconButton label={t("action.close")} onClick={onClose}>
             <Close size={16} />
           </IconButton>
         </header>

@@ -20,17 +20,68 @@ export interface ApprovalItem {
   title: string;
   summary: string | null;
   status: string;
+  /**
+   * What the task points at. The queue row uses it to decide whether there is a decision
+   * path behind the item, and the review read needs it: `approval_task.entity_id` is
+   * already a version id, so the run-time UUID becomes plain text in the projection and
+   * stays text on the way to the screen.
+   */
+  entityType: string;
+  entityId: string | null;
+  /** Denormalised from the task's payload: the queue shows which record is waiting without
+   *  a second round trip per row, and both fields are typed rather than a jsonb blob. */
+  articleCode: string | null;
+  articleVersion: number | null;
   dueAt: string | null;
   raisedBy: string | null;
   raisedByRole: string;
   assignedRole: string | null;
+  /**
+   * True when this task was decided against the caller and routed back to them — a
+   * send-back being the case that exists today. It is *not* the same as "closed": the
+   * decision is recorded (`status` is `rejected`), but the work is the caller's again, so
+   * the row belongs in their "waiting on you" queue under its own badge rather than in
+   * the decided history.
+   */
+  returnedToMe: boolean;
   createdAt: string;
+  /**
+   * The decision against the caller, so a returned row can say *why* and *by whom*.
+   *
+   * A send-back is the one item whose free text is otherwise the author's own submission
+   * note — a paragraph that reads like a reason and is not one. The reason code is the
+   * approver's, and it is a code: the screen resolves it through the catalog
+   * (`approval.reason.<code>`) rather than printing `pricing_wrong` at an operator.
+   */
+  decisionReason: string | null;
+  /** The approver's own words, when they left any. */
+  decisionNote: string | null;
+  decidedBy: string | null;
+  decidedAt: string | null;
 }
 
+/** Which half of the queue a read wants. */
+export type ApprovalQueueScope = "waiting" | "decided";
+
 export interface InboxPage {
+  /** The half of the queue that was read. */
+  scope: ApprovalQueueScope;
   items: ApprovalItem[];
-  mine: number;
+  /**
+   * Items in this page that are still *awaiting a decision* (`approval_task.status =
+   * 'open'`). A task that has been approved, sent back or cancelled is never counted here:
+   * "open" has to mean open, or the number is worse than no number.
+   */
   open: number;
+  /** Items returned to the caller by a decision against them and not yet superseded by a
+   *  resubmission. They need the caller to act, so they count as waiting on them. */
+  returned: number;
+  /** Everything the caller still has to act on: `open` plus `returned`. This is the
+   *  "Waiting on you" figure the queue header shows. */
+  mine: number;
+  /** Items in this page that carry a decision (`status <> 'open'`). What the decided
+   *  history holds. */
+  decided: number;
 }
 
 /**
@@ -38,8 +89,21 @@ export interface InboxPage {
  * maker-checker item (receiving, waste, refunds) arrive with their phases — but the
  * query, the routing rule and the scope filters are real, so the first module to
  * raise a task lands in a working screen.
+ *
+ * **The `waiting` scope, precisely.** A decided task is work nobody has to do, so it must
+ * not sit in a queue headed "waiting on you" — and before this read filtered, every item
+ * ever decided accumulated there forever. The one exception is a task that was *sent back*
+ * to the caller: the approver has decided, but the work is the author's again, so it stays
+ * in their waiting queue until they resubmit (a newer task for the same version supersedes
+ * it) and then drops into the decided history on its own. Everything decided lives in the
+ * `decided` scope, which is the queue's history half and can be read deliberately.
  */
-export async function listApprovals(principal: Principal, limit = 50): Promise<InboxPage> {
+export async function listApprovals(
+  principal: Principal,
+  options: { scope?: ApprovalQueueScope; limit?: number } = {}
+): Promise<InboxPage> {
+  const scope: ApprovalQueueScope = options.scope === "decided" ? "decided" : "waiting";
+  const limit = Math.min(Math.max(options.limit ?? 50, 1), 200);
   // No dedicated permission: an inbox is a view of items already routed to a role the
   // caller holds. Scoping is the control, and it is applied below.
   const allowed = accessibleChainIds(principal);
@@ -56,23 +120,54 @@ export async function listApprovals(principal: Principal, limit = 50): Promise<I
     title: string;
     summary: string | null;
     status: string;
+    entity_type: string;
+    entity_id: string | null;
+    article_code: string | null;
+    article_version: number | null;
     due_at: Date | null;
     raised_by: string | null;
     raised_by_role_code: string;
     assigned_role_code: string | null;
+    assigned_user_id: string | null;
+    decided_by: string | null;
+    decided_at: Date | null;
+    decision_note: string | null;
+    decision_reason: string | null;
     created_at: Date;
   }>`
     select t.id, t.chain_id, c.name as chain_name, t.site_id, s.name as site_name,
            t.category, t.title, t.summary, t.status, t.due_at,
-           u.display_name as raised_by, t.raised_by_role_code, t.assigned_role_code, t.created_at
+           t.entity_type, t.entity_id,
+           t.payload ->> 'code' as article_code,
+           (t.payload ->> 'version')::int as article_version,
+           u.display_name as raised_by, t.raised_by_role_code, t.assigned_role_code,
+           t.assigned_user_id, t.created_at,
+           du.display_name as decided_by, t.decided_at, t.decision_note,
+           -- The coded reason lives in the decision payload: decided_by_user_id alone
+           -- answers "who" and leaves "why" to a second query nobody was making.
+           t.payload -> 'decision' ->> 'reasonCode' as decision_reason
       from approval_task t
       join chain c on c.id = t.chain_id
       left join site s on s.id = t.site_id
       left join "user" u on u.id = t.raised_by_user_id
+      left join "user" du on du.id = t.decided_by_user_id
      where (${allowed}::uuid[] is null or t.chain_id = any(${allowed}::uuid[]))
        and (${identity.chainId}::uuid is null or t.chain_id = ${identity.chainId})
        and (${identity.siteId}::uuid is null or t.site_id is null or t.site_id = ${identity.siteId})
        and (t.assigned_user_id = ${identity.userId} or t.assigned_role_code = any(${roles}::text[]))
+       and (case when ${scope}::text = 'decided' then t.status <> 'open'
+                 else t.status = 'open'
+                   or (t.status = 'rejected'
+                       and t.assigned_user_id = ${identity.userId}
+                       and not exists (
+                         select 1 from approval_task newer
+                          where newer.chain_id = t.chain_id
+                            and newer.entity_type = t.entity_type
+                            and newer.entity_id = t.entity_id
+                            and newer.id <> t.id
+                            and newer.created_at > t.created_at
+                       ))
+            end)
      order by (t.status = 'open') desc, t.due_at asc nulls last, t.created_at desc
      limit ${limit}
   `;
@@ -87,17 +182,34 @@ export async function listApprovals(principal: Principal, limit = 50): Promise<I
     title: row.title,
     summary: row.summary,
     status: row.status,
+    entityType: row.entity_type,
+    entityId: row.entity_id,
+    articleCode: row.article_code,
+    articleVersion: row.article_version === null ? null : Number(row.article_version),
     dueAt: row.due_at ? row.due_at.toISOString() : null,
     raisedBy: row.raised_by,
     raisedByRole: row.raised_by_role_code,
     assignedRole: row.assigned_role_code,
+    returnedToMe: row.status === "rejected" && row.assigned_user_id === principal.userId,
     createdAt: row.created_at.toISOString(),
+    decisionReason: row.decision_reason,
+    // `decision_note` carries the reviewer's note *or*, when they left none, the reason code
+    // itself (`decideArticleReview`). Showing the code twice as prose helps nobody, so the
+    // note is only the note.
+    decisionNote: row.decision_note && row.decision_note !== row.decision_reason ? row.decision_note : null,
+    decidedBy: row.decided_by,
+    decidedAt: row.decided_at ? row.decided_at.toISOString() : null,
   }));
 
+  const open = items.filter((item) => item.status === "open").length;
+  const returned = items.filter((item) => item.returnedToMe).length;
   return {
+    scope,
     items,
-    mine: items.filter((item) => item.status === "open").length,
-    open: items.length,
+    open,
+    returned,
+    mine: open + returned,
+    decided: items.filter((item) => item.status !== "open").length,
   };
 }
 

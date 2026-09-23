@@ -93,6 +93,22 @@ export async function seed(): Promise<void> {
   );
 }
 
+/**
+ * Users and their role assignments only — the same functions the full seed calls, so a
+ * demo account created here is created exactly as `db:seed` would create it, but without
+ * re-loading the master-data dataset (which takes minutes against the managed database).
+ *
+ * This exists because adding one demo login should not mean re-seeding 52 articles, 57 raw
+ * materials and 83 outlet prices into the owner's database. It is an additive upsert: it
+ * creates what is missing and touches nothing that is already there.
+ */
+async function seedDemoUsers(): Promise<void> {
+  await withTransaction(async (tx) => {
+    await seedUsersAndScopes(tx);
+  });
+  console.log("seed: demo users and role assignments upserted (tenant and master data untouched)");
+}
+
 async function upsertUserId(
   tx: Queryable,
   account: { email: string; displayName: string; password: string; locale: string | null }
@@ -464,8 +480,9 @@ async function main(): Promise<void> {
   try {
     if (command === "migrate") await migrate();
     else if (command === "seed") await seed();
+    else if (command === "seed-users") await seedDemoUsers();
     else if (command === "reset") await reset();
-    else throw new Error(`unknown command "${command}" (expected migrate | seed | reset)`);
+    else throw new Error(`unknown command "${command}" (expected migrate | seed | seed-users | reset)`);
   } finally {
     await getPool().end();
   }

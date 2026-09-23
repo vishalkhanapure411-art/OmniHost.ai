@@ -615,6 +615,10 @@ with mdm_grant (role_code, permission_like) as (
     ('CENTRAL_MDM_TEAM', 'mdm.%.import'),
     ('CENTRAL_MDM_TEAM', 'mdm.article.create'),
     ('CENTRAL_MDM_TEAM', 'mdm.article.update'),
+    -- The seed's own comment above says this team proposes. Without the row the
+    -- Submit-for-review control is invisible to the role that maintains the drafts, so the
+    -- maker-checker path had no author on the team that authors.
+    ('CENTRAL_MDM_TEAM', 'mdm.article.propose'),
     ('CENTRAL_MDM_TEAM', 'mdm.article.price.update'),
     ('CENTRAL_MDM_TEAM', 'mdm.article.deactivate'),
     ('CENTRAL_MDM_TEAM', 'mdm.raw_material.create'),

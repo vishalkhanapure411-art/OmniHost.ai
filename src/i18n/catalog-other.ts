@@ -534,7 +534,21 @@ const MIRROR: Record<string, string> = {
   ">": "<",
 };
 
+/**
+ * Mirrors a string for the RTL pseudo-locale, and **leaves interpolation placeholders whole**.
+ *
+ * Mirroring `{`/`}` and the name inside them broke the one thing this locale exists to prove:
+ * the renderer substitutes `/{[a-z]+}/`, and a mirrored letter (`ⅎᴉǝlᵭ`) is not a word character,
+ * so an Arabic-pseudo screen printed the placeholder's own name where a value belongs. The text
+ * around a placeholder is mirrored; the placeholder is not text.
+ */
 function mirrorText(value: string): string {
+  return value
+    .split(/(\{\w+\})/g)
+    .map((part) => (/^\{\w+\}$/.test(part) ? part : mirrorPart(part)))
+    .join("");
+}
+function mirrorPart(value: string): string {
   let out = "";
   for (const char of value) out += MIRROR[char] ?? char;
   return out;

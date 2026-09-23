@@ -33,6 +33,7 @@ import type { PublicPrincipal } from "~/domain/principal";
 export type { NavItem } from "~/domain/nav";
 export type { PublicPrincipal } from "~/domain/principal";
 import { canReadAudit, listApprovals, listAuditEntries } from "~/domain/inbox";
+import type { ApprovalQueueScope } from "~/domain/inbox";
 import { commitImport, dryRunImport, importScreenAccess } from "~/domain/import";
 import { currentPrincipal } from "~/server/context";
 import { resolveDisplayPreferences } from "~/server/locale";
@@ -54,6 +55,24 @@ function failure(error: unknown): {
   error: string;
   message: string;
   permission: string | null;
+  /**
+   * The domain's own code for the refusal, when it has one (`validation.review.reasonRequired`).
+   *
+   * A screen that renders `message` alone shows `validation.review.reasonRequired:reasonCode`
+   * to an operator, in English, whatever language they are reading the console in. With the
+   * code carried across the boundary the screen can look the refusal up in the catalog and
+   * fall back to the server's message only when it has no entry.
+   */
+  code: string | null;
+  /**
+   * The code's own parameters, so a parameterised refusal survives the wire.
+   *
+   * `validation.review.jurisdictionIncomplete` must name the field and the market it is
+   * required in. Carrying only the code left the screen calling `t(key)` with no arguments,
+   * which renders the literals `{field}` and `{jurisdiction}` to the operator — worse than
+   * the English sentence it replaced, because it looks like corruption.
+   */
+  params: Record<string, string | number> | null;
 } {
   const { status, body } = toErrorResponse(error);
   return {
@@ -62,7 +81,32 @@ function failure(error: unknown): {
     error: String(body.error ?? "error"),
     message: String(body.message ?? "Request failed."),
     permission: deniedPermission(error),
+    code: codedErrorCode(error),
+    params: codedErrorParams(error),
   };
+}
+
+/** The domain's error code, for a screen that wants to translate the refusal itself. */
+function codedErrorCode(error: unknown): string | null {
+  if (!isHttpError(error)) return null;
+  const code = (error.details as { code?: unknown } | undefined)?.code;
+  return typeof code === "string" ? code : null;
+}
+
+/**
+ * The parameters a coded refusal needs to be understandable, read from the same details the
+ * code comes from. Only serialisable scalars cross the boundary: a nested object would be an
+ * interpolation value nobody can render.
+ */
+function codedErrorParams(error: unknown): Record<string, string | number> | null {
+  if (!isHttpError(error)) return null;
+  const raw = (error.details as { params?: unknown } | undefined)?.params;
+  if (!raw || typeof raw !== "object") return null;
+  const params: Record<string, string | number> = {};
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof value === "string" || typeof value === "number") params[key] = value;
+  }
+  return Object.keys(params).length > 0 ? params : null;
 }
 /**
  * The permission a refusal was about, read from the domain error's own details. A screen
@@ -221,15 +265,20 @@ export const setChainFeatureFn = createServerFn({ method: "POST" })
     }
   });
 
-export const listApprovalsFn = createServerFn({ method: "GET" }).handler(async () => {
-  const principal = await currentPrincipal();
-  if (!principal) return failure(new Unauthenticated());
-  try {
-    return { ok: true as const, inbox: await listApprovals(principal) };
-  } catch (error) {
-    return failure(error);
-  }
-});
+export const listApprovalsFn = createServerFn({ method: "GET" })
+  .validator((input: unknown) => (input ?? {}) as { scope?: ApprovalQueueScope })
+  .handler(async ({ data }) => {
+    const principal = await currentPrincipal();
+    if (!principal) return failure(new Unauthenticated());
+    try {
+      // Two scopes, one query: the caller's waiting items and the caller's decided history.
+      // Filtered server-side rather than hidden in the screen, so a decided item cannot be
+      // counted as pending work by anything that reads this function.
+      return { ok: true as const, inbox: await listApprovals(principal, { scope: data.scope }) };
+    } catch (error) {
+      return failure(error);
+    }
+  });
 
 export const listAuditFn = createServerFn({ method: "GET" }).handler(async () => {
   const principal = await currentPrincipal();
@@ -797,6 +846,95 @@ export const commitImportFn = createServerFn({ method: "POST" })
           fileName: data.fileName,
           content: data.content,
         }),
+      };
+    } catch (error) {
+      return failure(error);
+    }
+  });
+
+// ---------------------------------------------------------------------------
+// Phase 1 master data: the maker-checker review path for articles
+// ---------------------------------------------------------------------------
+/**
+ * Three functions, in the order the path runs: submit a draft for review, read what is
+ * under review, decide it.
+ *
+ * The read exists because of a real gap: every other article read joins
+ * `article.current_version_id`, so a version under review could not be read at all and an
+ * approver had nothing to approve. It is a *read* — guarded on `mdm.article.view`, and it
+ * resolves no price that any billing path uses.
+ */
+import {
+  decideArticleReview,
+  getArticleVersionReview,
+  submitArticleForReview,
+} from "~/domain/mdm-approvals";
+
+export const getArticleVersionReviewFn = createServerFn({ method: "GET" })
+  .validator(
+    (input: unknown) => input as { taskId?: string | null; versionId?: string | null }
+  )
+  .handler(async ({ data }) => {
+    const principal = await currentPrincipal();
+    if (!principal) return failure(new Unauthenticated());
+    try {
+      return {
+        ok: true as const,
+        review: await getArticleVersionReview(principal, {
+          taskId: data.taskId ?? null,
+          versionId: data.versionId ?? null,
+        }),
+      };
+    } catch (error) {
+      return failure(error);
+    }
+  });
+
+export const submitArticleForReviewFn = createServerFn({ method: "POST" })
+  .validator((input: unknown) => input as { code: string; note?: string | null })
+  .handler(async ({ data }) => {
+    const principal = await currentPrincipal();
+    if (!principal) return failure(new Unauthenticated());
+    try {
+      return {
+        ok: true as const,
+        result: await submitArticleForReview(
+          principal,
+          { code: data.code, note: data.note ?? null },
+          { source: "screen", intent: "mdm.article.propose" }
+        ),
+      };
+    } catch (error) {
+      return failure(error);
+    }
+  });
+
+export const decideArticleApprovalFn = createServerFn({ method: "POST" })
+  .validator(
+    (input: unknown) =>
+      input as {
+        taskId: string;
+        decision: "approve" | "sendBack";
+        reasonCode?: string | null;
+        note?: string | null;
+      }
+  )
+  .handler(async ({ data }) => {
+    const principal = await currentPrincipal();
+    if (!principal) return failure(new Unauthenticated());
+    try {
+      return {
+        ok: true as const,
+        result: await decideArticleReview(
+          principal,
+          {
+            taskId: data.taskId,
+            decision: data.decision,
+            reasonCode: data.reasonCode ?? null,
+            note: data.note ?? null,
+          },
+          { source: "screen", intent: `mdm.article.approve:${data.decision}` }
+        ),
       };
     } catch (error) {
       return failure(error);

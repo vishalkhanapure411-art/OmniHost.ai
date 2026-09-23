@@ -15,6 +15,7 @@ import {
 import type { ImportIssue, ImportReport } from "~/domain/import";
 import { useI18n } from "~/i18n";
 import type { MessageKey } from "~/i18n/catalog-en";
+import { sentenceParams } from "~/i18n/labels";
 import { commitImportFn, dryRunImportFn, importScreenAccessFn } from "~/server-fns";
 
 /**
@@ -110,7 +111,9 @@ function ImportScreen() {
         {entry.column && entry.column !== "file"
           ? `${entry.column}: `
           : `${t("mdm.import.issue.rowLevel" as MessageKey)}: `}
-        {t(entry.code as MessageKey, entry.params)}
+        {/* A report line names a field and the state the record lands in; both are catalog
+            words, not the machine names the plan evaluated (`caloriesKcal`, `pending_review`). */}
+        {t(entry.code as MessageKey, sentenceParams(t, locale, entry.params))}
       </span>
     ));
 
