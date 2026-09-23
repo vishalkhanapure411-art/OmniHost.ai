@@ -394,6 +394,8 @@ export const enIN = {
   // reason and is not one.
   "approval.returned.line": "Sent back by {who} on {when} — {reason}",
   "approval.returned.note": "Note from the approver: {note}",
+  "approval.returned.correction":
+    "Correct it by re-importing the corrected row, then submit it again.",
   // The honest absent state: `getArticleVersionReview` reads one version, so there is no pair
   // to diff, and a dialog that stayed silent would read as "nothing changes".
   "approval.review.noComparison":
@@ -1188,6 +1190,19 @@ export const enIN = {
   "mdm.article.versions.column.effectiveFrom": "Selling from",
   "mdm.article.versions.column.approvedAt": "Approved at",
   "mdm.article.versions.current": "Current",
+  /**
+   * The draft-version rule on the record (slab 3c-2). The card shows the sellable version and
+   * the proposed one at once, so every line that could be read as describing "the" version
+   * names which one it means — and the two badges are the labels that stop an operator reading
+   * a proposed figure as what guests pay.
+   */
+  "mdm.article.versions.onSaleNow": "On sale now: version {version}.",
+  "mdm.article.versions.onSaleNowProposed":
+    "On sale now: version {onSale}. Version {proposed} is proposed — nothing on the menu changes until it is approved.",
+  "mdm.article.versions.onSale": "On sale",
+  "mdm.article.versions.proposed": "Proposed",
+  "mdm.article.price.dialog.proposalTarget":
+    "This change is proposed in version {proposed}. Version {onSale} stays what guests pay until {proposed} is approved.",
   "mdm.article.version.status.superseded": "Superseded",
   "mdm.article.audit.note":
     "Every price and availability change writes its audit row in the same transaction as the change, carrying this record's before and after values. The record's id above is what a support query quotes; the trail itself is on the audit screen.",
@@ -1958,6 +1973,19 @@ export const enIN = {
   "validation.money.currencyMismatch": "{outlet} trades in {currency}; the row says {given}.",
   "validation.money.format": "{value} is not an amount and a currency code.",
   "validation.priceFormat": "{value} is not outlet=amount CUR.",
+  /**
+   * The draft-version rule's refusals (slab 3c-2). Each names what is true and what to do
+   * about it, never the machine code: an operator reading a refusal is trying to get the
+   * change in, not to decode a key.
+   */
+  "validation.review.articleOpen":
+    "This article already has version {version} awaiting a decision. Reprice it — the price path writes into the open draft — or withdraw it before changing what is on sale.",
+  "validation.review.baseMoved":
+    "Version {version} of {code} was written against a version that is no longer the one on sale, so approving it would publish figures nobody reviewed. Reopen the price and submit it again.",
+  "validation.review.articleClosed":
+    "This article is {status}, so it is not a price change away from being on sale again. Bring it back into range first.",
+  "validation.version.priceMissing":
+    "Version {version} prices fewer outlets than the version it replaces — {outlets} would go unpriced the moment it went live. Add a price for {outlet} before approving.",
   "validation.review.reasonRequired": "A send-back needs a reason code.",
   "validation.review.notDraft": "Only a draft version can be submitted for review.",
   "validation.review.alreadyOpen": "This version already has an open review.",

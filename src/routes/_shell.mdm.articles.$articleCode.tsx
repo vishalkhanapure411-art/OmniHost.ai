@@ -324,15 +324,32 @@ function ArticleScreen() {
   const article = result.article;
   const canPrice = principal.permissions.includes("mdm.article.price.update");
   /**
-   * Money is frozen while the version sits in an approver's queue (slab 3c-1).
+   * Which version this screen is *about* (slab 3c-2).
    *
-   * A price write targets the article's *current* version, and submitting a draft leaves that
-   * version under review — so before the lock, a figure could be changed in the approver's
-   * queue and the approval would publish a number they never saw. The server refuses the write;
-   * this stops the screen offering it, and the banner says why rather than leaving an operator
-   * to guess from a missing button.
+   * A price change opens a proposal beside the sellable version, so "the article's version"
+   * stops being one row: `currentVersion` is what guests pay, `proposedVersion` is what waits
+   * for a decision. Keying submit and the price lock off `currentVersion` was wrong in both
+   * directions — a returned N+1 offered no way to resubmit (the current version is N, `active`),
+   * and an N+1 sitting in an approver's queue left the price editable, because the lock was
+   * watching a version nobody was changing. Both follow the **open** version now.
    */
-  const versionUnderReview = article.currentVersion.status === "pending_review";
+  const openVersion = article.proposedVersion;
+  const openVersionNumber = openVersion?.version ?? article.currentVersion.version;
+  const openVersionStatus = openVersion?.status ?? article.currentVersion.status;
+  /** A version sitting beside the sellable one is a proposal; the article's own open draft is not. */
+  const proposingNewVersion = openVersion !== null && !openVersion.isCurrent;
+  /**
+   * Money is frozen while the **open** version sits in an approver's queue (slab 3c-1, rebound
+   * to the open draft in 3c-2).
+   *
+   * Before the lock, a figure could be changed in the approver's queue and the approval would
+   * publish a number they never saw. The server refuses the write; this stops the screen
+   * offering it, and the banner says why rather than leaving an operator to guess from a
+   * missing button.
+   */
+  const versionUnderReview = openVersionStatus === "pending_review";
+  /** *Submit for review* submits the open version, so it is offered while that one is a draft. */
+  const canSubmitOpenVersion = openVersionStatus === "draft";
   const canAvailability = principal.permissions.includes("mdm.article.update");
   // Maker-checker: submitting a draft is a proposal, not an approval (`mdm.article.propose`),
   // which is exactly the capability the demo Culinary Team holds.
@@ -618,6 +635,23 @@ function ArticleScreen() {
               title={t("mdm.article.price.title")}
               count={String(article.prices.length)}
             />
+            {/*
+              The grid below is the *sellable* version's. With a proposal open the record holds
+              two prices at once, and an unlabelled grid is the failure this slab exists to
+              prevent — so the grid says which version it belongs to.
+            */}
+            {article.currentVersion.status === "active" ? (
+              <p className="px-4 pt-3 text-xs text-fg-muted">
+                {proposingNewVersion
+                  ? t("mdm.article.versions.onSaleNowProposed", {
+                      onSale: String(article.currentVersion.version),
+                      proposed: String(openVersionNumber),
+                    })
+                  : t("mdm.article.versions.onSaleNow", {
+                      version: String(article.currentVersion.version),
+                    })}
+              </p>
+            ) : null}
             {versionUnderReview ? (
               <div className="px-4 pt-3">
                 <Banner tone="warn" compact>
@@ -1021,7 +1055,21 @@ function ArticleScreen() {
             title={t("mdm.article.section.versions")}
             subtitle={t("mdm.article.versions.subtitle")}
           />
-          {article.currentVersion.status === "draft" ? (
+          {article.currentVersion.status === "active" ? (
+            <div className="border-b border-border px-4 py-2">
+              <p className="text-xs text-fg-muted">
+                {proposingNewVersion
+                  ? t("mdm.article.versions.onSaleNowProposed", {
+                      onSale: String(article.currentVersion.version),
+                      proposed: String(openVersionNumber),
+                    })
+                  : t("mdm.article.versions.onSaleNow", {
+                      version: String(article.currentVersion.version),
+                    })}
+              </p>
+            </div>
+          ) : null}
+          {canSubmitOpenVersion ? (
             canPropose ? (
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
                 <p className="text-xs text-fg-subtle">
@@ -1053,7 +1101,7 @@ function ArticleScreen() {
             }}
             title={t("mdm.article.review.dialog.title")}
             description={t("mdm.article.review.dialog.what", {
-              version: String(article.currentVersion.version),
+              version: String(openVersionNumber),
               code: article.code,
               role: ARTICLE_APPROVER_ROLE,
             })}
@@ -1121,10 +1169,18 @@ function ArticleScreen() {
                     <td className="px-4 py-2">
                       <span className="flex items-center gap-2">
                         <span className="tabular-nums">{version.version}</span>
-                        {version.version === article.currentVersion.version ? (
-                          <Badge tone="accent" shape={false}>
-                            {t("mdm.article.versions.current")}
-                          </Badge>
+                        {/*
+                          Which badge a row carries is the point of this card: the version guests
+                          are buying, and the version waiting for a decision. A row with neither is
+                          history — its status column says `Superseded`, and that word is why the
+                          card exists.
+                        */}
+                        {version.status === "active" &&
+                        version.version === article.currentVersion.version ? (
+                          <Badge tone="ok">{t("mdm.article.versions.onSale")}</Badge>
+                        ) : null}
+                        {version.status === "draft" || version.status === "pending_review" ? (
+                          <Badge tone="warn">{t("mdm.article.versions.proposed")}</Badge>
                         ) : null}
                       </span>
                     </td>
@@ -1247,6 +1303,11 @@ function ArticleScreen() {
           outletName={outletLabel(priceOutlet)}
           pricesByOutlet={pricesByOutlet}
           outlets={article.outlets}
+          proposalTarget={
+            proposingNewVersion
+              ? { proposed: openVersionNumber, onSale: article.currentVersion.version }
+              : null
+          }
           onChangeOutlet={setPriceOutlet}
           onClose={() => {
             setPriceOutlet(null);
@@ -1423,6 +1484,7 @@ function PriceDialog({
   outletName,
   pricesByOutlet,
   outlets,
+  proposalTarget,
   onChangeOutlet,
   onClose,
   onSave,
@@ -1433,6 +1495,12 @@ function PriceDialog({
   outletName: string;
   /** The open price row per outlet, so switching outlet shows *that* outlet's price. */
   pricesByOutlet: Record<string, { amount: number; currencyCode: string }>;
+  /**
+   * Set when the article has a version waiting beside the one on sale (slab 3c-2): the write
+   * lands in the proposal, so the dialog has to say so rather than letting an operator believe
+   * they are changing what guests pay today.
+   */
+  proposalTarget: { proposed: number; onSale: number } | null;
   outlets: { code: string; name: string; siteCode: string; currency: string }[];
   onChangeOutlet: (code: string) => void;
   onClose: () => void;
@@ -1492,6 +1560,14 @@ function PriceDialog({
       }
     >
       <div className="flex flex-col gap-3">
+        {proposalTarget ? (
+          <Banner tone="info" compact>
+            {t("mdm.article.price.dialog.proposalTarget", {
+              proposed: String(proposalTarget.proposed),
+              onSale: String(proposalTarget.onSale),
+            })}
+          </Banner>
+        ) : null}
         <Field
           id="price-outlet"
           label={t("mdm.article.price.column.outlet")}

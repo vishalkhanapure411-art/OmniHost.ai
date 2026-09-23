@@ -35,9 +35,15 @@ import type { Principal } from "~/server/session";
  * Deliberately absent, and flagged rather than half-built:
  *   * approval thresholds — the PRD sets none for master data (the seeded
  *     `*.approve.threshold` codes belong to the financial functions that will need them);
- *   * the price-change rule that opens version N+1 in `draft` while N stays sellable, and
- *     with it the `superseded` transition (the next slab);
+ *   * **content** drafts (editing an active version's name or ingredients → N+1). The
+ *     clone primitive this file now carries makes that cheap on the day it is wanted, but
+ *     a content write path needs a form, a submission and a diff worth reviewing first;
  *   * delegation / out-of-office, and the same path for vendor, raw material and tax class.
+ *
+ * It also owns the version *transitions* the draft-version rule needs — cloning N into N+1
+ * and superseding N when N+1 is approved — because those are the state changes this path
+ * decides. `~/domain/mdm` calls them through the import edge that already exists
+ * (`mdm` → `mdm-approvals`), so this module still imports nothing from `mdm` at runtime.
  */
 
 /**
@@ -126,6 +132,322 @@ export async function raiseArticleReviewTask(tx: Queryable, input: ArticleReview
   return taskId;
 }
 
+// ---------------------------------------------------------------------------
+// The version transitions — the draft-version rule (slab 3c-2)
+// ---------------------------------------------------------------------------
+
+/**
+ * An article's *open* version: the one nobody has decided yet.
+ *
+ * `draft` and `pending_review` are the two states a version can be in while a decision
+ * is still ahead of it; every other state is settled. Migration 0010 makes two open
+ * versions of one article unrepresentable, so this reads at most one row — and it reads
+ * it without touching `article.current_version_id`, which stays pointed at whatever
+ * version is sellable right now.
+ */
+export interface OpenArticleVersion {
+  id: string;
+  version: number;
+  status: string;
+}
+
+export async function openArticleVersion(
+  tx: Queryable,
+  articleId: string
+): Promise<OpenArticleVersion | null> {
+  const rows = await tx.query<OpenArticleVersion>(
+    `select id, version, status
+       from article_version
+      where article_id = $1 and status in ('draft', 'pending_review')
+      order by version desc
+      limit 1`,
+    [articleId]
+  );
+  return rows[0] ?? null;
+}
+
+/**
+ * The same question, asked with the row locked.
+ *
+ * A write that is about to change or supersede the open version has to know that the
+ * version it read is still the open one when it writes: without `for update` a submit and
+ * a price change racing on the same draft would both read `draft` and both proceed. The
+ * read path uses the unlocked one deliberately — a screen reading a record has no reason
+ * to take a row lock.
+ */
+export async function openArticleVersionLocked(
+  tx: Queryable,
+  articleId: string
+): Promise<OpenArticleVersion | null> {
+  const rows = await tx.query<OpenArticleVersion>(
+    `select id, version, status
+       from article_version
+      where article_id = $1 and status in ('draft', 'pending_review')
+      order by version desc
+      limit 1
+      for update`,
+    [articleId]
+  );
+  return rows[0] ?? null;
+}
+
+export interface ClonedArticleVersion {
+  id: string;
+  version: number;
+  /**
+   * Every open price window the clone carries.
+   *
+   * `article_price.article_version_id` is `not null` (`0008_mdm_masters.sql`), so a price
+   * row cannot exist without a version and the grid is per version: a new version that
+   * copied only the changed outlet would drop every other outlet's sellable price the
+   * moment it was approved. Every open row is therefore carried forward, unchanged.
+   */
+  prices: { outletCode: string; amount: number; currencyCode: string; effectiveFrom: string }[];
+}
+
+/**
+ * Opens version N+1 as a `draft` by cloning N — the primitive a price change uses (§7.2
+ * item 5), and the same one a rollback will use later (approving a clone of an earlier
+ * version).
+ *
+ * What is copied, and why not less:
+ *   * **the version row** minus its lifecycle: status `draft`, no approval, and
+ *     `supersedes_version_id` pointing at N. Only the identity (`article`) is not
+ *     versioned (§7.3), so everything else carries forward or the draft renders blank;
+ *   * **the per-locale content** — the name is what the queue row and the compliance gate
+ *     read, so a clone without it is a proposal with no name;
+ *   * **allergens and nutrients** — the approve-time compliance gate counts rows in both
+ *     tables, so a clone that dropped them could never be approved;
+ *   * **the per-jurisdiction grid** — nothing reads it today, which is exactly why
+ *     forgetting it would go unnoticed (migration 0010's sibling note);
+ *   * **every open price row** — see `prices` above.
+ *
+ * N is left exactly as it is: still `active`, still what `article.current_version_id`
+ * points at, still what every price read in this codebase resolves. That is what makes the
+ * draft invisible to billing without a single new enforcement.
+ */
+export async function cloneArticleVersion(
+  tx: Queryable,
+  input: {
+    chainId: string;
+    articleId: string;
+    fromVersionId: string;
+    principalId: string;
+    /** The selling date the new version claims — the price change's effective date. */
+    effectiveFrom?: string | null;
+  }
+): Promise<ClonedArticleVersion> {
+  const inserted = await tx.query<{ id: string; version: number }>(
+    `insert into article_version (
+        chain_id, article_id, version, status, dietary_mark, tax_class_id, hsn_sac_code,
+        serving_size_qty, serving_size_uom_id, calories_kcal, channel_flags,
+        recipe_id, recipe_version_pin, effective_from, supersedes_version_id, created_by_user_id
+     )
+     select v.chain_id, v.article_id,
+            (select coalesce(max(version), 0) + 1 from article_version where article_id = v.article_id),
+            'draft', v.dietary_mark, v.tax_class_id, v.hsn_sac_code,
+            v.serving_size_qty, v.serving_size_uom_id, v.calories_kcal, v.channel_flags,
+            v.recipe_id, v.recipe_version_pin, $3::date, v.id, $4::uuid
+       from article_version v
+      where v.id = $1 and v.chain_id = $2 and v.article_id = $5
+     returning id, version`,
+    [
+      input.fromVersionId,
+      input.chainId,
+      input.effectiveFrom?.trim() || null,
+      input.principalId,
+      input.articleId,
+    ]
+  );
+  const clone = inserted[0];
+  if (!clone) throw new NotFound("Article version", input.fromVersionId);
+
+  await tx.query(
+    `insert into article_version_text (chain_id, article_version_id, locale, name, short_name,
+                                       description, ingredient_declaration)
+     select chain_id, $2, locale, name, short_name, description, ingredient_declaration
+       from article_version_text where article_version_id = $1`,
+    [input.fromVersionId, clone.id]
+  );
+  await tx.query(
+    `insert into article_version_allergen (chain_id, article_version_id, allergen_id, may_contain,
+                                           source, derived_from_raw_material_id)
+     select chain_id, $2, allergen_id, may_contain, source, derived_from_raw_material_id
+       from article_version_allergen where article_version_id = $1`,
+    [input.fromVersionId, clone.id]
+  );
+  await tx.query(
+    `insert into article_version_nutrient (chain_id, article_version_id, nutrient_id, value, basis)
+     select chain_id, $2, nutrient_id, value, basis
+       from article_version_nutrient where article_version_id = $1`,
+    [input.fromVersionId, clone.id]
+  );
+  await tx.query(
+    `insert into article_version_jurisdiction (chain_id, article_version_id, jurisdiction_code,
+                                               tax_class_id, hsn_sac_code, calories_kcal,
+                                               serving_size_qty, serving_size_uom_id,
+                                               nutrition_basis, overrides)
+     select chain_id, $2, jurisdiction_code, tax_class_id, hsn_sac_code, calories_kcal,
+            serving_size_qty, serving_size_uom_id, nutrition_basis, overrides
+       from article_version_jurisdiction where article_version_id = $1`,
+    [input.fromVersionId, clone.id]
+  );
+  // The grid: every open window, amount and currency copied verbatim. A currency is never
+  // re-derived here — §7.1 says money is an amount plus the ISO code it was sold in, and a
+  // clone that recomputed one from the site would change a figure nobody asked to change.
+  const prices = await tx.query<{
+    outlet_code: string;
+    amount: string;
+    currency_code: string;
+    effective_from: string;
+  }>(
+    `insert into article_price (chain_id, article_id, article_version_id, outlet_id, amount,
+                                currency_code, effective_from, created_by_user_id)
+     select p.chain_id, p.article_id, $2, p.outlet_id, p.amount,
+            p.currency_code, p.effective_from, $3
+       from article_price p
+      where p.article_version_id = $1 and p.effective_to is null
+     returning outlet_id, amount, currency_code, to_char(effective_from, 'YYYY-MM-DD') as effective_from,
+               (select o.code from outlet o where o.id = outlet_id) as outlet_code`,
+    [input.fromVersionId, clone.id, input.principalId]
+  );
+
+  return {
+    id: clone.id,
+    version: clone.version,
+    prices: prices.map((price) => ({
+      outletCode: price.outlet_code,
+      amount: Number(price.amount),
+      currencyCode: price.currency_code,
+      effectiveFrom: price.effective_from,
+    })),
+  };
+}
+
+export interface SupersededVersion {
+  /** The version that was sellable and is now history. */
+  baseVersionId: string;
+  baseVersion: number;
+  /** The version that just became sellable. */
+  activeVersionId: string;
+  activeVersion: number;
+  /** The windows that closed, with the date each one closed on. */
+  closedPrices: { outletCode: string; effectiveTo: string }[];
+}
+
+/**
+ * Approves a proposal by superseding the version it replaces — one transaction, four
+ * writes, no window in which the platform has two sellable versions or none.
+ *
+ * The order matters and is the reason this is one function rather than four statements at
+ * each call site: the grid is checked *before* anything is written (a proposal that prices
+ * fewer outlets than the version it replaces would silently unprice a dish the moment it
+ * went live), the base's open windows are closed rather than deleted (a closed window is
+ * how a historical bill stays reproducible), and the article's pointer moves last.
+ *
+ * Called from two places, which is why it takes the version ids rather than looking them
+ * up: the approval branch of `decideArticleReview`, and the price-change path on a chain
+ * where approval is not gated and the caller may approve (a one-person Silver chain has to
+ * be able to reprice at all).
+ */
+export async function supersedeArticleVersion(
+  tx: Queryable,
+  input: {
+    chainId: string;
+    articleId: string;
+    /** N+1, the version becoming sellable. */
+    versionId: string;
+    /** N, the version it was cloned from and replaces. */
+    baseVersionId: string;
+    principalId: string;
+  }
+): Promise<SupersededVersion> {
+  const versions = await tx.query<{ id: string; version: number; status: string }>(
+    `select id, version, status from article_version
+      where id = any($1::uuid[]) and chain_id = $2
+      order by version`,
+    [[input.versionId, input.baseVersionId], input.chainId]
+  );
+  const next = versions.find((version) => version.id === input.versionId);
+  const base = versions.find((version) => version.id === input.baseVersionId);
+  if (!next || !base) throw new NotFound("Article version", input.versionId);
+
+  // The grid assertion (§3): every outlet the outgoing version sold at must still be
+  // priced on the incoming one. `article_price` has no constraint that would catch this —
+  // it forbids two open rows for the *same* (version, outlet) and says nothing across
+  // versions — so it is asserted here, by name, rather than squared away with the claim
+  // that the database enforces it.
+  const unpriced = await tx.query<{ outlet_code: string }>(
+    `select o.code as outlet_code
+       from article_price p
+       join outlet o on o.id = p.outlet_id
+      where p.article_version_id = $1 and p.effective_to is null
+        and not exists (
+          select 1 from article_price q
+           where q.article_version_id = $2 and q.outlet_id = p.outlet_id and q.effective_to is null)
+      order by o.code`,
+    [input.baseVersionId, input.versionId]
+  );
+  const firstUnpriced = unpriced[0];
+  if (firstUnpriced) {
+    throw coded("validation.version.priceMissing", "outlet", {
+      outlet: firstUnpriced.outlet_code,
+      outlets: unpriced.map((row) => row.outlet_code).join(", "),
+      version: next.version,
+    });
+  }
+
+  // Close N's open windows the day before N+1's price for that outlet opens — the same
+  // expression the in-version price change uses, applied once per outlet because each
+  // outlet's new window can start on a different day. Never a delete.
+  const closed = await tx.query<{ outlet_code: string; effective_to: string }>(
+    `with closeable as (
+       select p.id, q.effective_from as new_from, o.code as outlet_code
+         from article_price p
+         join article_price q
+           on q.article_version_id = $2 and q.outlet_id = p.outlet_id and q.effective_to is null
+         join outlet o on o.id = p.outlet_id
+        where p.article_version_id = $1 and p.effective_to is null
+     )
+     update article_price a
+        set effective_to = greatest(c.new_from - 1, a.effective_from)
+       from closeable c
+      where a.id = c.id
+     returning c.outlet_code, to_char(a.effective_to, 'YYYY-MM-DD') as effective_to`,
+    [input.baseVersionId, input.versionId]
+  );
+
+  await tx.query(
+    `update article_version
+        set status = 'superseded', updated_at = now()
+      where id = $1`,
+    [input.baseVersionId]
+  );
+  await tx.query(
+    `update article_version
+        set status = 'active', approved_at = now(), approved_by_user_id = $2::uuid, updated_at = now()
+      where id = $1`,
+    [input.versionId, input.principalId]
+  );
+  // The pointer moves last, inside the same transaction: until this statement there is a
+  // version approved and unreachable, and the transaction makes that invisible.
+  await tx.query(
+    `update article set current_version_id = $2, status = 'active', updated_at = now() where id = $1`,
+    [input.articleId, input.versionId]
+  );
+
+  return {
+    baseVersionId: base.id,
+    baseVersion: base.version,
+    activeVersionId: next.id,
+    activeVersion: next.version,
+    closedPrices: closed.map((row) => ({
+      outletCode: row.outlet_code,
+      effectiveTo: row.effective_to,
+    })),
+  };
+}
+
 export interface ArticleReviewSubmission {
   taskId: string;
   versionId: string;
@@ -135,8 +457,20 @@ export interface ArticleReviewSubmission {
 }
 
 /**
- * Moves the article's current version from `draft` to `pending_review` and raises the
- * review task in the same transaction as its audit row.
+ * Moves the article's **open draft** to `pending_review` and raises the review task in the
+ * same transaction as its audit row.
+ *
+ * The target is the open draft, not `article.current_version_id` (slab 3c-2). With the
+ * draft-version rule in place a proposal (N+1) is a version the article's pointer
+ * deliberately does *not* follow — N stays sellable while N+1 waits — so asking the
+ * pointer for the version to submit would submit the sellable one and leave the proposal
+ * as a draft forever. Same distinction `decideArticleReview` already draws when it decides
+ * whether the article header should mirror the version.
+ *
+ * The article header follows the version into review **only when that version is the
+ * article's current one**, which is the case for a first version and not for a proposal:
+ * a proposal that set the header to `pending_review` would say the dish is not on sale
+ * while guests can still order it.
  *
  * Guarded on `mdm.article.propose` — the capability the authoring path already uses and
  * the one the demo Culinary Team actually holds, so the four-eyes demo runs on real
@@ -171,24 +505,22 @@ export async function submitArticleForReview(
     );
     const article = articles[0];
     if (!article) throw new NotFound("Article", code);
-    if (!article.current_version_id) throw coded("validation.review.notDraft", "version", { code });
 
-    // The version under review is the article's current one. A non-current draft is the
-    // price-change flow's shape, which this slab deliberately does not open.
-    const versions = await tx.query<{ id: string; version: number; status: string }>(
-      `select id, version, status from article_version where id = $1 and chain_id = $2 for update`,
-      [article.current_version_id, chainId]
-    );
-    const version = versions[0];
-    if (!version) throw new NotFound("Article version", article.current_version_id);
-    if (version.status !== "draft") {
-      throw coded("validation.review.notDraft", "status", { status: version.status });
+    // The version to submit is the article's *open* draft — not its current version. A
+    // price change opens N+1 while N stays sellable, and after a send-back that draft is
+    // exactly what has to go back to the approver.
+    const open = await openArticleVersionLocked(tx, article.id);
+    if (!open) {
+      throw coded("validation.review.notDraft", "version", { code });
+    }
+    if (open.status !== "draft") {
+      throw coded("validation.review.notDraft", "status", { status: open.status });
     }
 
     const existing = await tx.query<{ id: string }>(
       `select id from approval_task
         where chain_id = $1 and entity_type = $2 and entity_id = $3 and status = 'open'`,
-      [chainId, ARTICLE_VERSION_ENTITY, version.id]
+      [chainId, ARTICLE_VERSION_ENTITY, open.id]
     );
     if (existing[0]) {
       throw coded("validation.review.alreadyOpen", "task", { taskId: existing[0].id });
@@ -199,30 +531,33 @@ export async function submitArticleForReview(
       principal,
       code,
       articleId: article.id,
-      versionId: version.id,
-      version: version.version,
+      versionId: open.id,
+      version: open.version,
       note,
     });
 
     await tx.query(
       `update article_version set status = 'pending_review', updated_at = now() where id = $1`,
-      [version.id]
+      [open.id]
     );
-    // The article header follows its version into review, so a list row and the record
-    // badge cannot disagree with the version underneath them.
-    await tx.query(`update article set status = 'pending_review', updated_at = now() where id = $1`, [
-      article.id,
-    ]);
+    // The article header follows its version into review **only when that version is the
+    // article's current one** — a list row and the record badge must not claim the dish is
+    // off sale while a guest can still order it. A proposal leaves the header alone.
+    if (article.current_version_id === open.id) {
+      await tx.query(`update article set status = 'pending_review', updated_at = now() where id = $1`, [
+        article.id,
+      ]);
+    }
 
     return {
-      entityId: version.id,
-      before: { versionStatus: version.status, articleStatus: article.status },
+      entityId: open.id,
+      before: { versionStatus: open.status, articleStatus: article.status },
       after: {
         versionStatus: "pending_review",
-        articleStatus: "pending_review",
+        articleStatus: article.current_version_id === open.id ? "pending_review" : article.status,
         taskId,
         assignedRoleCode: ARTICLE_APPROVER_ROLE,
-        version: version.version,
+        version: open.version,
         code,
       },
     };
@@ -349,17 +684,21 @@ export async function decideArticleReview(
       version_id: string;
       version_status: string;
       version: number;
+      supersedes_version_id: string | null;
       article_id: string;
       article_code: string;
+      article_status: string;
       current_version_id: string | null;
     }>(
       `select t.id, t.status, t.raised_by_user_id, v.id as version_id, v.status as version_status,
-              v.version, a.id as article_id, a.code as article_code, a.current_version_id
+              v.version, v.supersedes_version_id,
+              a.id as article_id, a.code as article_code, a.status as article_status,
+              a.current_version_id
          from approval_task t
          join article_version v on v.id = t.entity_id::uuid
          join article a on a.id = v.article_id
         where t.id = $1 and t.chain_id = $2
-        for update of t, v`,
+        for update of t, v, a`,
       [taskId, chainId]
     );
     const row = rows[0];
@@ -406,24 +745,61 @@ export async function decideArticleReview(
         });
       }
     }
-    await tx.query(
-      `update article_version
-          set status = $2,
-              approved_at = case when $2 = 'active' then now() else approved_at end,
-              approved_by_user_id = case when $2 = 'active' then $3::uuid else approved_by_user_id end,
-              updated_at = now()
-        where id = $1`,
-      [row.version_id, approve ? "active" : "draft", principal.userId]
-    );
-    // The article header mirrors the version *only* when that version is the article's
-    // current one. A future version N+1 keeps the header pointed at the sellable N — that
-    // is the deferred price-change rule, and guessing at it here would be worse than
-    // leaving it for the slab that owns it.
-    if (row.current_version_id === row.version_id) {
-      await tx.query(`update article set status = $2, updated_at = now() where id = $1`, [
-        row.article_id,
-        approve ? "active" : "draft",
-      ]);
+
+    // The article's pointer tells the two shapes apart, and they are genuinely different
+    // transactions (slab 3c-2):
+    //
+    //   * `current_version_id === version_id` — the version under review *is* the article's
+    //     version (a first version, or a draft edited in place). There is nothing to
+    //     supersede, so approving activates it in place, exactly as before.
+    //   * otherwise — the version under review is a **proposal** (N+1) that a price change
+    //     opened while N stayed sellable. Approving it supersedes N: N+1 becomes `active`,
+    //     N becomes `superseded`, the article's pointer moves and N's open price windows
+    //     close, all in this one transaction. The reader who approved and the guest who
+    //     orders next see the same change or neither.
+    const isProposal = row.current_version_id !== row.version_id;
+    let superseded: SupersededVersion | null = null;
+    if (approve && isProposal) {
+      // A discontinued article is not a price change away from being on sale again (§3).
+      if (row.article_status === "discontinued") {
+        throw coded("validation.review.articleClosed", "status", { status: row.article_status });
+      }
+      // The base must still be the version this proposal was cloned from. If the article's
+      // pointer has moved — another proposal was approved in the meantime — approving this
+      // one would overwrite a version nobody reviewed it against.
+      if (row.supersedes_version_id === null || row.supersedes_version_id !== row.current_version_id) {
+        throw coded("validation.review.baseMoved", "version", {
+          version: row.version,
+          code: row.article_code,
+        });
+      }
+      superseded = await supersedeArticleVersion(tx, {
+        chainId,
+        articleId: row.article_id,
+        versionId: row.version_id,
+        baseVersionId: row.supersedes_version_id,
+        principalId: principal.userId,
+      });
+    } else {
+      await tx.query(
+        `update article_version
+            set status = $2,
+                approved_at = case when $2 = 'active' then now() else approved_at end,
+                approved_by_user_id = case when $2 = 'active' then $3::uuid else approved_by_user_id end,
+                updated_at = now()
+          where id = $1`,
+        [row.version_id, approve ? "active" : "draft", principal.userId]
+      );
+      // The article header mirrors the version *only* when that version is the article's
+      // current one. A proposal keeps the header pointed at the sellable N — that is the
+      // draft-version rule, and it is what stops a list row from saying "pending review"
+      // about a dish that is still on sale.
+      if (!isProposal) {
+        await tx.query(`update article set status = $2, updated_at = now() where id = $1`, [
+          row.article_id,
+          approve ? "active" : "draft",
+        ]);
+      }
     }
     await tx.query(
       `update approval_task
@@ -462,17 +838,34 @@ export async function decideArticleReview(
 
     return {
       entityId: taskId,
-      before: { versionStatus: row.version_status, taskStatus: row.status, articleCode: row.article_code },
+      before: {
+        versionStatus: row.version_status,
+        taskStatus: row.status,
+        articleCode: row.article_code,
+        // A versioned change audits the *version*, not the row (§7.3): approving a proposal
+        // moves the article from N to N+1, so the ledger carries both ids and "which
+        // version was live when this was approved" is answerable without arithmetic.
+        versionId: superseded ? superseded.baseVersionId : row.version_id,
+        version: superseded ? superseded.baseVersion : row.version,
+        currentVersionId: row.current_version_id,
+      },
       after: {
         versionStatus: approve ? "active" : "draft",
         taskStatus: approve ? "approved" : "rejected",
         versionId: row.version_id,
+        version: row.version,
         decision,
         reasonCode,
         note,
         // Read back by the caller's confirmation, and written into the audit row: "who has
         // this now" is the fact a send-back turns on.
         returnedToUserId: approve ? null : row.raised_by_user_id,
+        // Non-null only when an approval superseded the version that was on sale. The
+        // windows it closed travel with it, because "the price changed" is not the fact an
+        // auditor asks about — "from when, and to what" is.
+        supersededVersionId: superseded?.baseVersionId ?? null,
+        supersededVersion: superseded?.baseVersion ?? null,
+        closedPrices: superseded?.closedPrices ?? null,
       },
       // A send-back's reason is the audit row's `reason` as well as the task's, so the
       // audit trail answers "why was this refused" without a join.
