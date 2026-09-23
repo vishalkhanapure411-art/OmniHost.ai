@@ -47,6 +47,9 @@
  */
 
 import { writeFileSync } from "node:fs";
+// Type-only, and therefore erased at run time: it opens no connection and cannot run before
+// the `DATABASE_URL` swap below. `~/db` is still *loaded* dynamically, after the swap.
+import type { Queryable } from "~/db";
 import type { Principal } from "~/server/session";
 import type { ArticleWriteInput } from "~/domain/mdm";
 import type { ImportReport } from "~/domain/import";
@@ -972,7 +975,7 @@ async function main(): Promise<void> {
     "the author's own approval is refused",
     SELF_APPROVAL_REFUSAL_CODE,
     () =>
-      decideArticleReview(author, { taskId: reviewTask.id, decision: "approve" }, {
+      decideArticleReview(author, { taskId: String(reviewTask.id), decision: "approve" }, {
         source: "api",
         intent: "slab 3c-2 verification: self-approval attempt",
       })
@@ -989,7 +992,7 @@ async function main(): Promise<void> {
   // -------------------------------------------------------------------------
   heading("The second person's approval supersedes N in ONE transaction");
   // -------------------------------------------------------------------------
-  const decision = await decideArticleReview(approverPrincipal, { taskId: reviewTask.id, decision: "approve" }, {
+  const decision = await decideArticleReview(approverPrincipal, { taskId: String(reviewTask.id), decision: "approve" }, {
     source: "api",
     intent: "slab 3c-2 verification: approve the proposal",
   });
@@ -1073,6 +1076,14 @@ async function main(): Promise<void> {
 
   const nonGatedBefore = await versions();
   const n1 = nonGatedBefore.find((row) => row.id === np1.id)!;
+  // The window N+1 is *selling at* right now, by row id. The supersede's promise is about
+  // this one row — it closes it rather than deleting it — and a version's total number of
+  // price rows says nothing about that: `cloneArticleVersion` copies the base's open window
+  // into the new version verbatim (the grid), so a version that has superseded something
+  // legitimately carries the inherited window *and* its own, both closed. Counting rows would
+  // fail on a version that is behaving correctly, and pass on one that had deleted the row
+  // that was on sale as long as the count happened to land on the expected number.
+  const n1OpenBefore = (await openWindows(n1.id)).map((row) => row.id);
   const secondReprice = await updateArticlePrice(
     author,
     { code: ARTICLE_CODE, outletCode: OUTLET_CODE, amount: THIRD_PRICE, currencyCode: outlet.currency },
@@ -1097,10 +1108,25 @@ async function main(): Promise<void> {
   equal("no version waits for a decision", afterNonGated.filter((row) => row.status === "draft" || row.status === "pending_review").length, 0);
   equal("the article points at N+2", articleAfterNonGated?.current_version_id, np2.id);
   equal("the article's current version is N+2", articleAfterNonGated?.current_version, np2.version);
-  const n1Closed = pricesAfterNonGated.filter((row) => row.article_version_id === n1.id);
+  const n1Rows = pricesAfterNonGated.filter((row) => row.article_version_id === n1.id);
+  const n1WasSelling = n1Rows.find((row) => n1OpenBefore.includes(row.id));
   const np2Open = pricesAfterNonGated.filter((row) => row.article_version_id === np2.id && row.effective_to === null);
-  equal("N+1's window was closed, not deleted", n1Closed.length, 1);
-  check("N+1's window has an end date", n1Closed[0]?.effective_to !== null, `effective_to ${n1Closed[0]?.effective_to}`);
+  equal("N+1 was selling through one window when the reprice started", n1OpenBefore.length, 1);
+  check(
+    "the window N+1 was selling at was closed, not deleted",
+    Boolean(n1WasSelling) && n1WasSelling!.effective_to !== null,
+    `window ${n1WasSelling?.id ?? "(deleted)"} effective_to ${n1WasSelling?.effective_to ?? "—"}`
+  );
+  check(
+    "N+1's window ends the day N+2's begins",
+    Boolean(n1WasSelling?.effective_to) && n1WasSelling?.effective_to === np2Open[0]?.effective_from,
+    `closed at ${n1WasSelling?.effective_to}, N+2's window opens ${np2Open[0]?.effective_from}`
+  );
+  equal(
+    "N+1 is left with no open window",
+    n1Rows.filter((row) => row.effective_to === null).length,
+    0
+  );
   equal("N+2 carries the new open window", np2Open.length, 1);
   equal("the sellable price is the third one", Number(np2Open[0]?.amount), THIRD_PRICE);
   equal(
@@ -1113,7 +1139,14 @@ async function main(): Promise<void> {
   const priceAudit = await auditRows("mdm.article.price.update");
   const landed = priceAudit.filter((row) => {
     const state = (row.after_state ?? {}) as Record<string, unknown>;
-    return state.landed === "approved";
+    // Scoped to the window *this run* opened. `auditRows` sees every run's rows for this
+    // article code — audit_log is append-only and a rewrite of it would defeat its purpose —
+    // so an unscoped `landed === "approved"` filter finds the previous run's row too, reports
+    // "two rows record a same-transaction approval", and then compares that older row's
+    // version ids against this run's. Five failures about a ledger behaving exactly as
+    // designed, on the second run and every run after it. The row this run wrote names the
+    // price row it inserted, which is the open window on N+2.
+    return state.landed === "approved" && String(row.entity_id) === np2Open[0]?.id;
   });
   say("");
   say("The ledger row the non-gated landing wrote, read back from audit_log:");
