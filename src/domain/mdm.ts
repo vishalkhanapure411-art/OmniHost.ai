@@ -2734,14 +2734,49 @@ export interface ArticleWritePlan {
   /** The current version's lifecycle state, as the database holds it. */
   versionStatus: string | null;
   /**
-   * True when the current version is under review *and* this row would change it.
+   * True when the write this row implies would land on a version that is under review, and
+   * the row therefore changes something.
    *
    * The write path refuses exactly this case (`updateArticle` and `updateArticlePrice` both
    * throw `validation.articleVersionLocked`), so a caller that reported `updated` here would
    * be promising a write the commit refuses. The import turns it into a row error, which is
    * what keeps the dry run and the commit saying the same thing.
+   *
+   * Two versions can be under review in the slab 3c-2 world, and they belong to different
+   * writes: the *content* path edits the version on sale, while the *price* path writes into
+   * the open version (the proposal). So this reads whichever of the two that write would
+   * touch — which is why a row carrying both a content and a price change reports the freeze
+   * that would stop each half.
    */
   lockedUnderReview: boolean;
+  /**
+   * The article's *open* version when it is not the version on sale — the proposal a price
+   * change opened (slab 3c-2). Null for an article with no open version, and for one whose
+   * only open version *is* its current version (a first draft, or a returned one).
+   *
+   * `article_version` is read here, never read *instead of* `article.current_version_id`: the
+   * whole point of the draft-version rule is that the pointer stays on what a guest can order
+   * today.
+   */
+  openVersion: number | null;
+  openVersionId: string | null;
+  openVersionStatus: string | null;
+  /**
+   * True when this row would be refused because a version already waits for a decision.
+   *
+   * `updateArticle` refuses it with `validation.review.articleOpen`: the version beside the
+   * one on sale was cloned from it, so editing the sellable version now would leave the
+   * proposal carrying content it was never cloned with. A row that changes nothing is not
+   * refused (re-importing a file against such an article writes nothing), and a row that
+   * changes only a price is the *supported* path — it is written into the open version.
+   */
+  articleOpen: boolean;
+  /**
+   * Which version the price comparison read: the proposal when one waits, otherwise the one
+   * on sale. A dry run that compared against the sellable price would report a change the
+   * commit does not make, and miss the one it does.
+   */
+  priceAgainst: "openVersion" | "currentVersion" | null;
   /**
    * The lifecycle state an existing record already holds — what it *is*, not what it would
    * land as. `landing` only ever describes a create; reporting it for a record that has one
@@ -2780,6 +2815,29 @@ export async function planArticleWrite(
   const current = await loadArticleSnapshot(tx, chainId, input.code, options.locale ?? "en-IN");
   const today = options.today ?? new Date().toISOString().slice(0, 10);
 
+  // The version waiting for a decision, when it is not the one on sale (slab 3c-2), and the
+  // price grid the next write would actually touch. Both are read rather than assumed: the
+  // price path writes into the open version when there is one, so a plan that compared
+  // against the sellable grid would report a change the commit does not make — and miss the
+  // one it does, because a correction of a proposal changes the proposal's figure.
+  const openRow = current ? await openArticleVersion(tx, current.id) : null;
+  const proposal = current && openRow && openRow.id !== current.versionId ? openRow : null;
+  const priceBase: { outletCode: string; amount: number; currencyCode: string }[] = proposal
+    ? (
+        await tx.query<{ outlet_code: string; amount: string; currency_code: string }>(
+          `select o.code as outlet_code, p.amount, p.currency_code
+             from article_price p join outlet o on o.id = p.outlet_id
+            where p.article_version_id = $1 and p.effective_to is null
+            order by o.code`,
+          [proposal.id]
+        )
+      ).map((row) => ({
+        outletCode: row.outlet_code,
+        amount: Number(row.amount),
+        currencyCode: row.currency_code,
+      }))
+    : (current?.prices ?? []);
+
   const missingCapabilities: string[] = [];
   const requires = current ? ["mdm.article.update"] : ["mdm.article.create"];
   for (const code of requires) {
@@ -2791,7 +2849,7 @@ export async function planArticleWrite(
   for (const [index, price] of (input.prices ?? []).entries()) {
     const outlet = refs.outlets[index];
     if (!outlet) continue;
-    const open = current?.prices.find((row) => row.outletCode === outlet.code) ?? null;
+    const open = priceBase.find((row) => row.outletCode === outlet.code) ?? null;
     if (open && open.amount === price.amount && open.currencyCode === price.currencyCode) {
       priceUnchanged.push(outlet.code);
       continue;
@@ -2822,6 +2880,16 @@ export async function planArticleWrite(
     defaulted.push("priceEffectiveFrom");
   }
 
+  // The two writes a row can imply, and the version each one touches. Each refusal is
+  // reported for the half the row actually asks for: a row that changes nothing is never
+  // refused, and a row that only prices while a proposal waits is the *correction* path —
+  // it is written into that proposal, which is why this is a flag beside the outcome rather
+  // than a disagreement about it.
+  const frozen =
+    (contentChanged.length > 0 && current?.versionStatus === "pending_review") ||
+    (priceChanges.length > 0 &&
+      (current?.versionStatus === "pending_review" || proposal?.status === "pending_review"));
+
   return {
     existing: Boolean(current),
     outcome,
@@ -2833,7 +2901,12 @@ export async function planArticleWrite(
     // A row that changes nothing is never refused: the write path only reaches its status
     // check when there is something to write, so `unchanged` stays a legal answer for a
     // version under review — re-importing a file for a pending record writes nothing.
-    lockedUnderReview: current?.versionStatus === "pending_review" && outcome === "updated",
+    lockedUnderReview: frozen,
+    openVersion: proposal?.version ?? null,
+    openVersionId: proposal?.id ?? null,
+    openVersionStatus: proposal?.status ?? null,
+    articleOpen: Boolean(proposal) && contentChanged.length > 0,
+    priceAgainst: current ? (proposal ? "openVersion" : "currentVersion") : null,
     existingStatus: current?.status ?? null,
     missingCapabilities,
     contentChanged,
