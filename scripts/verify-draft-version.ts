@@ -290,7 +290,7 @@ async function tasks(tx: Queryable = q): Promise<Record<string, unknown>[]> {
        from approval_task t
       where t.chain_id = $1
         and (t.entity_id in (select id::text from article_version where article_id = (select id from article where chain_id = $1 and code = $2))
-             or t.entity_id = (select id from article where chain_id = $1 and code = $2))
+             or t.entity_id = (select id::text from article where chain_id = $1 and code = $2))
       order by t.created_at`,
     [chainId, ARTICLE_CODE]
   );
