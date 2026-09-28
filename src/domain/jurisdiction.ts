@@ -125,6 +125,51 @@ export async function requiredFieldsFor(
 }
 
 /**
+ * A field a chain's markets *require*, and the market that requires it.
+ *
+ * Two callers need this and they must not disagree: the comparison view, which sorts a row
+ * into the "Required by a market" tier and names the market in words, and the refusal itself
+ * (`validation.review.jurisdictionIncomplete`), which names the same market. The gap set
+ * (`articleVersionComplianceGaps`) answers "what is *missing*"; this answers "what is
+ * *required*", which is the wider question — a required field that is present and unchanged
+ * is not a gap, but it is still a field the approver's decision turns on.
+ */
+export interface RequiredArticleField {
+  field: string;
+  /** The traded market whose profile requires the field (`IN-KA`). */
+  jurisdiction: string;
+  /** The profile the requirement is written on (`IN` for a rule `IN-KA` inherits). */
+  declaredFor: string;
+  legalRef: string | null;
+}
+
+/**
+ * Every article field the chain's traded markets require, with the market and law each
+ * requirement comes from. One entry per field: where two markets require the same field, the
+ * first market in the chain's own order speaks for it, and the gap set still carries one row
+ * per market.
+ */
+export async function requiredArticleFieldsForChain(
+  tx: Queryable,
+  chainId: string
+): Promise<RequiredArticleField[]> {
+  const byField = new Map<string, RequiredArticleField>();
+  for (const jurisdiction of await tradedJurisdictions(chainId)) {
+    for (const rule of await jurisdictionFieldRules(tx, jurisdiction, "article")) {
+      if (rule.requirement !== "required") continue;
+      if (byField.has(rule.field)) continue;
+      byField.set(rule.field, {
+        field: rule.field,
+        jurisdiction,
+        declaredFor: rule.declaredFor,
+        legalRef: rule.legalRef,
+      });
+    }
+  }
+  return [...byField.values()];
+}
+
+/**
  * The jurisdictions a chain actually trades in: its own `tax_jurisdiction` plus the
  * distinct jurisdictions of its sites (§14 — "there is no separate list to maintain").
  */

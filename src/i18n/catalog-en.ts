@@ -414,6 +414,115 @@ export const enIN = {
   "approval.review.noComparison":
     "No comparison view: this is the version as it stands, not what changed against the version in use today. A before/after view is not built yet.",
 
+  // ---------------------------------------------------------------------------
+  // The before/after comparison view (`approval.diff.*`).
+  //
+  // The domain hands the screen typed values and identifiers — never a sentence, never a
+  // catalogue key, never a joined list of codes (`~/domain/mdm-approvals`, D9). Every word a
+  // person reads is one of these keys, resolved through an **explicit map**: never
+  // `t(`approval.diff.kind.${kind}`)`, never `t(value as MessageKey)`, and never a fallback to
+  // a different label — an unmapped value shows its own code, or `labels.unrecognised`, which
+  // is visibly our gap rather than a confident wrong word (DECISIONS rules 1–3, 5).
+  //
+  // English only. `hiIN` carries none of these, and none of them may be described as
+  // translated until that pass lands.
+  // ---------------------------------------------------------------------------
+  "approval.diff.title": "What this changes",
+  "approval.diff.subtitle": "Version {onSale} as it stands today → version {proposed} if this is approved.",
+  "approval.diff.column.field": "Field",
+  "approval.diff.column.selling": "On sale today (version {onSale})",
+  "approval.diff.column.proposed": "If approved (version {proposed})",
+  "approval.diff.column.why": "Why it matters",
+  "approval.diff.group.required": "Required by a market",
+  "approval.diff.group.price": "Prices",
+  "approval.diff.group.content": "Guest-facing content",
+  "approval.diff.group.classification": "Classification and dates",
+  // The five change kinds, one word each. `missing` is the same word the blockers banner above
+  // the diff uses, so the banner and the row cannot read as two different verdicts (D14).
+  "approval.diff.kind.changed": "Changed",
+  "approval.diff.kind.added": "Added",
+  "approval.diff.kind.removed": "Removed",
+  "approval.diff.kind.absent": "Missing",
+  "approval.diff.kind.unchanged": "Unchanged",
+  // Absent is not empty: `notDeclared` is "nothing has been declared"; `nothingDeclared` is the
+  // positive statement that a version declares none (D13, the line the allergen panel draws).
+  "approval.diff.notDeclared": "Not declared",
+  "approval.diff.nothingDeclared": "Nothing declared",
+  "approval.diff.outlet": "{outlet} · {site}",
+  "approval.diff.price.noChange": "Price unchanged",
+  "approval.diff.price.higher": "{amount} more ({percent} higher)",
+  "approval.diff.price.lower": "{amount} less ({percent} lower)",
+  "approval.diff.price.currencyChanged":
+    "Currency changes from {before} to {after}. A percentage is not meaningful across currencies.",
+  "approval.diff.price.addedFor": "A price for {outlet} is added.",
+  "approval.diff.price.removedFor":
+    "The price for {outlet} is not in this version. An approval that leaves {outlet} unpriced is refused.",
+  "approval.diff.allergen.containmentRaised": "Declaration strengthened: {before} → {after}",
+  "approval.diff.allergen.containmentLowered": "Declaration weakened: {before} → {after}",
+  "approval.diff.nutrient.basisChanged":
+    "Basis changes from {before} to {after}; the values are not comparable.",
+  // The field cell's second line, where one child carries more than one fact. Resolved through
+  // an explicit map from the row's own `subfield`, never a key built from the value.
+  "approval.diff.subfield.containment": "Declaration",
+  "approval.diff.subfield.source": "Source",
+  "approval.diff.subfield.value": "Value",
+  "approval.diff.subfield.basis": "Basis",
+  "approval.diff.subfield.taxClass": "Tax class",
+  "approval.diff.subfield.hsnSacCode": "HSN / SAC code",
+  "approval.diff.subfield.caloriesKcal": "Energy per serving",
+  "approval.diff.subfield.servingSizeQty": "Serving size",
+  "approval.diff.subfield.nutritionBasis": "Nutrition basis",
+  "approval.diff.why.required": "Required in {jurisdiction}",
+  "approval.diff.why.requiredLegalRef": "Required in {jurisdiction} — {legalRef}",
+  "approval.diff.unchanged.label": "Unchanged: {count} fields",
+  "approval.diff.unchanged.show": "Show unchanged fields",
+  "approval.diff.unchanged.hide": "Hide unchanged fields",
+  "approval.diff.summary": "{changed} changes · {prices} outlet prices · {required} required fields",
+  "approval.diff.summary.noChanges": "No differences",
+  "approval.diff.supersedes":
+    "Approving this makes version {proposed} the version guests pay. Version {onSale} becomes superseded and its prices end the day before version {proposed}'s prices start.",
+  "approval.diff.firstVersion.title": "This is version {version} — the record's first",
+  "approval.diff.firstVersion.body":
+    "Nothing is being changed: every field and price below is being asserted for the first time. Nothing is on sale yet.",
+  "approval.diff.empty.title": "No differences between version {onSale} and version {proposed}",
+  "approval.diff.empty.body":
+    "Every field and every outlet price is identical. Approving would still supersede version {onSale} and end its price windows on the day before version {proposed} starts.",
+  "approval.diff.baseMoved.title": "This proposal was written against a version that is no longer on sale",
+  "approval.diff.baseMoved.body":
+    "Version {proposed} of {code} replaced version {writtenAgainst}, but version {onSale} is the one on sale now. Approving it would publish figures nobody reviewed, so the platform refuses it. Reopen the price and submit it again.",
+  "approval.diff.unavailable.title": "The comparison could not be read",
+  "approval.diff.unavailable.body":
+    "This is not a comparison with no differences — the versions could not be read at all. Try again; if it keeps failing, the record's version history still shows both versions.",
+  "approval.diff.loading": "Comparing version {onSale} with version {proposed}…",
+  "approval.diff.base.approvedBy": "Version {version} was approved by {who} on {when}.",
+  "approval.diff.base.neverApproved": "Version {version} was never approved.",
+  "approval.diff.a11y.caption":
+    "Comparison of version {onSale}, which is on sale today, with version {proposed}, which would replace it if approved.",
+  "approval.diff.a11y.changed": "Changed",
+  "approval.diff.a11y.added": "Added",
+  "approval.diff.a11y.removed": "Removed",
+  "approval.diff.a11y.absent": "Missing, and required",
+  "approval.diff.a11y.summary":
+    "{changed} fields change, {prices} outlet prices change, {required} required fields are missing.",
+  "approval.diff.a11y.unchangedExpanded": "{count} unchanged fields are now shown.",
+  // The two refusals a decision can meet, and the one sentence each must not get wrong (D17):
+  // a *validation* refusal aborts its transaction and writes nothing at all, so the platform
+  // cannot point at a ledger row for it; a *capability* refusal (four eyes included) is
+  // recorded as a `denied` audit row and changes no data. Saying the wrong one of these tells
+  // an operator a refusal was recorded when nothing anywhere says so — or that nothing was
+  // recorded when the trail holds it.
+  "approval.diff.refusal.validation":
+    "Nothing was changed: the decision was stopped before any write, so the record is exactly as it was and no refusal was recorded anywhere. This screen is the only account of the attempt.",
+  "approval.diff.refusal.capability":
+    "This refusal is recorded and nothing has changed: the decision was refused before any write, so the record is exactly as it was, and the attempt is in the audit trail against your name.",
+  "approval.diff.record.title": "What this proposal changes",
+  "approval.diff.record.open": "Show what this proposal changes",
+  "approval.diff.record.close": "Hide what this proposal changes",
+  // NOTE for the screen that renders the channel rows: one row per channel flag, worded
+  // through the `mdm.article.channel.*` labels the article record already carries. Do not copy
+  // that screen's `CHANNEL_LABEL[channel] ?? "mdm.article.channel.pos"` fallback — an unmapped
+  // flag must show its own code, never another channel's name (DECISIONS rule 1).
+
   "severity.low": "Low",
   "severity.medium": "Medium",
   "severity.high": "High",
