@@ -23,7 +23,14 @@ import type { OutletView, SiteDetail } from "~/domain/mdm-sites";
 import { useI18n } from "~/i18n";
 import { LOCALES } from "~/i18n/locales";
 import type { MessageKey } from "~/i18n/catalog-en";
-import { complianceRequirementLabel, marketName } from "~/i18n/labels";
+import {
+  auditReasonLabel,
+  codeLabel,
+  complianceFieldLabel,
+  complianceRequirementLabel,
+  marketName,
+  settingLabel,
+} from "~/i18n/labels";
 import { getSiteFn, updateSiteLocaleFn } from "~/server-fns";
 /**
  * The site record (§12.4): Identity · Address · Trading · Outlets · Language ·
@@ -143,6 +150,22 @@ const COMPLIANCE_FIELD_LABEL: Record<string, MessageKey> = {
   address: "mdm.site.field.address",
   currency: "mdm.site.field.currency",
   jurisdiction: "mdm.site.field.jurisdiction",
+};
+/**
+ * The ERP org-unit kinds, in words: `company_code` → "Company code".
+ *
+ * The six values are exactly the ones `mdm_erp_org_unit.org_unit_type`'s check constraint
+ * allows (`db/migrations/0008_mdm_masters.sql`), and the map is closed on purpose: a seventh
+ * value a later migration adds reads as its own code rather than borrowing one of these words
+ * (see `codeLabel`).
+ */
+const ORG_UNIT_TYPE_LABEL: Record<string, MessageKey> = {
+  company_code: "mdm.erp.orgUnitType.company_code",
+  plant: "mdm.erp.orgUnitType.plant",
+  storage_location: "mdm.erp.orgUnitType.storage_location",
+  warehouse: "mdm.erp.orgUnitType.warehouse",
+  sales_org: "mdm.erp.orgUnitType.sales_org",
+  channel: "mdm.erp.orgUnitType.channel",
 };
 
 function SitePending() {
@@ -375,7 +398,15 @@ function SiteScreen() {
                 },
                 {
                   label: t("mdm.site.field.jurisdiction"),
-                  value: site.jurisdictionCode ?? <NoValue />,
+                  // The column holds a market code (`IN`, `IN-KA`); the row says the market in
+                  // words, the way the sites list and the compliance rules below do. A
+                  // sub-national market keeps its code inside the name (`India (IN-KA)`),
+                  // because `IN-KA` and `IN-MH` are different tax jurisdictions.
+                  value: site.jurisdictionCode ? (
+                    marketName(locale, site.jurisdictionCode)
+                  ) : (
+                    <NoValue />
+                  ),
                 },
               ]}
             />
@@ -567,7 +598,11 @@ function SiteScreen() {
                     <tr key={setting.key} className="border-b border-border last:border-b-0">
                       <td className="px-4 py-2">
                         <span className="block">
-                          {t(setting.labelKey as MessageKey)}
+                          {/* `label_key` is data (a catalogue key stored on the definition row),
+                              so it is resolved rather than trusted: a key this catalog does not
+                              carry is worded as unrecognised here, and the setting's own machine
+                              key stays visible below so the reader can see which row it is. */}
+                          {settingLabel(t, setting.labelKey)}
                         </span>
                         <code className="font-mono text-2xs text-fg-subtle">{setting.key}</code>
                       </td>
@@ -631,7 +666,7 @@ function SiteScreen() {
                     {marketName(locale, cell.jurisdiction)}
                   </Badge>
                   <span className="text-sm">
-                    {COMPLIANCE_FIELD_LABEL[cell.field] ? t(COMPLIANCE_FIELD_LABEL[cell.field]) : cell.field}
+                    {codeLabel(t, COMPLIANCE_FIELD_LABEL[cell.field], cell.field)}
                   </span>
                   <code className="font-mono text-2xs text-fg-subtle">{cell.field}</code>
                   {/* Same four words the article screens use for the same four values
@@ -674,8 +709,16 @@ function SiteScreen() {
             <ul className="flex flex-col gap-2 p-4 text-xs">
               {site.articleRequirements.map((requirement) => (
                 <li key={requirement.field} className="flex flex-wrap items-center gap-2">
-                  <code className="font-mono text-2xs text-fg-muted">{requirement.field}</code>
-                  <span>{requirement.requirement}</span>
+                  {/* The rule row holds an article compliance field (`caloriesKcal`) and a
+                      requirement (`required`). Both are said in words, the same way the
+                      market-requirements sentence on the sites list says them
+                      (`sentenceParams` calls the same two helpers), and the machine field
+                      name stays beside the word the way the site rules above keep theirs. */}
+                  <span className="text-sm">{complianceFieldLabel(t, requirement.field)}</span>
+                  <code className="font-mono text-2xs text-fg-subtle">{requirement.field}</code>
+                  <span className="text-xs text-fg-muted">
+                    {complianceRequirementLabel(t, requirement.requirement)}
+                  </span>
                   {requirement.legalRef ? (
                     <span className="text-2xs text-fg-subtle">{requirement.legalRef}</span>
                   ) : null}
@@ -740,7 +783,12 @@ function SiteScreen() {
                       <td className="px-4 py-2">
                         {entry.actorName ?? <NoValue />}
                         {entry.actorRoleCode ? (
-                          <span className="ms-2 text-2xs text-fg-subtle">{entry.actorRoleCode}</span>
+                          // The actor's role by *name* (`MDM Head`), the way the approvals queue
+                          // reads it; the code is the fallback for a role row we cannot resolve,
+                          // which is the code this cell showed for everyone before.
+                          <span className="ms-2 text-2xs text-fg-subtle">
+                            {entry.actorRoleName ?? entry.actorRoleCode}
+                          </span>
                         ) : null}
                       </td>
                       <td className="px-4 py-2">
@@ -752,7 +800,12 @@ function SiteScreen() {
                               : t("mdm.vendor.history.outcome.error")}
                         </Badge>
                         {entry.reason ? (
-                          <span className="ms-2 text-2xs text-fg-muted">{entry.reason}</span>
+                          // An audit reason is usually a sentence the domain wrote, and sometimes a
+                          // policy code (`mdm.approve.self`); the resolver words the codes and
+                          // leaves the sentences alone.
+                          <span className="ms-2 text-2xs text-fg-muted">
+                            {auditReasonLabel(t, entry.reason)}
+                          </span>
                         ) : null}
                       </td>
                     </tr>
@@ -818,7 +871,7 @@ function SiteScreen() {
                       {site.erpOrgUnits.map((unit) => (
                         <li key={unit.id} className="flex flex-wrap items-center gap-2">
                           <code className="font-mono text-2xs">{unit.systemCode}</code>
-                          <span>{unit.orgUnitType}</span>
+                          <span>{codeLabel(t, ORG_UNIT_TYPE_LABEL[unit.orgUnitType], unit.orgUnitType)}</span>
                           <code className="font-mono text-xs">{unit.erpCode}</code>
                           {unit.isPrimary ? (
                             <Badge tone="accent" shape={false}>
@@ -924,7 +977,7 @@ function SiteScreen() {
 
 /** One outlet: what it owns, and what it inherits from its site (§12.2). */
 function OutletPane({ outlet }: { outlet: OutletView }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   return (
     <section className="flex flex-col gap-3 p-4">
       <div className="flex flex-wrap items-baseline gap-2">
@@ -991,8 +1044,12 @@ function OutletPane({ outlet }: { outlet: OutletView }) {
                   })}
                 </span>
                 <span>
+                  {/* An outlet inherits its site's jurisdiction, held as a market code; the
+                      sentence says the market in words, the same way the row above it does. */}
                   {t("mdm.outlet.inherited.jurisdiction", {
-                    jurisdiction: outlet.inherited.jurisdictionCode ?? "—",
+                    jurisdiction: outlet.inherited.jurisdictionCode
+                      ? marketName(locale, outlet.inherited.jurisdictionCode)
+                      : "—",
                   })}
                 </span>
                 <span>
