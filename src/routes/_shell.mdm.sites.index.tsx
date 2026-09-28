@@ -16,6 +16,7 @@ import { TimestampValue } from "~/components/values";
 import type { SiteListItem } from "~/domain/mdm-sites";
 import { useI18n } from "~/i18n";
 import type { MessageKey } from "~/i18n/catalog-en";
+import { sentenceParams, siteFieldLabel } from "~/i18n/labels";
 import { listSitesFn } from "~/server-fns";
 /**
  * Sites — the master list (§12.4).
@@ -83,7 +84,7 @@ function SitesPending() {
 function SitesScreen() {
   const result = Route.useLoaderData();
   const router = useRouter();
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("");
   const [jurisdiction, setJurisdiction] = useState("");
@@ -363,11 +364,18 @@ function SitesScreen() {
           ) : (
             result.requirements.map((requirement) => (
               <li key={`${requirement.jurisdiction}:${requirement.field}`}>
-                {t("mdm.sites.markets.row", {
-                  jurisdiction: requirement.jurisdiction,
-                  field: requirement.field,
-                  requirement: requirement.requirement,
-                })}
+                {/* The rule row holds a market code and two machine names (`IN-KA`,
+                    `jurisdiction`, `required`); the sentence says them in words — the market
+                    by name, the field and the requirement from the same catalog words the site
+                    screens use. `sentenceParams` does the last two, `marketName` the first. */}
+                {t(
+                  "mdm.sites.markets.row",
+                  sentenceParams(t, locale, {
+                    jurisdiction: requirement.jurisdiction,
+                    field: siteFieldLabel(t, requirement.field),
+                    requirement: requirement.requirement,
+                  })
+                )}
               </li>
             ))
           )}

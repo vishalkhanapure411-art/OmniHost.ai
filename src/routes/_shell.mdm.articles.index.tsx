@@ -16,6 +16,7 @@ import { TimestampValue } from "~/components/values";
 import type { ArticleListItem } from "~/domain/mdm";
 import { useI18n } from "~/i18n";
 import type { MessageKey } from "~/i18n/catalog-en";
+import { complianceFieldLabel, marketName } from "~/i18n/labels";
 import { listArticlesFn } from "~/server-fns";
 /**
  * Articles — the dense list (§7.5), the first Phase 1 screen.
@@ -90,7 +91,7 @@ function ArticlesPending() {
 function ArticlesScreen() {
   const result = Route.useLoaderData();
   const router = useRouter();
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("");
   const [category, setCategory] = useState("");
@@ -185,7 +186,7 @@ function ArticlesScreen() {
             {incompleteFilterUnavailable ? (
               <span className="max-w-prose text-2xs text-fg-subtle">
                 {t("mdm.articles.filter.incompleteUnavailable", {
-                  jurisdiction: result.jurisdiction,
+                  jurisdiction: marketName(locale, result.jurisdiction),
                 })}
               </span>
             ) : null}
@@ -335,12 +336,19 @@ function ArticlesScreen() {
         <CardHeader title={t("mdm.articles.column.compliance")} subtitle={t("mdm.articles.scope.note")} />
         <ul className="flex flex-col gap-2 p-4 text-xs text-fg-muted">
           <li>
+            {/* The loader hands over the market code and the machine names of the fields the
+                profile requires (`IN-KA`, `caloriesKcal`); the sentence names the market and
+                each field in words, from the same keys the record's compliance matrix uses. */}
             {profileStatesRequirements
               ? t("mdm.articles.compliance.checked", {
-                  jurisdiction: result.jurisdiction,
-                  fields: result.requiredFields.join(", "),
+                  jurisdiction: marketName(locale, result.jurisdiction),
+                  fields: result.requiredFields
+                    .map((field) => complianceFieldLabel(t, field))
+                    .join(", "),
                 })
-              : t("mdm.articles.compliance.noneConfigured", { jurisdiction: result.jurisdiction })}
+              : t("mdm.articles.compliance.noneConfigured", {
+                  jurisdiction: marketName(locale, result.jurisdiction),
+                })}
           </li>
           <li>{t("mdm.articles.openRecord")}</li>
         </ul>

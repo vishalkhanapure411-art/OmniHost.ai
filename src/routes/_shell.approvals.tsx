@@ -181,7 +181,7 @@ function ApprovalsScreen() {
       label: t("approval.review.submittedBy"),
       value: t("approvals.queue.raisedBy", {
         who: review.raisedBy ?? t("common.unknown"),
-        role: review.raisedByRole ?? t("shell.roles.none"),
+        role: review.raisedByRoleName ?? t("shell.roles.none"),
       }),
     });
     if (review.submittedAt) {
@@ -220,7 +220,7 @@ function ApprovalsScreen() {
     if (item.entityType !== ARTICLE_VERSION_ENTITY) {
       // No module other than master data raises a task yet, so there is no decision path
       // behind this item and the screen says so instead of offering one.
-      setNotice(t("approvals.how.footer", { name: item.title, roles: item.assignedRole ?? "" }));
+      setNotice(t("approvals.how.footer", { name: item.title, roles: item.assignedRoleName ?? "" }));
       return;
     }
     setBusy(true);
@@ -291,8 +291,8 @@ function ApprovalsScreen() {
               : "closed",
     dueAt: item.dueAt,
     raisedBy: item.raisedBy,
-    raisedByRole: item.raisedByRole,
-    assignedRole: item.assignedRole,
+    raisedByRoleName: item.raisedByRoleName,
+    assignedRoleName: item.assignedRoleName,
     review: reviewFacts(item.id),
     blockers: reviewBlockers(item.id),
     decisionSubject: decisionSubject(item.id),

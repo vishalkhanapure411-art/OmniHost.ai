@@ -23,6 +23,7 @@ import type { OutletView, SiteDetail } from "~/domain/mdm-sites";
 import { useI18n } from "~/i18n";
 import { LOCALES } from "~/i18n/locales";
 import type { MessageKey } from "~/i18n/catalog-en";
+import { complianceRequirementLabel, marketName } from "~/i18n/labels";
 import { getSiteFn, updateSiteLocaleFn } from "~/server-fns";
 /**
  * The site record (§12.4): Identity · Address · Trading · Outlets · Language ·
@@ -170,7 +171,7 @@ function SiteScreen() {
     | { ok: false; status: number; error: string; message: string; permission?: string | null };
   const { principal } = Route.useRouteContext();
   const router = useRouter();
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -623,14 +624,19 @@ function SiteScreen() {
             <ul className="flex flex-col gap-2 p-4">
               {site.compliance.map((cell) => (
                 <li key={`${cell.jurisdiction}:${cell.field}`} className="flex flex-wrap items-center gap-2">
+                  // The rule row holds a market code (`IN`, `IN-KA`); the badge names the market the way
+                  // sites list does, keeping the sub-national code in brackets because `IN-KA` and
+                  // `IN-MH` are different tax jurisdictions.
                   <Badge tone="neutral" shape={false}>
-                    {cell.jurisdiction}
+                    {marketName(locale, cell.jurisdiction)}
                   </Badge>
                   <span className="text-sm">
                     {COMPLIANCE_FIELD_LABEL[cell.field] ? t(COMPLIANCE_FIELD_LABEL[cell.field]) : cell.field}
                   </span>
                   <code className="font-mono text-2xs text-fg-subtle">{cell.field}</code>
-                  <span className="text-xs text-fg-muted">{cell.requirement}</span>
+                  {/* Same four words the article screens use for the same four values
+                      (`required`/`recommended`/`optional`/`forbidden`). */}
+                  <span className="text-xs text-fg-muted">{complianceRequirementLabel(t, cell.requirement)}</span>
                   {!cell.checked ? (
                     <span title={t("mdm.articles.compliance.gap")}>
                       <Badge tone="neutral" shape={false}>
