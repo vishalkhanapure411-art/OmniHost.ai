@@ -223,6 +223,15 @@ export const enIN = {
   "chains.status.suspended": "Suspended",
   "chains.status.pending": "Pending",
   "chains.features.enabledOf": "{enabled} of {total}",
+  // The module a setting is filed under (`setting_definition.module`) — a code in the database,
+  // a word to the operator reading the AppConfig settings table. Six values are seeded; the
+  // screen's map is closed, so a seventh reads as its own code rather than borrowing a word.
+  "module.purchase": "Purchase",
+  "module.culinary": "Culinary",
+  "module.ticketing": "Ticketing",
+  "module.operations": "Operations",
+  "module.store": "Store",
+  "module.payments": "Payments",
 
   "chains.onboard.eyebrow": "App layer · AppAdmin only",
   "chains.onboard.title": "Onboard a chain",

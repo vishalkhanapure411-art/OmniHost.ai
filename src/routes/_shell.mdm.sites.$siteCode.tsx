@@ -659,9 +659,9 @@ function SiteScreen() {
             <ul className="flex flex-col gap-2 p-4">
               {site.compliance.map((cell) => (
                 <li key={`${cell.jurisdiction}:${cell.field}`} className="flex flex-wrap items-center gap-2">
-                  // The rule row holds a market code (`IN`, `IN-KA`); the badge names the market the way
-                  // sites list does, keeping the sub-national code in brackets because `IN-KA` and
-                  // `IN-MH` are different tax jurisdictions.
+                  {/* The rule row holds a market code (`IN`, `IN-KA`); the badge names the market the way
+                      the sites list does, keeping the sub-national code in brackets because `IN-KA` and
+                      `IN-MH` are different tax jurisdictions. */}
                   <Badge tone="neutral" shape={false}>
                     {marketName(locale, cell.jurisdiction)}
                   </Badge>

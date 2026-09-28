@@ -22,6 +22,8 @@ import {
 } from "~/components/ui";
 import type { ChainAuthConfigView, ChainSettingView, ChainSettingsView } from "~/domain/appconfig";
 import { useI18n } from "~/i18n";
+import type { MessageKey } from "~/i18n/catalog-en";
+import { codeLabel, settingLabel } from "~/i18n/labels";
 import {
   getChainConfigFn,
   updateChainAuthConfigFn,
@@ -60,6 +62,51 @@ export const Route = createFileRoute("/_shell/chains/$chainId_/settings")({
   loader: async ({ params }) => getChainConfigFn({ data: { chainId: params.chainId } }),
   component: ChainConfigScreen,
 });
+
+/**
+ * A setting definition's module, in words: `purchase` → "Purchase".
+ *
+ * The six values are exactly the ones `setting_definition.module` carries
+ * (`db/seed.sql`) — the module the App layer files a setting under. The map is closed on
+ * purpose: the column used to print the raw token, and a seventh module a later seed adds
+ * reads as its own code rather than borrowing one of these words (see `codeLabel`, and
+ * DECISIONS.md "Copy and label mechanism" rules 1 and 2 — never a key built from data,
+ * never another label as the fallback).
+ */
+const MODULE_LABEL: Record<string, MessageKey> = {
+  purchase: "module.purchase",
+  culinary: "module.culinary",
+  ticketing: "module.ticketing",
+  operations: "module.operations",
+  store: "module.store",
+  payments: "module.payments",
+};
+
+/** The licence tiers, in words: `gold` → "Gold". Closed, like every map here. */
+const TIER_LABEL: Record<string, MessageKey> = {
+  silver: "chains.tier.silver",
+  gold: "chains.tier.gold",
+  platinum: "chains.tier.platinum",
+};
+
+/** The two sign-in modes, in words: `sso` → "Single sign-on". */
+const AUTH_MODE_LABEL: Record<string, MessageKey> = {
+  native: "chains.settings.auth.mode.native",
+  sso: "chains.settings.auth.mode.sso",
+};
+
+/** The two SSO protocols (`SSO_PROTOCOLS`), in words: `oidc` → "OpenID Connect". */
+const SSO_PROTOCOL_LABEL: Record<string, MessageKey> = {
+  saml: "chains.settings.auth.protocol.saml",
+  oidc: "chains.settings.auth.protocol.oidc",
+};
+
+/** The three delegation targets (`delegate_to`), in words: `none` → "App layer only". */
+const DELEGATION_LABEL: Record<string, MessageKey> = {
+  none: "config.settings.delegation.none",
+  chain_head: "config.settings.delegation.chain_head",
+  site_head: "config.settings.delegation.site_head",
+};
 
 function ChainConfigScreen() {
   const result = Route.useLoaderData();
@@ -475,7 +522,9 @@ function AuthSection({
         )}
         {!ssoOffered && auth.ssoFeatureEnabled ? (
           <Banner tone="info">
-            {t("chains.settings.auth.fixedTier", { tier: t(`chains.tier.${auth.ssoMinimumTier}` as never) })}
+            {t("chains.settings.auth.fixedTier", {
+              tier: codeLabel(t, TIER_LABEL[auth.ssoMinimumTier], auth.ssoMinimumTier),
+            })}
           </Banner>
         ) : null}
         {readOnly ? (
@@ -703,8 +752,8 @@ function AuthSection({
       >
         <ConfirmSummary
           items={[
-            { label: t("chains.settings.auth.mode.label"), value: t(`chains.settings.auth.mode.${draft.authMode}` as never) },
-            { label: t("chains.settings.auth.protocol.label"), value: draft.ssoProtocol ? t(`chains.settings.auth.protocol.${draft.ssoProtocol}` as never) : t("common.none") },
+            { label: t("chains.settings.auth.mode.label"), value: codeLabel(t, AUTH_MODE_LABEL[draft.authMode], draft.authMode) },
+            { label: t("chains.settings.auth.protocol.label"), value: draft.ssoProtocol ? codeLabel(t, SSO_PROTOCOL_LABEL[draft.ssoProtocol], draft.ssoProtocol) : t("common.none") },
             { label: t("chains.settings.auth.ttl.label"), value: format.integer(Number(draft.sessionTtlMinutes)) },
           ]}
         />
@@ -814,16 +863,21 @@ function SettingsSection({
     return t("config.settings.bounds.none");
   }
 
+  /**
+   * Who may set this setting, in words.
+   *
+   * The three values `setting_definition.delegate_to`'s check constraint allows are named in
+   * the map; the `default` branch used to return the App-layer wording for *any* value it did
+   * not recognise, which is worse than a raw code — a reader cannot tell a wrong label from a
+   * right one. An unrecognised value now shows itself, worded as not recognised, so the gap is
+   * visible as our gap (DECISIONS.md "Copy and label mechanism" rule 1).
+   */
   function delegationLabel(setting: ChainSettingView): string {
     if (setting.fixedByPolicy) return t("chains.settings.owner.regulator");
-    switch (setting.delegateTo) {
-      case "chain_head":
-        return t("config.settings.delegation.chain_head");
-      case "site_head":
-        return t("config.settings.delegation.site_head");
-      default:
-        return t("chains.settings.owner.appOnly");
-    }
+    const label = DELEGATION_LABEL[setting.delegateTo];
+    return label
+      ? t(label)
+      : `${setting.delegateTo} · ${t("labels.unrecognised")}`;
   }
 
   function openEditor(
@@ -880,7 +934,7 @@ function SettingsSection({
       value,
       siteId,
       t("config.settings.saved", {
-        setting: t(setting.labelKey as never),
+        setting: settingLabel(t, setting.labelKey),
         value: valueLabel(setting, value, t, format),
       })
     );
@@ -910,14 +964,16 @@ function SettingsSection({
               <tr>
                 <td className="px-3 py-2 align-top">
                   <span className="flex flex-col">
-                    <span className="text-xs font-semibold text-fg">{t(setting.labelKey as never)}</span>
+                    <span className="text-xs font-semibold text-fg">{settingLabel(t, setting.labelKey)}</span>
                     {setting.helpKey ? (
-                      <span className="text-2xs text-fg-subtle">{t(setting.helpKey as never)}</span>
+                      <span className="text-2xs text-fg-subtle">{settingLabel(t, setting.helpKey)}</span>
                     ) : null}
                     <span className="font-mono text-2xs text-fg-subtle">{setting.key}</span>
                   </span>
                 </td>
-                <td className="px-3 py-2 align-top text-xs text-fg-muted">{setting.module}</td>
+                <td className="px-3 py-2 align-top text-xs text-fg-muted">
+                  {codeLabel(t, MODULE_LABEL[setting.module], setting.module)}
+                </td>
                 <td className="px-3 py-2 align-top text-xs text-fg-muted">
                   {setting.scope === "site"
                     ? t("chains.settings.scope.site")
@@ -1003,7 +1059,7 @@ function SettingsSection({
           setEditing(null);
         }}
         title={t("chains.settings.edit.title", {
-          setting: editing ? t(editing.setting.labelKey as never) : "",
+          setting: editing ? settingLabel(t, editing.setting.labelKey) : "",
         })}
         description={t("config.settings.review.body")}
         footer={
@@ -1033,10 +1089,10 @@ function SettingsSection({
           <div className="flex flex-col gap-3">
             <Field
               id={`setting-${editing.setting.key}`}
-              label={t(editing.setting.labelKey as never)}
+              label={settingLabel(t, editing.setting.labelKey)}
               hint={
                 editing.setting.helpKey
-                  ? t(editing.setting.helpKey as never)
+                  ? settingLabel(t, editing.setting.helpKey)
                   : t("chains.settings.bounds", {
                       min: editing.setting.minValue === null ? "" : format.integer(editing.setting.minValue),
                       max: editing.setting.maxValue === null ? "" : format.integer(editing.setting.maxValue),
@@ -1059,7 +1115,7 @@ function SettingsSection({
               ) : editing.setting.valueType === "boolean" ? (
                 <Toggle
                   checked={raw === "true"}
-                  label={t(editing.setting.labelKey as never)}
+                  label={settingLabel(t, editing.setting.labelKey)}
                   onChange={(next) => {
                     setRaw(next ? "true" : "false");
                   }}
@@ -1137,6 +1193,18 @@ function LocaleSection({
     label: locale.pseudo ? `${locale.label} · ${t("config.locale.pseudo")}` : locale.label,
   }));
 
+  /**
+   * A site's locale, in words: `en-IN` → "English (India)".
+   *
+   * The cell used to print the stored code while the dialog one click away — built from these
+   * same options — already named the locale, so the same `label` is used for both. A code the
+   * platform does not offer reads as the code itself: the cell cannot borrow another locale's
+   * words (DECISIONS.md "Copy and label mechanism" rule 1).
+   */
+  function localeLabel(code: string): string {
+    return options.find((option) => option.value === code)?.label ?? code;
+  }
+
   return (
     <Card>
       <CardHeader
@@ -1168,7 +1236,7 @@ function LocaleSection({
                   </span>
                 </td>
                 <td className="px-3 py-2 align-top text-xs text-fg">
-                  {site.locale ?? t("chains.settings.locale.inherited")}
+                  {site.locale ? localeLabel(site.locale) : t("chains.settings.locale.inherited")}
                 </td>
                 <td className="px-3 py-2 align-top text-xs text-fg-muted">{site.timezone}</td>
                 <td className="px-3 py-2 align-top text-end">
