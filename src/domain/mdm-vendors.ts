@@ -594,6 +594,7 @@ export interface VendorDetail {
       action: string;
       actorName: string | null;
       actorRoleCode: string | null;
+      actorRoleName: string | null;
       outcome: string;
       reason: string | null;
       before: JsonState;
@@ -857,15 +858,20 @@ export async function getVendor(principal: Principal, code: string): Promise<Ven
         action: string;
         display_name: string | null;
         actor_role_code: string | null;
+        actor_role_name: string | null;
         outcome: string;
         reason: string | null;
         before_state: unknown;
         after_state: unknown;
       }>(
-        `select a.id, a.created_at, a.action, u.display_name, a.actor_role_code, a.outcome,
+        `select a.id, a.created_at, a.action, u.display_name, a.actor_role_code,
+                r.name as actor_role_name, a.outcome,
                 a.reason, a.before_state, a.after_state
            from audit_log a
            left join "user" u on u.id = a.actor_user_id
+           -- The actor's role by name, so the screen can say "MDM Head" instead of the code.
+           -- Roles are keyed by code, as the approvals queue already joins them.
+           left join role r on r.code = a.actor_role_code
           where a.entity_type = 'vendor' and a.entity_id = $1
           order by a.created_at desc
           limit 25`,
@@ -1006,6 +1012,7 @@ export async function getVendor(principal: Principal, code: string): Promise<Ven
         action: entry.action,
         actorName: entry.display_name,
         actorRoleCode: entry.actor_role_code,
+        actorRoleName: entry.actor_role_name,
         outcome: entry.outcome,
         reason: entry.reason,
         before: toJsonState(entry.before_state),

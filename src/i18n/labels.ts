@@ -18,6 +18,54 @@ type Translate = (key: MessageKey, params?: Record<string, string | number>) => 
 /** The parameter values a sentence can carry, as the domain sends them. */
 export type SentenceParams = Record<string, string | number> | null | undefined;
 
+/**
+ * A code's word from an enum's label map, or **the code itself** when the map has none.
+ *
+ * This is the shape the rule asks for, and the shape the screens did not have: `t(MAP[code]
+ * ?? "some.other.label")` makes an unmapped value read as a *wrong* label — "Active" for a
+ * status nobody mapped — which is worse than a raw code because it looks right. An enum that
+ * grows shows the new value's own code instead: visibly our gap, never a lie to the reader.
+ */
+export function codeLabel(t: Translate, labelKey: MessageKey | undefined, code: string): string {
+  return labelKey ? t(labelKey) : code;
+}
+
+/**
+ * A value's name when the *name itself* is a catalog key stored in the database.
+ *
+ * `setting_definition.label_key` is data (`mdm.site.setting.serviceRadiusKm`), and so is a
+ * provenance `note_key`: a row can name a key that this catalog does not carry — a
+ * definition a later migration added, a key someone edited by hand, a locale that has not
+ * caught up — and `t(labelKey as MessageKey)` then prints the key itself on the screen. A
+ * catalog key that came from a row is never rendered as a key: the failure is worded here
+ * instead, and the cell that calls this keeps the setting's own machine key beside the word,
+ * so the reader can still see *which* row has no name.
+ */
+export function settingLabel(t: Translate, labelKey: string): string {
+  const key = labelKey as MessageKey;
+  const words = t(key);
+  return words === key ? t("labels.unrecognised") : words;
+}
+
+/**
+ * An audit row's `reason`, in words when the catalog has words for it.
+ *
+ * `audit_log.reason` holds one of three kinds of text: a sentence the domain wrote
+ * (`registration verified`, `native sign-in for …`), a *policy* code for a refusal
+ * (`mdm.approve.self`, which the screens render as `permission.mdm.approve.self`), or the
+ * guard's own sentence, which names the capabilities it refused on. Only the middle one is a
+ * machine name in a column people read, so only the middle one is looked up — and a code the
+ * catalog does not carry stays visible as itself rather than becoming a confident wrong
+ * sentence.
+ */
+export function auditReasonLabel(t: Translate, reason: string): string {
+  const prefixed = `permission.${reason}` as MessageKey;
+  const policy = t(prefixed);
+  if (policy !== prefixed) return policy;
+  const direct = t(reason as MessageKey);
+  return direct === reason ? reason : direct;
+}
+
 /** The catalog's word for `value` under `prefix`, or `value` itself when the catalog has none. */
 function labelled(t: Translate, prefix: string, value: string): string {
   const key = `${prefix}${value}` as MessageKey;

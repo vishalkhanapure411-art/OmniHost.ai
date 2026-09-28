@@ -24,7 +24,13 @@ import { ProvenanceChip } from "~/components/provenance";
 import type { VendorDetail } from "~/domain/mdm-vendors";
 import { useI18n } from "~/i18n";
 import type { MessageKey } from "~/i18n/catalog-en";
-import { complianceRequirementLabel, marketName } from "~/i18n/labels";
+import type { Formatters } from "~/i18n/format";
+import {
+  auditReasonLabel,
+  codeLabel,
+  complianceRequirementLabel,
+  marketName,
+} from "~/i18n/labels";
 import {
   addVendorTaxRegistrationFn,
   getVendorFn,
@@ -173,7 +179,7 @@ function VendorScreen() {
     | { ok: false; status: number; error: string; message: string; permission?: string | null };
   const { principal } = Route.useRouteContext();
   const router = useRouter();
-  const { t, locale } = useI18n();
+  const { t, format, locale } = useI18n();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -509,9 +515,7 @@ function VendorScreen() {
                       {marketName(locale, cell.jurisdiction)}
                     </Badge>
                     <span className="text-sm">
-                      {COMPLIANCE_FIELD_LABEL[cell.field]
-                        ? t(COMPLIANCE_FIELD_LABEL[cell.field])
-                        : cell.field}
+                      {codeLabel(t, COMPLIANCE_FIELD_LABEL[cell.field], cell.field)}
                     </span>
                     <code className="font-mono text-2xs text-fg-subtle">{cell.field}</code>
                     {/* Same four words the article screens use for the same four values
@@ -762,9 +766,7 @@ function VendorScreen() {
                   {vendor.documents.map((document) => (
                     <tr key={document.id} className="border-b border-border last:border-b-0">
                       <td className="px-4 py-2">
-                        {DOCUMENT_KIND_LABEL[document.kind]
-                          ? t(DOCUMENT_KIND_LABEL[document.kind])
-                          : document.kind}
+                        {codeLabel(t, DOCUMENT_KIND_LABEL[document.kind], document.kind)}
                       </td>
                       <td className="px-4 py-2 font-mono text-xs">
                         {document.reference ?? <NoValue />}
@@ -940,7 +942,12 @@ function VendorScreen() {
                       <td className="px-4 py-2">
                         {entry.actorName ?? <NoValue />}
                         {entry.actorRoleCode ? (
-                          <span className="ms-2 text-2xs text-fg-subtle">{entry.actorRoleCode}</span>
+                          // The actor's role by *name* (`MDM Head`), the way the approvals
+                          // queue reads it; the code is the fallback for a role row we cannot
+                          // resolve, which is the code this cell showed for everyone before.
+                          <span className="ms-2 text-2xs text-fg-subtle">
+                            {entry.actorRoleName ?? entry.actorRoleCode}
+                          </span>
                         ) : null}
                       </td>
                       <td className="px-4 py-2">
@@ -952,13 +959,18 @@ function VendorScreen() {
                               : t("mdm.vendor.history.outcome.error")}
                         </Badge>
                         {entry.reason ? (
-                          <span className="ms-2 text-2xs text-fg-muted">{entry.reason}</span>
+                          // An audit reason is usually a sentence the domain wrote, and
+                          // sometimes a policy code (`mdm.approve.self`); the resolver words
+                          // the codes and leaves the sentences alone.
+                          <span className="ms-2 text-2xs text-fg-muted">
+                            {auditReasonLabel(t, entry.reason)}
+                          </span>
                         ) : null}
                       </td>
                       <td className="px-4 py-2 text-xs">
                         <BeforeAfter
-                          before={summarise(entry.before)}
-                          after={summarise(entry.after)}
+                          before={summarise(t, format, entry.before)}
+                          after={summarise(t, format, entry.after)}
                         />
                       </td>
                     </tr>
@@ -1198,16 +1210,79 @@ const ERP_STATUS_LABEL: Record<string, MessageKey> = {
   error: "mdm.erp.status.error",
 };
 
-/** A one-line summary of an audit row's before/after state, so the table stays readable. */
-function summarise(state: unknown): string | null {
+/**
+ * The fields an audit row's before/after state carries, in the words this screen uses.
+ *
+ * The state is the domain's own JSON (`paymentTermsKind`, `creditLimitAmount`), written by
+ * the mutation that made the change — and the change history is read by people. The cell
+ * printed the column and left the enum raw (`paymentTermsKind: net_days`); it now names the
+ * field the way the record above names it, and says the value in words.
+ */
+const HISTORY_FIELD_LABEL: Record<string, MessageKey> = {
+  status: "mdm.vendor.field.status",
+  paymentTermsKind: "mdm.vendor.terms.kind",
+  paymentTermsDays: "mdm.vendor.terms.days",
+  creditLimitAmount: "mdm.vendor.field.creditLimit",
+  creditLimitCurrency: "mdm.vendor.field.billingCurrency",
+  jurisdictionCode: "mdm.vendor.tax.column.jurisdiction",
+  schemeCode: "mdm.vendor.tax.column.scheme",
+  value: "mdm.vendor.tax.column.value",
+  verifiedAt: "mdm.vendor.tax.column.verification",
+};
+/** The state fields whose value is an instant rather than a word or a number. */
+const HISTORY_DATE_FIELD = new Set(["verifiedAt"]);
+function historyValue(
+  t: (key: MessageKey, params?: Record<string, string | number>) => string,
+  format: Formatters,
+  key: string,
+  value: unknown,
+  state: Record<string, unknown>
+): string {
+  if (HISTORY_DATE_FIELD.has(key) && typeof value === "string") return format.dateTime(value);
+  const text = String(value);
+  // An enum is said in the screen's own words; a value this catalog has no word for stays
+  // as its own code rather than borrowing somebody else's label (see `codeLabel`).
+  if (key === "status") return codeLabel(t, STATUS_LABEL[text], text);
+  if (key === "schemeCode") return codeLabel(t, SCHEME_LABEL[text], text);
+  if (key === "paymentTermsKind") {
+    const label = TERMS_LABEL[text];
+    return label ? t(label, { days: String(state.paymentTermsDays ?? 0) }) : text;
+  }
+  return text;
+}
+/**
+ * A one-line summary of an audit row's before/after state, so the table stays readable.
+ *
+ * A field whose name this catalog does not carry is **not** printed as a column name: a
+ * developer reads the audit trail itself, a person reads this cell. The cell says that other
+ * fields went unnamed instead, so a state shape nobody catalogued looks like our gap rather
+ * than like English.
+ */
+function summarise(
+  t: (key: MessageKey, params?: Record<string, string | number>) => string,
+  format: Formatters,
+  state: unknown
+): string | null {
   if (state === null || state === undefined) return null;
   if (typeof state === "string") return state;
   if (typeof state !== "object") return String(state);
-  const entries = Object.entries(state as Record<string, unknown>).filter(
+  const record = state as Record<string, unknown>;
+  const entries = Object.entries(record).filter(
     ([, value]) => value !== null && value !== undefined
   );
   if (entries.length === 0) return null;
-  return entries.map(([key, value]) => `${key}: ${String(value)}`).join(", ");
+  const parts: string[] = [];
+  let hasUnnamed = false;
+  for (const [key, value] of entries) {
+    const labelKey = HISTORY_FIELD_LABEL[key];
+    if (!labelKey) {
+      hasUnnamed = true;
+      continue;
+    }
+    parts.push(`${t(labelKey)}: ${historyValue(t, format, key, value, record)}`);
+  }
+  if (hasUnnamed) parts.push(t("mdm.vendor.history.fieldsUnnamed"));
+  return parts.join(", ");
 }
 
 /**
