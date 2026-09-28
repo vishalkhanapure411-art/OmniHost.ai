@@ -30,9 +30,41 @@ export function complianceFieldLabel(t: Translate, field: string): string {
   return labelled(t, "mdm.article.compliance.field.", field);
 }
 
+/**
+ * A *site's* compliance field name: `jurisdiction` → "Tax jurisdiction".
+ *
+ * A site's rules are about different fields from an article's (`address`, `currency`,
+ * `jurisdiction` — see `MDM_IN_FIELD_RULES`), and they are named on the site screens. The
+ * sentences that list them used to print the machine name instead, which is the same defect
+ * the article labels fixed, one entity over.
+ */
+export function siteFieldLabel(t: Translate, field: string): string {
+  return labelled(t, "mdm.site.field.", field);
+}
+
+/** A *vendor's* compliance field name: `taxRegistrations` → "Tax registrations". */
+export function vendorFieldLabel(t: Translate, field: string): string {
+  return labelled(t, "mdm.vendor.field.", field);
+}
+
+/**
+ * What a market's rule says about a field: `required` → "Required".
+ *
+ * Four values exist (`required`, `recommended`, `optional`, `forbidden`), all four are
+ * catalogued for the article screens, and a rule row may hold any of them whichever entity it
+ * is written on — so this shares that one set of words rather than inventing a second.
+ */
+export function complianceRequirementLabel(t: Translate, requirement: string): string {
+  return labelled(t, "mdm.article.compliance.requirement.", requirement);
+}
+
 /** `pending_review` → "Pending review": how a report names the state a record landed in. */
 export function importLandingLabel(t: Translate, state: string): string {
-  return labelled(t, "mdm.import.landing.", state);
+  const landing = labelled(t, "mdm.import.landing.", state);
+  // A record's lifecycle state is the article status enum, which the article screens already
+  // name in one place. Falling back to those words means a status added to that enum reads as
+  // a word wherever it lands rather than as the raw value the database holds.
+  return landing === state ? labelled(t, "mdm.article.status.", state) : landing;
 }
 
 /**
@@ -73,6 +105,9 @@ export function sentenceParams(
   const out: Record<string, string | number> = { ...params };
   if (typeof params.field === "string") out.field = complianceFieldLabel(t, params.field);
   if (typeof params.state === "string") out.state = importLandingLabel(t, params.state);
+  if (typeof params.requirement === "string") {
+    out.requirement = complianceRequirementLabel(t, params.requirement);
+  }
   const market =
     typeof params.declaredFor === "string"
       ? params.declaredFor

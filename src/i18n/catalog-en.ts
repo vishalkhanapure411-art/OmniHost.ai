@@ -1032,7 +1032,7 @@ export const enIN = {
   "mdm.article.detail.translations.label": "Names on file",
   "mdm.article.detail.translations.none": "Only the default locale has a name.",
   "mdm.article.detail.readOnlyRecord":
-    "Version {version} is {status}: a version that is active or superseded is immutable, so editing what the article is starts a new draft version (maker-checker, the next slab). Price and availability are the two exceptions — they are effective-dated rows, not versions.",
+    "Version {version} is {status}, and a version that is active or superseded cannot be edited. A change to what the article is opens a new draft version, which is reviewed and approved before it replaces this one. Price and availability are the two exceptions — they are effective-dated rows, not versions.",
   "mdm.article.section.identity": "Identity",
   "mdm.article.section.selling": "Selling",
   "mdm.article.section.compliance": "Compliance",
@@ -1688,7 +1688,7 @@ export const enIN = {
   "mdm.sites.markets.title": "What the markets require",
   "mdm.sites.markets.none":
     "No market in scope states a site requirement, so nothing here is judged complete or incomplete.",
-  "mdm.sites.markets.row": "{jurisdiction}: {field} is {requirement}.",
+  "mdm.sites.markets.row": "{jurisdiction}: {field} — {requirement}.",
   "mdm.site.status.onboarding": "Onboarding",
   "mdm.site.status.active": "Active",
   "mdm.site.status.suspended": "Suspended",
@@ -1928,6 +1928,8 @@ export const enIN = {
   "mdm.import.outcome.updated": "Updated",
   "mdm.import.outcome.unchanged": "Unchanged",
   "mdm.import.outcome.rejected": "Rejected",
+  "mdm.import.landing.seasonal": "Seasonal",
+  "mdm.import.landing.discontinued": "Discontinued",
   "mdm.import.counts.seen": "{count} rows read",
   "mdm.import.counts.created": "{count} created",
   "mdm.import.counts.updated": "{count} updated",
