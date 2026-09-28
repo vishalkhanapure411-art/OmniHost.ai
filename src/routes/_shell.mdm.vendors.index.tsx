@@ -17,6 +17,7 @@ import { MoneyValue, TimestampValue } from "~/components/values";
 import type { VendorListItem } from "~/domain/mdm-vendors";
 import { useI18n } from "~/i18n";
 import type { MessageKey } from "~/i18n/catalog-en";
+import { sentenceParams, vendorFieldLabel } from "~/i18n/labels";
 import { listVendorsFn } from "~/server-fns";
 /**
  * Vendors — the master list (§9.3).
@@ -87,7 +88,7 @@ function VendorsPending() {
 function VendorsScreen() {
   const result = Route.useLoaderData();
   const router = useRouter();
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("");
   const [type, setType] = useState("");
@@ -401,11 +402,19 @@ function VendorsScreen() {
           ) : (
             result.markets.map((requirement) => (
               <li key={`${requirement.jurisdiction}:${requirement.field}`}>
-                {t("mdm.vendors.markets.row", {
-                  jurisdiction: requirement.jurisdiction,
-                  field: requirement.field,
-                  requirement: requirement.requirement,
-                })}
+                {/* The rule row holds a market code and two machine names (`IN-KA`,
+                    `taxRegistrations`, `required`); the sentence says them in words — the market
+                    by name, the field and the requirement from the same catalog words the vendor
+                    screens use. `sentenceParams` words the requirement and the market, the field
+                    through `vendorFieldLabel`, exactly as the sites list does one screen over. */}
+                {t(
+                  "mdm.vendors.markets.row",
+                  sentenceParams(t, locale, {
+                    jurisdiction: requirement.jurisdiction,
+                    field: vendorFieldLabel(t, requirement.field),
+                    requirement: requirement.requirement,
+                  })
+                )}
               </li>
             ))
           )}

@@ -54,6 +54,10 @@ export const enIN = {
   "common.actions": "Actions",
   "common.none": "—",
   "common.unknown": "Unknown",
+  // A *name* we cannot resolve: a catalog key that came out of the database with no entry
+  // behind it, an enum value no screen has mapped. "Not recognised" is deliberate wording —
+  // the alternative is the key or the machine value printed as if it were English.
+  "labels.unrecognised": "Not recognised",
   "common.required": "Required",
   "common.optional": "Optional",
   "common.readOnly": "Read-only",
@@ -1599,6 +1603,10 @@ export const enIN = {
   "mdm.vendor.history.column.actor": "Actor",
   "mdm.vendor.history.column.outcome": "Outcome",
   "mdm.vendor.history.column.change": "Change",
+  // The change cell says a field's *before/after state*, and that state is the domain's own
+  // JSON. A field this catalog has no name for is said to be unnamed rather than printed as a
+  // column name: a person reads this cell, a machine name belongs in the audit trail itself.
+  "mdm.vendor.history.fieldsUnnamed": "other fields this language does not name",
   "mdm.vendor.history.outcome.success": "Applied",
   "mdm.vendor.history.outcome.denied": "Refused",
   "mdm.vendor.history.outcome.error": "Failed",
@@ -1864,6 +1872,15 @@ export const enIN = {
   "mdm.site.actions.terminals":
     "Terminals are not registered yet, so this master does not claim to know hardware it cannot see.",
   "mdm.site.erpOrgUnit.primary": "Primary",
+  // The ERP org-unit kinds the schema allows (`site_erp_org_unit.org_unit_type`). A closed
+  // check constraint, so these six are the whole set; the reader sees the kind in words and
+  // the ERP code stays visible in mono beside it.
+  "mdm.erp.orgUnitType.company_code": "Company code",
+  "mdm.erp.orgUnitType.plant": "Plant",
+  "mdm.erp.orgUnitType.storage_location": "Storage location",
+  "mdm.erp.orgUnitType.warehouse": "Warehouse",
+  "mdm.erp.orgUnitType.sales_org": "Sales organisation",
+  "mdm.erp.orgUnitType.channel": "Distribution channel",
   // ── ERP section, shared by these two masters ───────────────────────────────
   "mdm.erp.group.identity": "ERP identity",
   "mdm.erp.group.tax": "ERP tax classification",
