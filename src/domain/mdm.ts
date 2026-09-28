@@ -3,8 +3,19 @@ import "@tanstack/react-start/server-only";
 import { poolQueryable, withTransaction, type Queryable } from "~/db";
 import { auditedMutation, guard, writeAudit, type MutationOutcome } from "~/server/audit";
 import { raiseArticleReviewTask } from "~/domain/mdm-approvals";
+// The version transitions the draft-version rule needs: a price change opens N+1 by cloning
+// N, and an approval supersedes N. They live in `~/domain/mdm-approvals` because that module
+// owns the version lifecycle the review path decides, and this module may call it at runtime
+// (the reverse direction is types-only, so there is no cycle).
+import {
+  cloneArticleVersion,
+  openArticleVersion,
+  openArticleVersionLocked,
+  supersedeArticleVersion,
+} from "~/domain/mdm-approvals";
 import {
   articleFieldPresent,
+  articleVersionComplianceGaps,
   jurisdictionFieldRules,
   requiredFieldsFor,
   tradedJurisdictions,
@@ -486,7 +497,53 @@ export interface ArticleDetail {
   allergens: { code: string; mayContain: boolean; source: string; mandatoryHere: boolean }[];
   nutrition: { code: string; value: number; basis: string; unit: string }[];
   compliance: ArticleComplianceCell[];
-  versions: { version: number; status: string; effectiveFrom: string | null; approvedAt: string | null }[];
+  /**
+   * The article's **open** version (slab 3c-2): a proposal a price change opened, or one an
+   * approver sent back. `null` when nothing is waiting for a decision.
+   *
+   * The record needs it to say what is true rather than what one version's status implies:
+   * version N is on sale, version N+1 is proposed, and nothing on the menu changes until
+   * someone approves. `isCurrent` separates a first version (never approved, still the
+   * article's own) from a proposal that deliberately sits beside the sellable one.
+   */
+  proposedVersion: {
+    id: string;
+    version: number;
+    status: string;
+    isCurrent: boolean;
+    effectiveFrom: string | null;
+    /** The outlets this proposal prices — the grid as it would be if it were approved. */
+    prices: {
+      outletCode: string;
+      amount: number;
+      currencyCode: string;
+      effectiveFrom: string | null;
+    }[];
+    /** The fields this proposal changes against the version it replaces, by name. */
+    changedFields: string[];
+    /** The outlets whose price this proposal changes. */
+    changedOutlets: string[];
+    /** The version this proposal replaces, when it replaces one. */
+    baseVersion: number | null;
+  } | null;
+  versions: {
+    id: string;
+    version: number;
+    status: string;
+    effectiveFrom: string | null;
+    approvedAt: string | null;
+    /**
+     * When this version stopped being the one on sale.
+     *
+     * Derived, never stored: the end of a version's window is the moment the *next* version
+     * was approved, and no column holds that date. Deriving it is honest for a list — the
+     * card's subtitle says where the date comes from — and `superseded_at` would be the
+     * column to add if an exact stored answer is ever needed.
+     */
+    effectiveTo: string | null;
+    createdBy: string | null;
+    approvedBy: string | null;
+  }[];
   /** The ERP mirror, rendered as a provenance chip and never as an editable field (§25.3). */
   provenance: { externalKeyKind: string; externalKeyValue: string; lastSyncAt: string | null }[];
   /** The ERP-maintained section (§25.1): last, collapsed, with a count — and only the
@@ -718,6 +775,8 @@ export async function getArticle(principal: Principal, code: string): Promise<Ar
     nutritionRows,
     versionRows,
     keyRows,
+    proposalRows,
+    proposalPriceRows,
   ] = await Promise.all([
       db.query<{ locale: string; name: string }>(
         `select locale, name from article_version_text where article_version_id = $1 order by locale`,
@@ -775,9 +834,27 @@ export async function getArticle(principal: Principal, code: string): Promise<Ar
           order by n.code, an.basis`,
         [row.version_id]
       ),
-      db.query<{ version: number; status: string; effective_from: Date | null; approved_at: Date | null }>(
-        `select version, status, effective_from, approved_at
-           from article_version where article_id = $1 order by version desc`,
+      // A version's window end is derived, not stored: the next version's approval is when
+      // this one stopped being on sale. `lead()` over the ascending order gives every row its
+      // successor's approval, and the screen's header says that is where the date comes from.
+      db.query<{
+        id: string;
+        version: number;
+        status: string;
+        effective_from: Date | null;
+        approved_at: Date | null;
+        next_approved_at: Date | null;
+        created_by: string | null;
+        approved_by: string | null;
+      }>(
+        `select v.id, v.version, v.status, v.effective_from, v.approved_at,
+                lead(v.approved_at) over (order by v.version) as next_approved_at,
+                cu.display_name as created_by, au.display_name as approved_by
+           from article_version v
+           left join "user" cu on cu.id = v.created_by_user_id
+           left join "user" au on au.id = v.approved_by_user_id
+          where v.article_id = $1
+          order by v.version desc`,
         [row.id]
       ),
       db.query<{ key_type: string; value: string; last_seen_at: Date | null }>(
@@ -786,6 +863,69 @@ export async function getArticle(principal: Principal, code: string): Promise<Ar
           where chain_id = $1 and entity_type = 'article' and entity_id = $2
           order by is_primary desc, key_type`,
         [chainId, row.id]
+      ),
+      // The open version, if the article has one (slab 3c-2), and what it changes against the
+      // version it replaces. Read here rather than as a second function so the record screen
+      // makes one round trip; the comparison is done in SQL because `is distinct from` on each
+      // column is exactly the "did this field change" question, and it handles NULLs correctly
+      // without nine lines of JS per field.
+      db.query<{
+        id: string;
+        version: number;
+        status: string;
+        effective_from: Date | null;
+        base_version: number | null;
+        changed_name: boolean;
+        changed_dietary_mark: boolean;
+        changed_tax_class: boolean;
+        changed_hsn: boolean;
+        changed_serving: boolean;
+        changed_calories: boolean;
+        changed_channels: boolean;
+        changed_allergens: boolean;
+        changed_nutrition: boolean;
+      }>(
+        `select ov.id, ov.version, ov.status, ov.effective_from, b.version as base_version,
+                (coalesce(bt.name, '') is distinct from coalesce(ot.name, '')) as changed_name,
+                (coalesce(base.dietary_mark, '') is distinct from coalesce(ov.dietary_mark, '')) as changed_dietary_mark,
+                (base.tax_class_id is distinct from ov.tax_class_id) as changed_tax_class,
+                (coalesce(base.hsn_sac_code, '') is distinct from coalesce(ov.hsn_sac_code, '')) as changed_hsn,
+                (base.serving_size_qty is distinct from ov.serving_size_qty) as changed_serving,
+                (base.calories_kcal is distinct from ov.calories_kcal) as changed_calories,
+                (base.channel_flags is distinct from ov.channel_flags) as changed_channels,
+                (select count(*) from article_version_allergen a where a.article_version_id = ov.id)
+                  <> (select count(*) from article_version_allergen a where a.article_version_id = base.id) as changed_allergens,
+                (select count(*) from article_version_nutrient n where n.article_version_id = ov.id)
+                  <> (select count(*) from article_version_nutrient n where n.article_version_id = base.id) as changed_nutrition
+           from article_version ov
+           left join article_version cv on cv.id = $2
+           left join article_version b on b.id = ov.supersedes_version_id
+           left join lateral (select * from article_version where id = coalesce(b.id, cv.id)) base on true
+           left join article_version_text ot on ot.article_version_id = ov.id and ot.locale = $3
+           left join article_version_text bt on bt.article_version_id = base.id and bt.locale = $3
+          where ov.chain_id = $1 and ov.article_id = $4
+            and ov.status in ('draft', 'pending_review')
+          order by ov.version desc
+          limit 1`,
+        [chainId, row.version_id, preferredLocale, row.id]
+      ),
+      db.query<{
+        outlet_code: string;
+        amount: string;
+        currency_code: string;
+        effective_from: Date | string | null;
+      }>(
+        `select o.code as outlet_code, p.amount, p.currency_code, p.effective_from
+           from article_price p
+           join outlet o on o.id = p.outlet_id
+          where p.article_version_id = (
+                  select v.id from article_version v
+                   where v.article_id = $1 and v.status in ('draft', 'pending_review')
+                   order by v.version desc
+                   limit 1)
+            and p.effective_to is null
+          order by o.code`,
+        [row.id]
       ),
     ]);
 
@@ -902,6 +1042,56 @@ export async function getArticle(principal: Principal, code: string): Promise<Ar
     }
   }
 
+  // What the open version would change, stated as facts rather than left for the reader to
+  // find by comparing two grids (§16's review surface asks for the diff, not the pair).
+  const proposal = proposalRows[0] ?? null;
+  const isProposal = proposal !== null && proposal.id !== row.version_id;
+  const currentPriceByOutlet = new Map(
+    priceRows.map((price) => [
+      price.outlet_code,
+      { amount: Number(price.amount), currencyCode: price.currency_code },
+    ])
+  );
+  const proposalPrices = proposalPriceRows.map((price) => ({
+    outletCode: price.outlet_code,
+    amount: Number(price.amount),
+    currencyCode: price.currency_code,
+    effectiveFrom: price.effective_from ? asIso(price.effective_from).slice(0, 10) : null,
+  }));
+  const changedOutlets = isProposal
+    ? proposalPrices
+        .filter((price) => {
+          const base = currentPriceByOutlet.get(price.outletCode);
+          return !base || base.amount !== price.amount || base.currencyCode !== price.currencyCode;
+        })
+        .map((price) => price.outletCode)
+    : [];
+  const changedFields: string[] = [];
+  if (isProposal && proposal) {
+    if (proposal.changed_name) changedFields.push("name");
+    if (proposal.changed_dietary_mark) changedFields.push("dietaryMark");
+    if (proposal.changed_tax_class) changedFields.push("taxClass");
+    if (proposal.changed_hsn) changedFields.push("hsnSacCode");
+    if (proposal.changed_serving) changedFields.push("servingSize");
+    if (proposal.changed_calories) changedFields.push("caloriesKcal");
+    if (proposal.changed_channels) changedFields.push("channels");
+    if (proposal.changed_allergens) changedFields.push("allergens");
+    if (proposal.changed_nutrition) changedFields.push("nutrition");
+  }
+  const proposedVersion: ArticleDetail["proposedVersion"] = proposal
+    ? {
+        id: proposal.id,
+        version: proposal.version,
+        status: proposal.status,
+        isCurrent: proposal.id === row.version_id,
+        effectiveFrom: proposal.effective_from ? asIso(proposal.effective_from).slice(0, 10) : null,
+        prices: proposalPrices,
+        changedFields,
+        changedOutlets,
+        baseVersion: proposal.base_version,
+      }
+    : null;
+
   return {
     id: row.id,
     code: row.code,
@@ -966,11 +1156,16 @@ export async function getArticle(principal: Principal, code: string): Promise<Ar
       unit: nutrient.unit,
     })),
     compliance,
+    proposedVersion,
     versions: versionRows.map((version) => ({
+      id: version.id,
       version: version.version,
       status: version.status,
       effectiveFrom: version.effective_from ? asIso(version.effective_from).slice(0, 10) : null,
       approvedAt: version.approved_at ? asIso(version.approved_at) : null,
+      effectiveTo: version.next_approved_at ? asIso(version.next_approved_at).slice(0, 10) : null,
+      createdBy: version.created_by,
+      approvedBy: version.approved_by,
     })),
     provenance: keyRows.map((key) => ({
       externalKeyKind: key.key_type,
@@ -1102,24 +1297,65 @@ export interface MutationMeta {
  * Changes a per-outlet price.
  *
  * This is a **financial** action, which is why it is its own permission
- * (`mdm.article.price.update`) rather than a field on the general update. The open price
- * row is closed the day before the new window opens and a new row is opened: the audit row
- * records both, so a historical bill's price stays reproducible (§11.2's discipline,
- * applied to a price for the same reason).
+ * (`mdm.article.price.update`) rather than a field on the general update.
  *
- * SPEC-GAP, flagged rather than hidden: §7.2 item 5 says a price change on an active
- * article should create version N+1 in `draft` while version N stays sellable, and approving
- * N+1 pins the effective date. That flow needs the maker-checker review screens, which this
- * slab does not build (they are explicitly out of scope). Until they exist, this function
- * closes and opens price windows *inside the current version* — the effective-dated row
- * discipline holds either way, and switching to version creation later is a change inside
- * this one function.
+ * **A price change is a version** (§7.2 item 5; PRD: "Price or recipe changes create a new
+ * version rather than overwriting the old one, so a historical order keeps the figures it
+ * was actually sold under"). The rule, in full:
+ *
+ *   * If the article has an **open draft** — a proposal an earlier price change opened, or
+ *     one an approver sent back — the write lands on *that* version. That is the flow's only
+ *     correction path: a returned draft that could not be edited could never be resubmitted.
+ *   * If the open version is `pending_review` the write is refused outright
+ *     (`validation.articleVersionLocked`). Moving a figure while an approver is looking at
+ *     it is the exact failure maker-checker exists to prevent, whether that version is the
+ *     article's current one or a proposal sitting beside it.
+ *   * Otherwise — a version is on sale and nothing is open — this opens **N+1 as a `draft`**
+ *     by cloning N: content, allergens, nutrition, the per-jurisdiction grid and every
+ *     outlet's open price window, with the changed price written onto the new version. **N
+ *     stays `active` and sellable**: `article.current_version_id` does not move, so every
+ *     price read in this codebase keeps resolving to N and billing is unaffected with no new
+ *     enforcement anywhere.
+ *   * Where the chain is **not** approval-gated and the caller may approve, N+1 is approved
+ *     and N superseded inside this same transaction. Without that branch a one-person Silver
+ *     chain could never reprice, having nobody to be the second pair of eyes. Where the chain
+ *     *is* gated, N+1 goes to the approver's queue with a task and the price is frozen.
+ *
+ * The window discipline is unchanged, and applies to whichever version was written: the open
+ * row is closed the day before the new window opens and a new row is opened, never edited in
+ * place, so a historical bill's price stays reproducible (§11.2's discipline, applied to a
+ * price for the same reason).
  */
+export interface ArticlePriceWriteResult {
+  code: string;
+  outletCode: string;
+  before: Money | null;
+  after: Money;
+  /**
+   * What this write did to the version set — the fact the screen's confirmation and the
+   * audit row both turn on, and the one thing an operator cannot infer from the price.
+   */
+  version: {
+    id: string;
+    version: number;
+    status: string;
+    /** `opened` (this write created a proposal) · `proposal` (it wrote to the open draft) ·
+     *  `inPlace` (the article has no approved version yet) · `approved` (it opened N+1 and
+     *  approved it in the same transaction). */
+    landed: "opened" | "proposal" | "inPlace" | "approved";
+    /** The version N+1 replaces, when this write opened one. */
+    baseVersionId: string | null;
+    baseVersion: number | null;
+    /** The review task raised for the new version, when the chain is approval-gated. */
+    taskId: string | null;
+  };
+}
+
 export async function updateArticlePrice(
   principal: Principal,
   input: { code: string; outletCode: string; amount: number; currencyCode: string; effectiveFrom?: string | null },
   meta: MutationMeta = {}
-): Promise<{ code: string; outletCode: string; before: Money | null; after: Money }> {
+): Promise<ArticlePriceWriteResult> {
   const code = input.code?.trim();
   const outletCode = input.outletCode?.trim();
   if (!code) throw new ValidationError("article code is required");
@@ -1143,93 +1379,210 @@ export async function updateArticlePrice(
     intent: meta.intent ?? null,
   });
 
+  const effectiveFrom = input.effectiveFrom?.trim() || new Date().toISOString().slice(0, 10);
+
   const run = async (tx: Queryable): Promise<MutationOutcome> => {
-      const rows = await tx.query<{
-        article_id: string;
-        version_id: string;
-        version_status: string | null;
-        outlet_id: string;
-        site_currency: string;
-        price_id: string | null;
-        amount: string | null;
-        currency_code: string | null;
-      }>(
-        `select a.id as article_id, a.current_version_id as version_id,
-                cv.status as version_status, o.id as outlet_id,
-                coalesce(s.currency, 'INR') as site_currency,
-                p.id as price_id, p.amount, p.currency_code
-           from article a
-           join outlet o on o.chain_id = a.chain_id and o.code = $3
-           join site s on s.id = o.site_id
-           join article_version cv on cv.id = a.current_version_id
-           left join article_price p
-                  on p.article_version_id = a.current_version_id
-                 and p.outlet_id = o.id and p.effective_to is null
-          where a.chain_id = $1 and a.code = $2`,
-        [chainId, code, outletCode]
+    // The article row is locked before anything is read about its versions: the supersede
+    // below moves `current_version_id`, and a decision running on the same article must not
+    // be able to move it between this read and this write.
+    const articles = await tx.query<{ id: string; status: string; current_version_id: string | null }>(
+      `select id, status, current_version_id from article
+        where chain_id = $1 and code = $2
+        for update`,
+      [chainId, code]
+    );
+    const article = articles[0];
+    if (!article) throw new NotFound("Article", code);
+
+    const outletRows = await tx.query<{ outlet_id: string; site_currency: string }>(
+      `select o.id as outlet_id, coalesce(s.currency, 'INR') as site_currency
+         from outlet o
+         join site s on s.id = o.site_id
+        where o.chain_id = $1 and o.code = $2`,
+      [chainId, outletCode]
+    );
+    const outlet = outletRows[0];
+    if (!outlet) throw new NotFound("Outlet", outletCode);
+
+    // The price's currency is the outlet's site currency (§7.1). A caller that sends a
+    // different code is asking for something the model does not offer, so it is refused
+    // rather than silently stored.
+    if (outlet.site_currency !== currencyCode) {
+      throw new ValidationError(
+        `${outletCode} trades in ${outlet.site_currency}; a price in ${currencyCode} needs its own site`
       );
-      const row = rows[0];
-      if (!row) throw new NotFound("Article or outlet", `${code} / ${outletCode}`);
-      if (!row.version_id) throw new ValidationError(`${code} has no current version`);
+    }
 
-      // Money is frozen while a version is under review. A price write targets the article's
-      // *current* version, and submit-for-review leaves the version under review as the current
-      // one — so without this check a figure could be changed while it sat in an approver's
-      // queue, and approving it would publish a number the approver never saw. That is the exact
-      // failure maker-checker exists to prevent, and it needs the same refusal `updateArticle`
-      // gives: one keyed answer for "this version is not editable right now".
-      if (row.version_status === "pending_review") {
-        throw invalid("validation.articleVersionLocked", "status", { status: row.version_status });
-      }
+    if (article.status === "discontinued") {
+      throw invalid("validation.review.articleClosed", "status", { status: article.status });
+    }
 
-      // The price's currency is the outlet's site currency (§7.1). A caller that sends a
-      // different code is asking for something the model does not offer, so it is refused
-      // rather than silently stored.
-      if (row.site_currency !== currencyCode) {
-        throw new ValidationError(
-          `${outletCode} trades in ${row.site_currency}; a price in ${currencyCode} needs its own site`
-        );
-      }
+    const open = await openArticleVersionLocked(tx, article.id);
+    const currentRows = article.current_version_id
+      ? await tx.query<{ id: string; version: number; status: string }>(
+          `select id, version, status from article_version where id = $1 and chain_id = $2 for update`,
+          [article.current_version_id, chainId]
+        )
+      : [];
+    const current = currentRows[0] ?? null;
 
-      const effectiveFrom = input.effectiveFrom?.trim() || new Date().toISOString().slice(0, 10);
-      const before: Money | null = row.price_id
-        ? { amount: Number(row.amount), currencyCode: row.currency_code ?? row.site_currency }
-        : null;
+    // Money is frozen while a version is under review (slab 3c-1). The freeze now covers the
+    // proposal as well as the current version: a figure must not move while it sits in an
+    // approver's queue, or the approval publishes a number they never saw.
+    if (open && open.status === "pending_review") {
+      throw invalid("validation.articleVersionLocked", "status", { status: open.status });
+    }
 
-      if (row.price_id) {
-        // Close the open window the day before the new one opens — never an in-place edit.
-        await tx.query(
-          `update article_price
-              set effective_to = greatest($2::date - 1, effective_from)
-            where id = $1`,
-          [row.price_id, effectiveFrom]
-        );
-      }
+    let target: { id: string; version: number } | null = open ?? current;
+    let landedStatus = open?.status ?? current?.status ?? "draft";
+    let landed: ArticlePriceWriteResult["version"]["landed"] = "inPlace";
+    let base: { id: string; version: number } | null = null;
+    let raisedTaskId: string | null = null;
 
-      const inserted = await tx.query<{ id: string }>(
-        `insert into article_price (chain_id, article_id, article_version_id, outlet_id, amount,
-                                    currency_code, effective_from, created_by_user_id)
-         values ($1, $2, $3, $4, $5, $6, $7::date, $8)
-         returning id`,
-        [
+    if (open && article.current_version_id !== open.id) {
+      // A proposal already waits: either a correction of a sent-back draft or a second change
+      // to the same draft. Both land on the open version, never on the sellable one.
+      landed = "proposal";
+      base = current ? { id: current.id, version: current.version } : null;
+    } else if (!open) {
+      if (!current) throw new ValidationError(`${code} has no current version`);
+      if (current.status === "draft") {
+        // No approved version yet: the draft *is* the article, so the write lands in place,
+        // exactly as it did before this rule existed.
+        target = current;
+        landed = "inPlace";
+      } else {
+        // Open N+1 as a draft, carrying N's content and N's whole open price grid.
+        const clone = await cloneArticleVersion(tx, {
           chainId,
-          row.article_id,
-          row.version_id,
-          row.outlet_id,
-          input.amount,
-          currencyCode,
+          articleId: article.id,
+          fromVersionId: current.id,
+          principalId: principal.userId,
           effectiveFrom,
-          principal.userId,
-        ]
-      );
+        });
+        target = { id: clone.id, version: clone.version };
+        landedStatus = "draft";
+        base = { id: current.id, version: current.version };
+        landed = "opened";
 
-      await tx.query(`update article set updated_at = now() where id = $1`, [row.article_id]);
+        // Where a new version lands (§6, applied to a version rather than to a create): a
+        // requirement of a market the clone does not meet keeps it a draft; an
+        // approval-gated chain puts it in the approver's queue; a chain with no gate, where
+        // the caller may approve, needs no second pair of eyes and takes it live here.
+        const gaps = await articleVersionComplianceGaps(tx, chainId, clone.id);
+        const gated = await approvalGated(tx, chainId);
+        const mayApprove = await can(principal, "mdm.article.approve", { chainId });
+        const landing = landingStatus(
+          gated,
+          mayApprove,
+          gaps.map((gap) => gap.field)
+        );
+        if (landing === "pending_review") {
+          landedStatus = "pending_review";
+        } else if (landing === "active") {
+          await supersedeArticleVersion(tx, {
+            chainId,
+            articleId: article.id,
+            versionId: clone.id,
+            baseVersionId: current.id,
+            principalId: principal.userId,
+          });
+          landedStatus = "active";
+          landed = "approved";
+        }
+      }
+    }
+    if (!target) throw new ValidationError(`${code} has no version to price`);
+
+    // The window write, on whichever version this landed on. Close-then-open, never an
+    // in-place edit: the closed row is what a historical bill reproduces.
+    const openPriceRows = await tx.query<{ id: string; amount: string; currency_code: string }>(
+      `select id, amount, currency_code from article_price
+        where article_version_id = $1 and outlet_id = $2 and effective_to is null
+        for update`,
+      [target.id, outlet.outlet_id]
+    );
+    const openPrice = openPriceRows[0];
+    const before: Money | null = openPrice
+      ? { amount: Number(openPrice.amount), currencyCode: openPrice.currency_code }
+      : null;
+
+    if (openPrice) {
+      await tx.query(
+        `update article_price
+            set effective_to = greatest($2::date - 1, effective_from)
+          where id = $1`,
+        [openPrice.id, effectiveFrom]
+      );
+    }
+
+    const inserted = await tx.query<{ id: string }>(
+      `insert into article_price (chain_id, article_id, article_version_id, outlet_id, amount,
+                                  currency_code, effective_from, created_by_user_id)
+       values ($1, $2, $3, $4, $5, $6, $7::date, $8)
+       returning id`,
+      [
+        chainId,
+        article.id,
+        target.id,
+        outlet.outlet_id,
+        input.amount,
+        currencyCode,
+        effectiveFrom,
+        principal.userId,
+      ]
+    );
+
+    // The version reaches `pending_review` and its task is raised only now, after the price
+    // is stored: the approver must be able to read the figure they are being asked to accept,
+    // and a version under review refuses price writes by design.
+    if (landed === "opened" && landedStatus === "pending_review") {
+      await tx.query(
+        `update article_version set status = 'pending_review', updated_at = now() where id = $1`,
+        [target.id]
+      );
+      raisedTaskId = await raiseArticleReviewTask(tx, {
+        chainId,
+        principal,
+        code,
+        articleId: article.id,
+        versionId: target.id,
+        version: target.version,
+        note: meta.intent ?? null,
+      });
+    }
+
+    await tx.query(`update article set updated_at = now() where id = $1`, [article.id]);
 
     return {
       entityId: inserted[0]?.id ?? null,
-      // The audit row carries both windows: what was closed and what was opened.
-      before: before ? { ...before, priceId: row.price_id, effectiveTo: effectiveFrom } : null,
-      after: { amount: input.amount, currencyCode, outletCode, effectiveFrom },
+      // The audit row carries both windows and both versions: what was closed and what was
+      // opened, and which version was on sale before and after (§7.3 — a versioned change
+      // audits the version, not the row, so "what did N+1 change" is answerable from the
+      // ledger and not only by arithmetic over version numbers).
+      before: before
+        ? {
+            ...before,
+            priceId: openPrice?.id ?? null,
+            effectiveTo: effectiveFrom,
+            versionId: base?.id ?? target.id,
+            version: base?.version ?? target.version,
+          }
+        : null,
+      after: {
+        amount: input.amount,
+        currencyCode,
+        outletCode,
+        effectiveFrom,
+        versionId: target.id,
+        version: target.version,
+        versionStatus: landedStatus,
+        openedVersion: landed === "opened" || landed === "approved",
+        landed,
+        baseVersionId: base?.id ?? null,
+        baseVersion: base?.version ?? null,
+        taskId: raisedTaskId,
+      },
     };
   };
 
@@ -1263,11 +1616,29 @@ export async function updateArticlePrice(
   }
 
   const before = outcome.before as (Money & { priceId?: string }) | null;
+  const after = (outcome.after ?? {}) as {
+    versionId?: string;
+    version?: number;
+    versionStatus?: string;
+    landed?: ArticlePriceWriteResult["version"]["landed"];
+    baseVersionId?: string | null;
+    baseVersion?: number | null;
+    taskId?: string | null;
+  };
   return {
     code,
     outletCode,
     before: before ? { amount: before.amount, currencyCode: before.currencyCode } : null,
     after: { amount: input.amount, currencyCode },
+    version: {
+      id: after.versionId ?? "",
+      version: after.version ?? 0,
+      status: after.versionStatus ?? "draft",
+      landed: after.landed ?? "inPlace",
+      baseVersionId: after.baseVersionId ?? null,
+      baseVersion: after.baseVersion ?? null,
+      taskId: after.taskId ?? null,
+    },
   };
 }
 
@@ -1908,6 +2279,17 @@ export async function updateArticle(
       // a dry run and a commit end up disagreeing about the same row.
       throw invalid("validation.articleVersionLocked", "status", { status: current.versionStatus });
     }
+    // A proposal beside the sellable version is a different refusal (slab 3c-2). This call
+    // edits the *current* version's content, but the open draft was cloned from it: editing
+    // the sellable version here would leave the proposal carrying the content it was cloned
+    // with, and approving that proposal would silently undo this edit. Content drafts are not
+    // built yet, so the honest answer is to say the article already has a decision waiting —
+    // the price path is the one that writes into an open draft, and it targets that draft
+    // rather than this version.
+    const proposed = await openArticleVersion(tx, current.id);
+    if (proposed && proposed.id !== current.versionId) {
+      throw invalid("validation.review.articleOpen", "version", { version: proposed.version });
+    }
     const refs = await resolveArticleRefs(tx, chainId, input);
     const gaps = await complianceGaps(tx, chainId, input);
     const changed = diffArticleContent(current, input, refs);
@@ -2352,14 +2734,49 @@ export interface ArticleWritePlan {
   /** The current version's lifecycle state, as the database holds it. */
   versionStatus: string | null;
   /**
-   * True when the current version is under review *and* this row would change it.
+   * True when the write this row implies would land on a version that is under review, and
+   * the row therefore changes something.
    *
    * The write path refuses exactly this case (`updateArticle` and `updateArticlePrice` both
    * throw `validation.articleVersionLocked`), so a caller that reported `updated` here would
    * be promising a write the commit refuses. The import turns it into a row error, which is
    * what keeps the dry run and the commit saying the same thing.
+   *
+   * Two versions can be under review in the slab 3c-2 world, and they belong to different
+   * writes: the *content* path edits the version on sale, while the *price* path writes into
+   * the open version (the proposal). So this reads whichever of the two that write would
+   * touch — which is why a row carrying both a content and a price change reports the freeze
+   * that would stop each half.
    */
   lockedUnderReview: boolean;
+  /**
+   * The article's *open* version when it is not the version on sale — the proposal a price
+   * change opened (slab 3c-2). Null for an article with no open version, and for one whose
+   * only open version *is* its current version (a first draft, or a returned one).
+   *
+   * `article_version` is read here, never read *instead of* `article.current_version_id`: the
+   * whole point of the draft-version rule is that the pointer stays on what a guest can order
+   * today.
+   */
+  openVersion: number | null;
+  openVersionId: string | null;
+  openVersionStatus: string | null;
+  /**
+   * True when this row would be refused because a version already waits for a decision.
+   *
+   * `updateArticle` refuses it with `validation.review.articleOpen`: the version beside the
+   * one on sale was cloned from it, so editing the sellable version now would leave the
+   * proposal carrying content it was never cloned with. A row that changes nothing is not
+   * refused (re-importing a file against such an article writes nothing), and a row that
+   * changes only a price is the *supported* path — it is written into the open version.
+   */
+  articleOpen: boolean;
+  /**
+   * Which version the price comparison read: the proposal when one waits, otherwise the one
+   * on sale. A dry run that compared against the sellable price would report a change the
+   * commit does not make, and miss the one it does.
+   */
+  priceAgainst: "openVersion" | "currentVersion" | null;
   /**
    * The lifecycle state an existing record already holds — what it *is*, not what it would
    * land as. `landing` only ever describes a create; reporting it for a record that has one
@@ -2398,6 +2815,29 @@ export async function planArticleWrite(
   const current = await loadArticleSnapshot(tx, chainId, input.code, options.locale ?? "en-IN");
   const today = options.today ?? new Date().toISOString().slice(0, 10);
 
+  // The version waiting for a decision, when it is not the one on sale (slab 3c-2), and the
+  // price grid the next write would actually touch. Both are read rather than assumed: the
+  // price path writes into the open version when there is one, so a plan that compared
+  // against the sellable grid would report a change the commit does not make — and miss the
+  // one it does, because a correction of a proposal changes the proposal's figure.
+  const openRow = current ? await openArticleVersion(tx, current.id) : null;
+  const proposal = current && openRow && openRow.id !== current.versionId ? openRow : null;
+  const priceBase: { outletCode: string; amount: number; currencyCode: string }[] = proposal
+    ? (
+        await tx.query<{ outlet_code: string; amount: string; currency_code: string }>(
+          `select o.code as outlet_code, p.amount, p.currency_code
+             from article_price p join outlet o on o.id = p.outlet_id
+            where p.article_version_id = $1 and p.effective_to is null
+            order by o.code`,
+          [proposal.id]
+        )
+      ).map((row) => ({
+        outletCode: row.outlet_code,
+        amount: Number(row.amount),
+        currencyCode: row.currency_code,
+      }))
+    : (current?.prices ?? []);
+
   const missingCapabilities: string[] = [];
   const requires = current ? ["mdm.article.update"] : ["mdm.article.create"];
   for (const code of requires) {
@@ -2409,7 +2849,7 @@ export async function planArticleWrite(
   for (const [index, price] of (input.prices ?? []).entries()) {
     const outlet = refs.outlets[index];
     if (!outlet) continue;
-    const open = current?.prices.find((row) => row.outletCode === outlet.code) ?? null;
+    const open = priceBase.find((row) => row.outletCode === outlet.code) ?? null;
     if (open && open.amount === price.amount && open.currencyCode === price.currencyCode) {
       priceUnchanged.push(outlet.code);
       continue;
@@ -2440,6 +2880,16 @@ export async function planArticleWrite(
     defaulted.push("priceEffectiveFrom");
   }
 
+  // The two writes a row can imply, and the version each one touches. Each refusal is
+  // reported for the half the row actually asks for: a row that changes nothing is never
+  // refused, and a row that only prices while a proposal waits is the *correction* path —
+  // it is written into that proposal, which is why this is a flag beside the outcome rather
+  // than a disagreement about it.
+  const frozen =
+    (contentChanged.length > 0 && current?.versionStatus === "pending_review") ||
+    (priceChanges.length > 0 &&
+      (current?.versionStatus === "pending_review" || proposal?.status === "pending_review"));
+
   return {
     existing: Boolean(current),
     outcome,
@@ -2451,7 +2901,12 @@ export async function planArticleWrite(
     // A row that changes nothing is never refused: the write path only reaches its status
     // check when there is something to write, so `unchanged` stays a legal answer for a
     // version under review — re-importing a file for a pending record writes nothing.
-    lockedUnderReview: current?.versionStatus === "pending_review" && outcome === "updated",
+    lockedUnderReview: frozen,
+    openVersion: proposal?.version ?? null,
+    openVersionId: proposal?.id ?? null,
+    openVersionStatus: proposal?.status ?? null,
+    articleOpen: Boolean(proposal) && contentChanged.length > 0,
+    priceAgainst: current ? (proposal ? "openVersion" : "currentVersion") : null,
     existingStatus: current?.status ?? null,
     missingCapabilities,
     contentChanged,

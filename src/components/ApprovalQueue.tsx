@@ -166,6 +166,12 @@ export function ApprovalQueueRow({
                 {t("approval.returned.note", { note: item.returned.note })}
               </p>
             ) : null}
+            {/*
+              What to do next. A content correction is a re-import, not a form (slab 3c-2 §5),
+              and that is only discoverable if the returned row says it — otherwise the author
+              is left holding a send-back with no way back in.
+            */}
+            <p className="text-xs text-fg-muted">{t("approval.returned.correction")}</p>
           </div>
         ) : null}
         <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-2xs text-fg-subtle">

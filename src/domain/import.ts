@@ -956,8 +956,18 @@ async function planRow(
   const locked: ImportIssue[] = plan.lockedUnderReview
     ? [issue("status", "validation.articleVersionLocked", {}, "error")]
     : [];
-  issues.push(...locked, ...planWarnings(plan));
-  if (refusals.length > 0 || locked.length > 0) {
+  // A version waiting for a decision refuses a content row too (slab 3c-2), and for a
+  // different reason: the open version was cloned from the one this row edits, so the edit
+  // would leave the proposal carrying content it was never cloned with. The commit raises
+  // exactly this code, so the dry run has to say it as well — a plan that called the row
+  // `updated` was promising an import whose every row would be refused.
+  const openIssue: ImportIssue[] = plan.articleOpen
+    ? [
+        issue("status", "validation.review.articleOpen", { version: plan.openVersion ?? 0 }, "error"),
+      ]
+    : [];
+  issues.push(...locked, ...openIssue, ...planWarnings(plan));
+  if (refusals.length > 0 || locked.length > 0 || openIssue.length > 0) {
     return {
       lineNumber: record.lineNumber,
       code: parsedRow.input.code,

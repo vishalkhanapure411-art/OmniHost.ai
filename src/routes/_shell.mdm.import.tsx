@@ -15,7 +15,7 @@ import {
 import type { ImportIssue, ImportReport } from "~/domain/import";
 import { useI18n } from "~/i18n";
 import type { MessageKey } from "~/i18n/catalog-en";
-import { sentenceParams } from "~/i18n/labels";
+import { importLandingLabel, sentenceParams } from "~/i18n/labels";
 import { commitImportFn, dryRunImportFn, importScreenAccessFn } from "~/server-fns";
 
 /**
@@ -264,7 +264,7 @@ function ImportScreen() {
                           </Badge>
                         </td>
                         <td className="p-2 text-xs">
-                          {row.landing ? t(`mdm.import.landing.${row.landing}` as MessageKey) : "—"}
+                          {row.landing ? importLandingLabel(t, row.landing) : "—"}
                         </td>
                         <td className="p-2 text-xs">{row.changed.join(", ") || "—"}</td>
                         <td className="p-2">{issues(row.issues)}</td>
