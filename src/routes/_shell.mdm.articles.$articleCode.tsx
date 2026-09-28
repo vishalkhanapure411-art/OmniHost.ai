@@ -28,7 +28,7 @@ import { ARTICLE_APPROVER_ROLE } from "~/domain/approvals";
 import type { ErpOwnedField } from "~/domain/mdm";
 import { useI18n } from "~/i18n";
 import type { MessageKey } from "~/i18n/catalog-en";
-import { sentenceParams } from "~/i18n/labels";
+import { marketName, sentenceParams } from "~/i18n/labels";
 import {
   getArticleFn,
   setArticleAvailabilityFn,
@@ -856,7 +856,11 @@ function ArticleScreen() {
               <>
                 {markets.length === 1 ? (
                   <p className="px-4 pt-3 text-xs text-fg-muted">
-                    {t("mdm.article.compliance.single", { jurisdiction: markets[0] })}
+                    {/* The rule rows hold a market code (`IN`, `IN-KA`); the sentence says the
+                        market in words, the way the sites and vendors lists do. */}
+                    {t("mdm.article.compliance.single", {
+                      jurisdiction: marketName(locale, markets[0]),
+                    })}
                   </p>
                 ) : null}
                 <div className="overflow-x-auto">
