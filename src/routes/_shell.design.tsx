@@ -803,8 +803,8 @@ const SAMPLE_APPROVALS: ApprovalRowView[] = [
     state: "open",
     dueAt: new Date(Date.now() + 3600 * 1000 * 6).toISOString(),
     raisedBy: "Store Team",
-    raisedByRole: "SITE_STORE_TEAM",
-    assignedRole: "SITE_REVENUE_ASSURANCE_TEAM",
+    raisedByRoleName: "Site Store Team",
+    assignedRoleName: "Site Revenue Assurance Team",
     value: { amount: 184320.5, currency: "INR" },
   },
   {
@@ -818,8 +818,8 @@ const SAMPLE_APPROVALS: ApprovalRowView[] = [
     state: "open",
     dueAt: new Date(Date.now() - 3600 * 1000 * 3).toISOString(),
     raisedBy: "Culinary Team",
-    raisedByRole: "SITE_CULINARY_TEAM",
-    assignedRole: "SITE_HEAD",
+    raisedByRoleName: "Site Culinary Team",
+    assignedRoleName: "Site Head",
     value: { amount: 2340, currency: "INR" },
   },
   {
@@ -833,8 +833,8 @@ const SAMPLE_APPROVALS: ApprovalRowView[] = [
     state: "in_review",
     dueAt: null,
     raisedBy: "Purchase Team",
-    raisedByRole: "CENTRAL_PURCHASE_TEAM",
-    assignedRole: "CENTRAL_PURCHASE_HEAD",
+    raisedByRoleName: "Central Purchase Team",
+    assignedRoleName: "Purchase Head",
     value: { amount: 96450, currency: "INR" },
   },
 ];

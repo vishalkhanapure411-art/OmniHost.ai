@@ -39,8 +39,18 @@ export interface ApprovalRowView {
   state: ApprovalState;
   dueAt?: string | null;
   raisedBy?: string | null;
-  raisedByRole: string;
-  assignedRole?: string | null;
+  /**
+   * The roles, by their own names — "Central Culinary Team", not `CENTRAL_CULINARY_TEAM`.
+   *
+   * The component holds no role *code* and so cannot print one: a capability code is a
+   * routing fact, and a queue row that reads `Raised by Kavita Menon as
+   * CENTRAL_CULINARY_TEAM` is naming an operator by a string that exists to decide who may
+   * see the row. The server resolves the name from the `role` catalog in the same read
+   * (`~/domain/inbox`, `~/domain/mdm-approvals`); `null` means the caller's read found no
+   * name, which the row states as "Unknown" rather than falling back to the code.
+   */
+  raisedByRoleName: string | null;
+  assignedRoleName: string | null;
   value?: Money | null;
   /** What the approver is approving, as label/value facts. Composed by the caller. */
   review?: { label: string; value: string }[];
@@ -183,10 +193,15 @@ export function ApprovalQueueRow({
             {item.siteName ? ` · ${item.siteName}` : ""}
           </span>
           <CategoryBadge category={item.category} />
-          <span>{t("approvals.queue.raisedBy", { who: item.raisedBy ?? t("common.unknown"), role: item.raisedByRole })}</span>
           <span>
-            {item.assignedRole
-              ? t("approvals.queue.assignedTo", { role: item.assignedRole })
+            {t("approvals.queue.raisedBy", {
+              who: item.raisedBy ?? t("common.unknown"),
+              role: item.raisedByRoleName ?? t("common.unknown"),
+            })}
+          </span>
+          <span>
+            {item.assignedRoleName
+              ? t("approvals.queue.assignedTo", { role: item.assignedRoleName })
               : t("approvals.queue.unassigned")}
           </span>
         </p>
@@ -306,7 +321,7 @@ export function ApprovalQueueRow({
             { label: t("approvals.column.category"), value: item.category },
             {
               label: t("approvals.column.assignedRole"),
-              value: item.assignedRole ?? t("approvals.queue.unassigned"),
+              value: item.assignedRoleName ?? t("approvals.queue.unassigned"),
             },
           ]}
         />

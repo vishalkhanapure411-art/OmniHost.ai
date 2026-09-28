@@ -918,7 +918,10 @@ export interface ArticleVersionReview {
   effectiveFrom: string | null;
   submittedAt: string | null;
   raisedBy: string | null;
+  /** The raising role's code — the routing fact, not the words shown to an approver. */
   raisedByRole: string | null;
+  /** That role's own name, resolved from the `role` catalog: "Central Culinary Team". */
+  raisedByRoleName: string | null;
   prices: { outletCode: string; amount: number; currencyCode: string }[];
   allergens: { code: string; mayContain: boolean }[];
   /**
@@ -987,9 +990,11 @@ export async function getArticleVersionReview(
     submitted_at: Date | null;
     raised_by: string | null;
     raised_by_role: string | null;
+    raised_by_role_name: string | null;
   }>(
     `select t.id as task_id, t.status as task_status, t.created_at as submitted_at,
             t.raised_by_role_code as raised_by_role, u.display_name as raised_by,
+            r.name as raised_by_role_name,
             v.id as version_id, v.version, v.status as version_status, v.dietary_mark,
             v.hsn_sac_code, v.serving_size_qty, v.calories_kcal, v.channel_flags, v.effective_from,
             a.id as article_id, a.code, a.status as article_status, a.current_version_id,
@@ -1000,6 +1005,8 @@ export async function getArticleVersionReview(
        left join approval_task t
               on t.entity_type = $3 and t.entity_id = v.id::text and t.status = 'open'
        left join "user" u on u.id = t.raised_by_user_id
+       -- The task's role, named. One row or none: role.code is unique (0002_rbac.sql).
+       left join role r on r.code = t.raised_by_role_code
        left join tax_class tc on tc.id = v.tax_class_id
        left join uom on uom.id = v.serving_size_uom_id
        left join article_version_text txt on txt.article_version_id = v.id
@@ -1057,6 +1064,7 @@ export async function getArticleVersionReview(
     submittedAt: row.submitted_at ? row.submitted_at.toISOString() : null,
     raisedBy: row.raised_by,
     raisedByRole: row.raised_by_role,
+    raisedByRoleName: row.raised_by_role_name,
     prices: outlets.map((price) => ({
       outletCode: price.outlet_code,
       amount: Number(price.amount),

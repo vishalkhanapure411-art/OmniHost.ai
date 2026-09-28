@@ -34,8 +34,23 @@ export interface ApprovalItem {
   articleVersion: number | null;
   dueAt: string | null;
   raisedBy: string | null;
+  /** The raising role's *code*. Scoping and the audit trail read this; a screen does not. */
   raisedByRole: string;
+  /**
+   * The raising role in words: `CENTRAL_CULINARY_TEAM` → "Central Culinary Team".
+   *
+   * Resolved here, in the read, from the `role` catalog (`db/migrations/0002_rbac.sql`) rather
+   * than in the screen, so no screen ever holds the code and has to remember not to print it.
+   * The code stays on the row beside it for scoping, which is what a code is for.
+   */
+  raisedByRoleName: string | null;
+  /** The assigned role's *code*. `null` when the task is unassigned. */
   assignedRole: string | null;
+  /**
+   * The assigned role in words. `null` means the same thing `assignedRole` being null means —
+   * nobody is on it — so the screen's "Unassigned" branch still reads the absence correctly.
+   */
+  assignedRoleName: string | null;
   /**
    * True when this task was decided against the caller and routed back to them — a
    * send-back being the case that exists today. It is *not* the same as "closed": the
@@ -127,7 +142,9 @@ export async function listApprovals(
     due_at: Date | null;
     raised_by: string | null;
     raised_by_role_code: string;
+    raised_by_role_name: string | null;
     assigned_role_code: string | null;
+    assigned_role_name: string | null;
     assigned_user_id: string | null;
     decided_by: string | null;
     decided_at: Date | null;
@@ -141,6 +158,11 @@ export async function listApprovals(
            t.payload ->> 'code' as article_code,
            (t.payload ->> 'version')::int as article_version,
            u.display_name as raised_by, t.raised_by_role_code, t.assigned_role_code,
+           -- The role's own name, so the queue can name a person by what their role is called
+           -- instead of by the code the database routes on. role.code is unique and
+           -- role.name is not null (0002_rbac.sql), so a left join on the code returns one
+           -- row or none, and never multiplies the task.
+           rr.name as raised_by_role_name, ar.name as assigned_role_name,
            t.assigned_user_id, t.created_at,
            du.display_name as decided_by, t.decided_at, t.decision_note,
            -- The coded reason lives in the decision payload: decided_by_user_id alone
@@ -151,6 +173,8 @@ export async function listApprovals(
       left join site s on s.id = t.site_id
       left join "user" u on u.id = t.raised_by_user_id
       left join "user" du on du.id = t.decided_by_user_id
+      left join role rr on rr.code = t.raised_by_role_code
+      left join role ar on ar.code = t.assigned_role_code
      where (${allowed}::uuid[] is null or t.chain_id = any(${allowed}::uuid[]))
        and (${identity.chainId}::uuid is null or t.chain_id = ${identity.chainId})
        and (${identity.siteId}::uuid is null or t.site_id is null or t.site_id = ${identity.siteId})
@@ -189,7 +213,9 @@ export async function listApprovals(
     dueAt: row.due_at ? row.due_at.toISOString() : null,
     raisedBy: row.raised_by,
     raisedByRole: row.raised_by_role_code,
+    raisedByRoleName: row.raised_by_role_name,
     assignedRole: row.assigned_role_code,
+    assignedRoleName: row.assigned_role_name,
     returnedToMe: row.status === "rejected" && row.assigned_user_id === principal.userId,
     createdAt: row.created_at.toISOString(),
     decisionReason: row.decision_reason,
