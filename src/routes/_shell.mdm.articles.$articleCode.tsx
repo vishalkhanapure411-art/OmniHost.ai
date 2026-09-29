@@ -28,6 +28,15 @@ import { ARTICLE_APPROVER_ROLE } from "~/domain/approvals";
 import type { ErpOwnedField } from "~/domain/mdm";
 import { useI18n } from "~/i18n";
 import type { MessageKey } from "~/i18n/catalog-en";
+import {
+  ALLERGEN_LABEL,
+  ALLERGEN_SOURCE_LABEL,
+  ARTICLE_STATUS_LABEL as STATUS_LABEL,
+  BASIS_LABEL,
+  CHANNEL_LABEL,
+  DIET_LABEL,
+  NUTRIENT_LABEL,
+} from "~/i18n/domain-labels";
 import { marketName, sentenceParams } from "~/i18n/labels";
 import {
   getArticleFn,
@@ -74,27 +83,17 @@ export const Route = createFileRoute("/_shell/mdm/articles/$articleCode")({
 });
 
 // ── Code → label maps. A code with no entry falls back to the code itself. ─────
-
-const STATUS_LABEL: Record<string, MessageKey> = {
-  draft: "mdm.article.status.draft",
-  pending_review: "mdm.article.status.pending_review",
-  active: "mdm.article.status.active",
-  superseded: "mdm.article.version.status.superseded",
-  seasonal: "mdm.article.status.seasonal",
-  discontinued: "mdm.article.status.discontinued",
-};
+/*
+ * The status, diet, allergen, nutrient, basis, source and channel maps are imported from
+ * `~/i18n/domain-labels`: the approvals queue renders the same codes, and a second copy of
+ * a label map is how one screen ends up saying `non_veg` while another says
+ * "Non-vegetarian". The maps left below belong to this record's own sections.
+ */
 const TYPE_LABEL: Record<string, MessageKey> = {
   food: "mdm.article.type.food",
   beverage: "mdm.article.type.beverage",
   retail: "mdm.article.type.retail",
   service: "mdm.article.type.service",
-};
-const DIET_LABEL: Record<string, MessageKey> = {
-  veg: "mdm.article.diet.veg",
-  non_veg: "mdm.article.diet.non_veg",
-  egg: "mdm.article.diet.egg",
-  vegan: "mdm.article.diet.vegan",
-  none: "mdm.article.diet.none",
 };
 const AVAILABILITY_LABEL: Record<string, MessageKey> = {
   available: "mdm.article.availability.state.available",
@@ -105,14 +104,6 @@ const AVAILABILITY_TONE: Record<string, "ok" | "warn" | "danger"> = {
   available: "ok",
   seasonal: "warn",
   unavailable: "danger",
-};
-const CHANNEL_LABEL: Record<string, MessageKey> = {
-  pos: "mdm.article.channel.pos",
-  tab: "mdm.article.channel.tab",
-  kiosk: "mdm.article.channel.kiosk",
-  app: "mdm.article.channel.app",
-  cds: "mdm.article.channel.cds",
-  aggregator: "mdm.article.channel.aggregator",
 };
 const REQUIREMENT_LABEL: Record<string, MessageKey> = {
   required: "mdm.article.compliance.requirement.required",
@@ -130,43 +121,6 @@ const COMPLIANCE_FIELD_LABEL: Record<string, MessageKey> = {
   allergens: "mdm.article.compliance.field.allergens",
   nutrition: "mdm.article.compliance.field.nutrition",
   ingredientDeclaration: "mdm.article.compliance.field.ingredientDeclaration",
-};
-const ALLERGEN_LABEL: Record<string, MessageKey> = {
-  celery: "mdm.allergen.label.celery",
-  cereals_gluten: "mdm.allergen.label.cereals_gluten",
-  crustaceans: "mdm.allergen.label.crustaceans",
-  eggs: "mdm.allergen.label.eggs",
-  fish: "mdm.allergen.label.fish",
-  lupin: "mdm.allergen.label.lupin",
-  milk: "mdm.allergen.label.milk",
-  molluscs: "mdm.allergen.label.molluscs",
-  mustard: "mdm.allergen.label.mustard",
-  peanuts: "mdm.allergen.label.peanuts",
-  sesame: "mdm.allergen.label.sesame",
-  soybeans: "mdm.allergen.label.soybeans",
-  sulphites: "mdm.allergen.label.sulphites",
-  tree_nuts: "mdm.allergen.label.tree_nuts",
-};
-const NUTRIENT_LABEL: Record<string, MessageKey> = {
-  energy_kcal: "mdm.nutrient.label.energy_kcal",
-  protein: "mdm.nutrient.label.protein",
-  carbohydrate: "mdm.nutrient.label.carbohydrate",
-  total_fat: "mdm.nutrient.label.total_fat",
-  saturated_fat: "mdm.nutrient.label.saturated_fat",
-  trans_fat: "mdm.nutrient.label.trans_fat",
-  sugars: "mdm.nutrient.label.sugars",
-  sodium: "mdm.nutrient.label.sodium",
-  cholesterol: "mdm.nutrient.label.cholesterol",
-  dietary_fibre: "mdm.nutrient.label.dietary_fibre",
-};
-const BASIS_LABEL: Record<string, MessageKey> = {
-  per_serving: "mdm.article.nutrition.basis.per_serving",
-  per_100g: "mdm.article.nutrition.basis.per_100g",
-  per_100ml: "mdm.article.nutrition.basis.per_100ml",
-};
-const ALLERGEN_SOURCE_LABEL: Record<string, MessageKey> = {
-  declared: "mdm.article.allergen.source.declared",
-  derived: "mdm.article.allergen.source.derived",
 };
 const ERP_GROUP_LABEL: Record<string, MessageKey> = {
   erpIdentity: "mdm.erp.group.erpIdentity",

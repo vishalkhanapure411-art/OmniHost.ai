@@ -409,10 +409,11 @@ export const enIN = {
   "approval.returned.note": "Note from the approver: {note}",
   "approval.returned.correction":
     "Correct it by re-importing the corrected row, then submit it again.",
-  // The honest absent state: `getArticleVersionReview` reads one version, so there is no pair
-  // to diff, and a dialog that stayed silent would read as "nothing changes".
-  "approval.review.noComparison":
-    "No comparison view: this is the version as it stands, not what changed against the version in use today. A before/after view is not built yet.",
+  // REMOVED 2026-09-28: `approval.review.noComparison` ("A before/after view is not built yet")
+  // had exactly one call site, `_shell.approvals.tsx`'s `reviewNote`, and the comparison view
+  // is now built and rendered in the same dialog — so the sentence was not merely stale, it
+  // would have told an approver the diff below it did not exist. The key is deleted rather
+  // than left unreachable.
 
   // ---------------------------------------------------------------------------
   // The before/after comparison view (`approval.diff.*`).
@@ -426,6 +427,28 @@ export const enIN = {
   //
   // English only. `hiIN` carries none of these, and none of them may be described as
   // translated until that pass lands.
+  //
+  // **Every placeholder's resolver, stated here so a screen cannot guess.** The domain hands
+  // over machine values, and a sentence that interpolates one raw is the defect this block
+  // exists to avoid (`FINDINGS-label-fallback-sweep.md` §E1):
+  //   {amount}          an amount **with its ISO currency code** — `format.money(m,
+  //                     { display: "code" })` → "INR 45.00"; never a bare number.
+  //   {percent}         a ratio through `format.percent(value / 100,
+  //                     { minimumFractionDigits: 2, maximumFractionDigits: 2 })` — "11.84%",
+  //                     never `Intl`'s zero-decimal default, which prints "12%" and rounds
+  //                     the server's exact ratio into a figure it never returned.
+  //   {jurisdiction}    `marketName(locale, declaredFor || jurisdiction)` → "India", never
+  //                     "IN-KA"; `sentenceParams` does the same for a coded refusal.
+  //   {when}            the resolved zone's own date/time formatter — `format.dateTime` —
+  //                     never the ISO instant the read carries.
+  //   {before}/{after}  the containment sentences take `mdm.article.allergen.contains` /
+  //                     `.mayContain`; the basis sentence takes
+  //                     `mdm.article.nutrition.basis.*`; the currency sentence takes the two
+  //                     ISO codes themselves, where the code *is* the subject.
+  //   {outlet}/{site}   `approval.diff.outlet` = the outlet's **name** plus its **site code**
+  //                     ("Koramangala Restaurant · saffron-koramangala") — never two bare
+  //                     codes. `{outlet}` in the two price sentences is that same string.
+  // Resolved in `~/components/RecordDiff`; this note is the contract it keeps.
   // ---------------------------------------------------------------------------
   "approval.diff.title": "What this changes",
   "approval.diff.subtitle": "Version {onSale} as it stands today → version {proposed} if this is approved.",
@@ -449,6 +472,11 @@ export const enIN = {
   "approval.diff.notDeclared": "Not declared",
   "approval.diff.nothingDeclared": "Nothing declared",
   "approval.diff.outlet": "{outlet} · {site}",
+  // A channel row's two sides are "published or not", and the row's own subject names the
+  // channel through `mdm.article.channel.*` — one row per flag, never a joined list of codes
+  // (DECISIONS rule 4). `true` is never printed at a reader.
+  "approval.diff.channel.published": "Published",
+  "approval.diff.channel.notPublished": "Not published",
   "approval.diff.price.noChange": "Price unchanged",
   "approval.diff.price.higher": "{amount} more ({percent} higher)",
   "approval.diff.price.lower": "{amount} less ({percent} lower)",
@@ -1163,6 +1191,7 @@ export const enIN = {
   "mdm.article.field.code": "Code",
   "mdm.article.field.name": "Name",
   "mdm.article.field.shortName": "Short name",
+  "mdm.article.field.description": "Description",
   "mdm.article.field.category": "Category",
   "mdm.article.field.type": "Article type",
   "mdm.article.field.baseUom": "Base UOM",
@@ -1175,6 +1204,8 @@ export const enIN = {
   "mdm.article.field.taxClass": "Tax class",
   "mdm.article.field.taxJurisdiction": "Tax jurisdiction",
   "mdm.article.field.servingSize": "Serving size",
+  "mdm.article.field.price": "Price",
+  "mdm.article.field.currency": "Currency",
   "mdm.article.field.calories": "Energy per serving",
   "mdm.article.field.channels": "Channels",
   "mdm.article.field.effectiveFrom": "Selling from",

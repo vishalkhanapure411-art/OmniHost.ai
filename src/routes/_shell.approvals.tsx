@@ -8,7 +8,8 @@ import { Button, Card, CardHeader, EmptyState, ErrorState, PageHeader, Segmented
 import { TimestampValue } from "~/components/values";
 import { useI18n } from "~/i18n";
 import type { MessageKey } from "~/i18n/catalog-en";
-import { complianceFieldLabel, marketName, sentenceParams } from "~/i18n/labels";
+import { allergenLabel, ARTICLE_STATUS_LABEL as STATUS_LABEL, dietLabel } from "~/i18n/domain-labels";
+import { codeLabel, complianceFieldLabel, marketName, sentenceParams } from "~/i18n/labels";
 import { ARTICLE_VERSION_ENTITY } from "~/domain/approvals";
 import type { ApprovalQueueScope } from "~/domain/inbox";
 import type { ArticleVersionReview } from "~/domain/mdm-approvals";
@@ -134,6 +135,32 @@ function ApprovalsScreen() {
     return t("approval.dialog.subject", { version: String(review.version), code: review.code });
   }
 
+  /**
+   * The outlet's own name, taken from the comparison's price rows.
+   *
+   * The review read hands the open prices over as `{outletCode, amount, currencyCode}` — a
+   * code and an amount, with no name — while the comparison's price rows carry
+   * `{outletName, siteCode}` for the same outlet. The fact line below used to read
+   * "koramangala-restaurant ₹380.00": an operator's own outlet named by a slug, in a cell a
+   * person reads before deciding (DECISIONS rule 5). The name is already in this answer, so
+   * it is used; where the read has no name the code stands alone rather than being paired
+   * with another code to look like a name.
+   */
+  function outletNames(taskId: string): Map<string, { name: string; site?: string }> {
+    const outlets = new Map<string, { name: string; site?: string }>();
+    for (const row of reviews[taskId]?.diff ?? []) {
+      const qualifier = row.qualifier;
+      if (row.field !== "price" || !qualifier?.outletCode || row.subfield) continue;
+      if (!outlets.has(qualifier.outletCode)) {
+        outlets.set(qualifier.outletCode, {
+          name: qualifier.outletName ?? qualifier.outletCode,
+          site: qualifier.siteCode,
+        });
+      }
+    }
+    return outlets;
+  }
+
   function reviewFacts(taskId: string): { label: string; value: string }[] {
     const review = reviews[taskId];
     if (!review) return [];
@@ -145,11 +172,16 @@ function ApprovalsScreen() {
       { label: t("approval.review.name"), value: review.name ?? review.code },
       {
         label: t("approval.review.status"),
-        value: t(STATUS_LABEL[review.versionStatus] ?? "mdm.article.status.draft"),
+        // A status the map does not carry shows its own code. It used to show "Draft" —
+        // another status's label — which made an unmapped value read as a fact nobody
+        // checked (DECISIONS rule 1; `FINDINGS-label-fallback-sweep.md` §A).
+        value: codeLabel(t, STATUS_LABEL[review.versionStatus], review.versionStatus),
       },
     ];
     if (review.dietaryMark) {
-      facts.push({ label: t("mdm.article.field.diet"), value: review.dietaryMark });
+      // The diet mark is a legal display duty and a word to a guest: "Non-vegetarian",
+      // never the `non_veg` the database stores.
+      facts.push({ label: t("mdm.article.field.diet"), value: dietLabel(t, review.dietaryMark) });
     }
     if (review.taxClassCode) {
       facts.push({ label: t("mdm.article.field.taxClass"), value: review.taxClassCode });
@@ -164,17 +196,29 @@ function ApprovalsScreen() {
       });
     }
     if (review.prices.length > 0) {
+      const outlets = outletNames(taskId);
       facts.push({
         label: t("approval.review.prices"),
         value: review.prices
-          .map((price) => `${price.outletCode} ${money({ amount: price.amount, currency: price.currencyCode })}`)
+          .map((price) => {
+            const outlet = outlets.get(price.outletCode);
+            const name = outlet
+              ? outlet.site
+                ? t("approval.diff.outlet", { outlet: outlet.name, site: outlet.site })
+                : outlet.name
+              : price.outletCode;
+            return `${name} ${money({ amount: price.amount, currency: price.currencyCode })}`;
+          })
           .join(" · "),
       });
     }
     if (review.allergens.length > 0) {
       facts.push({
         label: t("approval.review.allergens"),
-        value: review.allergens.map((allergen) => allergen.code).join(", "),
+        // The allergen codes were joined into prose here — "celery, milk, tree_nuts" — on
+        // the screen next to the record that words them. One shared label map, resolved
+        // through `Intl.ListFormat` so the list reads as a list in every locale (rule 4/5).
+        value: format.list(review.allergens.map((allergen) => allergenLabel(t, allergen.code))),
       });
     }
     facts.push({
@@ -219,8 +263,16 @@ function ApprovalsScreen() {
     setRefusal(null);
     if (item.entityType !== ARTICLE_VERSION_ENTITY) {
       // No module other than master data raises a task yet, so there is no decision path
-      // behind this item and the screen says so instead of offering one.
-      setNotice(t("approvals.how.footer", { name: item.title, roles: item.assignedRoleName ?? "" }));
+      // behind this item and the screen says so instead of offering one. A task with no
+      // assigned role puts the catalog's own "no role" wording in the sentence's role slot:
+      // the empty string left a hole where a role name belongs, which read as a rendering
+      // fault rather than as the fact it is (`FINDINGS-label-fallback-sweep.md` §C5).
+      setNotice(
+        t("approvals.how.footer", {
+          name: item.title,
+          roles: item.assignedRoleName ?? t("shell.roles.none"),
+        })
+      );
       return;
     }
     setBusy(true);
@@ -304,9 +356,13 @@ function ApprovalsScreen() {
           note: item.decisionNote,
         }
       : null,
-    // The review read returns one version, not a pair, so no before/after can be drawn. The
-    // dialog says so rather than implying that what it shows is the change.
-    reviewNote: reviews[item.id] ? t("approval.review.noComparison") : null,
+    // The comparison itself. `getArticleVersionReview` answers for this version *and* the
+    // version it replaces, ordered and typed, so the dialog can show what a decision changes
+    // instead of asking an approver to take it on trust (`DESIGN-comparison-view.md`, D6, O1).
+    // When the read did not answer, the dialog says "we could not compare" rather than
+    // drawing an empty diff — the two are different sentences on purpose (§4 S3 vs S5).
+    comparison: reviews[item.id] ?? null,
+    comparisonUnavailable: item.status === "open" && reviews[item.id] === undefined,
     entityType: item.entityType,
   }));
 
@@ -461,12 +517,8 @@ function ApprovalsScreen() {
   );
 }
 
-/** The version/appendix status labels the review panel reuses, so one status is one word. */
-const STATUS_LABEL: Record<string, MessageKey> = {
-  draft: "mdm.article.status.draft",
-  pending_review: "mdm.article.status.pending_review",
-  active: "mdm.article.status.active",
-  superseded: "mdm.article.version.status.superseded",
-  seasonal: "mdm.article.status.seasonal",
-  discontinued: "mdm.article.status.discontinued",
-};
+/*
+ * `STATUS_LABEL` was declared here and again on the article record — two maps for one
+ * vocabulary, which is how the dialog came to fall back to *another* status's label. It now
+ * lives once, in `~/i18n/domain-labels`, beside the other code→word maps both screens share.
+ */
