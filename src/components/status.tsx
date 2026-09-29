@@ -1,5 +1,6 @@
 import { Badge, type BadgeTone } from "~/components/ui";
 import { useT } from "~/i18n";
+import { tierLabel } from "~/i18n/labels";
 import type { LicenceTier } from "~/domain/chains";
 
 /**
@@ -22,11 +23,21 @@ const TIER_TONE: Record<LicenceTier, BadgeTone> = {
   platinum: "accent",
 };
 
-export function TierBadge({ tier, title }: { tier: LicenceTier; title?: string }) {
+/**
+ * A chain's licence tier.
+ *
+ * `tier` is the value the database holds — the domain no longer coerces an unrecognised
+ * one to `silver` (see `parseTier`). The word comes from `tierLabel`, which names a tier
+ * this build does not carry as unrecognised **with its stored code**, and the tone is a
+ * warning rather than the neutral grey Silver would get: a tier nobody can read is not one
+ * to look past.
+ */
+export function TierBadge({ tier, title }: { tier: string; title?: string }) {
   const t = useT();
+  const tone = (TIER_TONE as Record<string, BadgeTone>)[tier] ?? "warn";
   return (
-    <Badge tone={TIER_TONE[tier]} title={title ?? t("chains.tier.help")} mono={false}>
-      {t(`chains.tier.${tier}` as never)}
+    <Badge tone={tone} title={title ?? t("chains.tier.help")} mono={false}>
+      {tierLabel(t, tier)}
     </Badge>
   );
 }

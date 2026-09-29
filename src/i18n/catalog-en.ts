@@ -58,6 +58,10 @@ export const enIN = {
   // behind it, an enum value no screen has mapped. "Not recognised" is deliberate wording —
   // the alternative is the key or the machine value printed as if it were English.
   "labels.unrecognised": "Not recognised",
+  // The same, naming *which* value is unrecognised: an error code off a domain refusal, a
+  // report-line code, a licence tier the registry does not carry. A code the catalog cannot
+  // word is shown as a gap with its own identifier, never as another value's words.
+  "labels.unrecognised.named": "Not recognised: {code}",
   "common.required": "Required",
   "common.optional": "Optional",
   "common.readOnly": "Read-only",
@@ -217,6 +221,9 @@ export const enIN = {
   "chains.tier.silver": "Silver",
   "chains.tier.gold": "Gold",
   "chains.tier.platinum": "Platinum",
+  // A tier the registry does not carry. It used to render "Silver" — a different real tier,
+  // and a lower one, which understated what a chain holds and what its features may do.
+  "chains.tier.unrecognised": "Unrecognised licence tier ({code})",
   "chains.tier.help":
     "Tiers gate module depth and AI variants, never which roles exist.",
   "chains.status.active": "Active",
@@ -1036,6 +1043,10 @@ export const enIN = {
   "chains.settings.auth.notConfigured": "Nothing stored yet — the platform defaults apply.",
   "chains.settings.auth.fixedTier":
     "Single sign-on is a {tier}-and-above capability and the App layer sets that minimum: the licence tier is not raised from this screen.",
+  // The feature registry carries no `sso` row at all. It used to read as "Gold" — a minimum
+  // nobody recorded — because the read defaulted to it. A registry gap is stated as a gap.
+  "chains.settings.auth.fixedTier.none":
+    "The feature registry records no minimum tier for single sign-on, so it cannot be configured from here.",
   "chains.settings.auth.fixedFeature.on":
     "The App layer has the SSO feature enabled for this chain.",
   "chains.settings.auth.fixedFeature.off":

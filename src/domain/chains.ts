@@ -25,11 +25,48 @@ export type LicenceTier = (typeof LICENCE_TIERS)[number];
 /** Spec "Licensing Tiers": each tier is a superset of the one below it. */
 export const TIER_RANK: Record<LicenceTier, number> = { silver: 1, gold: 2, platinum: 3 };
 
+/**
+ * The stored value's tier, or `null` when it is not one the registry knows.
+ *
+ * This used to be `asTier`, which returned `"silver"` for *any* unrecognised value. Two
+ * lies came out of that one line. On the chain screen a tier nobody recorded rendered as
+ * **"Silver"** — a different real tier, and the one a reader would act on. Worse, the
+ * feature gate compared ranks through it, so an unrecognised `min_tier` *lowered* to
+ * `silver` and a Gold- or Platinum-gated capability could be switched on: the entitlement
+ * check failed **open** (`FINDINGS-label-fallback-sweep.md` §G1.0; DECISIONS rules 1
+ * and 2). An unrecognised value now has no tier at all, and every caller has to say so.
+ */
+export function parseTier(value: string): LicenceTier | null {
+  return (LICENCE_TIERS as readonly string[]).includes(value) ? (value as LicenceTier) : null;
+}
+
+/**
+ * Whether a chain's tier meets a feature's minimum tier — and **fails closed**.
+ *
+ * A value the registry does not know, on either side, satisfies nothing: an unrecognised
+ * `min_tier` can no longer be read as Silver and let a gated feature through, and a chain
+ * whose own tier is unreadable holds no entitlement it cannot be shown to hold. Feature
+ * gating is the one place in this module where a guess costs money, so it is the place
+ * with no guess in it.
+ */
+export function tierSatisfies(chainTier: string, minTier: string): boolean {
+  const have = parseTier(chainTier);
+  const need = parseTier(minTier);
+  return have !== null && need !== null && TIER_RANK[have] >= TIER_RANK[need];
+}
+
 export interface ChainSummary {
   id: string;
   name: string;
   code: string;
-  licenceTier: LicenceTier;
+  /**
+   * The tier as the database holds it — the raw value, not a coerced one.
+   *
+   * A screen words this through `tierLabel` (`~/i18n/labels`), which names an
+   * unrecognised value as unrecognised and keeps the stored code beside it. Coercing here
+   * is what made a value nobody recorded read as Silver (see `parseTier`).
+   */
+  licenceTier: string;
   status: string;
   taxJurisdiction: string | null;
   onboardedAt: string;
@@ -43,10 +80,14 @@ export interface ChainFeatureState {
   name: string;
   module: string;
   description: string | null;
-  minTier: LicenceTier;
+  minTier: string;
   toggleable: boolean;
   enabled: boolean;
-  /** True when the chain's current tier is below the tier the feature needs. */
+  /**
+   * True when the chain's current tier is below the tier the feature needs — **or when
+   * either value is not a tier the registry knows**. Fail closed: an unreadable tier is
+   * not evidence of entitlement (see `tierSatisfies`).
+   */
   blockedByTier: boolean;
   updatedAt: string | null;
 }
@@ -116,7 +157,7 @@ function toSummary(row: ChainRow): ChainSummary {
     id: row.id,
     name: row.name,
     code: row.code,
-    licenceTier: asTier(row.licence_tier),
+    licenceTier: row.licence_tier,
     status: row.status,
     taxJurisdiction: row.tax_jurisdiction,
     onboardedAt: asIso(row.onboarded_at),
@@ -224,7 +265,7 @@ export async function getChain(principal: Principal, chainId: string): Promise<C
      order by f.module asc, f.name asc
   `;
 
-  const tier = asTier(chain.licence_tier);
+  const tier = chain.licence_tier;
 
   return {
     ...toSummary(chain),
@@ -232,16 +273,19 @@ export async function getChain(principal: Principal, chainId: string): Promise<C
     updatedAt: asIso(chain.updated_at),
     sites: [...sites.values()],
     features: features.map((row) => {
-      const minTier = asTier(row.min_tier);
       return {
         code: row.code,
         name: row.name,
         module: row.module,
         description: row.description,
-        minTier,
+        // The registry's own value, uncoerced: the screen words it, and an unrecognised
+        // minimum is shown as unrecognised rather than as the cheapest real tier.
+        minTier: row.min_tier,
         toggleable: row.toggleable,
         enabled: row.enabled ?? false,
-        blockedByTier: TIER_RANK[minTier] > TIER_RANK[tier],
+        // Fail closed: the comparison refuses when either side is not a known tier, so an
+        // unrecognised `min_tier` cannot be read as Silver and switch a gated feature on.
+        blockedByTier: !tierSatisfies(tier, row.min_tier),
         updatedAt: row.updated_at ? asIso(row.updated_at) : null,
       };
     }),
@@ -318,7 +362,7 @@ export async function onboardChain(
             if (!feature.toggleable) {
               throw new ValidationError(`${feature.code} is not a toggleable feature`);
             }
-            if (requested && TIER_RANK[asTier(feature.min_tier)] > TIER_RANK[tier]) {
+            if (requested && !tierSatisfies(tier, feature.min_tier)) {
               throw new ValidationError(
                 `${feature.code} needs the ${feature.min_tier} tier; ${tier} was requested`
               );
@@ -361,7 +405,7 @@ export async function updateChainTier(
   chainId: string,
   licenceTier: LicenceTier,
   meta: MutationMeta = {}
-): Promise<{ before: LicenceTier; after: LicenceTier }> {
+): Promise<{ before: string; after: LicenceTier }> {
   const tier = validateTier(licenceTier);
   await guard({
     principal,
@@ -399,7 +443,9 @@ export async function updateChainTier(
   });
 
   const before = outcome.before as { licenceTier: string };
-  return { before: asTier(before.licenceTier), after: tier };
+  // The previous tier exactly as stored: a change from a value the registry does not know
+  // is reported as that value, not as whichever tier happens to sit lowest.
+  return { before: before.licenceTier, after: tier };
 }
 
 /**
@@ -452,10 +498,14 @@ export async function setChainFeature(
       // Spec "Licensing Tiers": the tier gates module depth and whether an AI-assisted
       // variant is switched on, so a Platinum-only capability cannot be enabled for a
       // Silver chain. Changing the tier is the deliberate act that makes it legitimate.
-      const tier = asTier(row.licence_tier);
-      if (enabled && TIER_RANK[asTier(row.min_tier)] > TIER_RANK[tier]) {
+      //
+      // Both sides are named by the value the database holds, and the gate fails closed:
+      // if either the chain's tier or the feature's minimum is not a tier the registry
+      // knows, the feature cannot be switched on. The message quotes the stored value,
+      // so it never states a tier the row does not carry.
+      if (enabled && !tierSatisfies(row.licence_tier, row.min_tier)) {
         throw new ValidationError(
-          `${featureCode} needs the ${row.min_tier} tier; this chain is on ${tier}`
+          `${featureCode} needs the ${row.min_tier} tier; this chain is on ${row.licence_tier}`
         );
       }
 

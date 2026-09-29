@@ -29,15 +29,21 @@ import type { ErpOwnedField } from "~/domain/mdm";
 import { useI18n } from "~/i18n";
 import type { MessageKey } from "~/i18n/catalog-en";
 import {
-  ALLERGEN_LABEL,
-  ALLERGEN_SOURCE_LABEL,
-  ARTICLE_STATUS_LABEL as STATUS_LABEL,
-  BASIS_LABEL,
-  CHANNEL_LABEL,
-  DIET_LABEL,
-  NUTRIENT_LABEL,
+  allergenLabel,
+  allergenSourceLabel,
+  articleStatusLabel,
+  basisLabel,
+  channelLabel,
+  dietLabel,
+  nutrientLabel,
 } from "~/i18n/domain-labels";
-import { marketName, sentenceParams } from "~/i18n/labels";
+import {
+  codeLabel,
+  complianceFieldLabel,
+  complianceRequirementLabel,
+  marketName,
+  sentenceParams,
+} from "~/i18n/labels";
 import {
   getArticleFn,
   setArticleAvailabilityFn,
@@ -104,23 +110,6 @@ const AVAILABILITY_TONE: Record<string, "ok" | "warn" | "danger"> = {
   available: "ok",
   seasonal: "warn",
   unavailable: "danger",
-};
-const REQUIREMENT_LABEL: Record<string, MessageKey> = {
-  required: "mdm.article.compliance.requirement.required",
-  recommended: "mdm.article.compliance.requirement.recommended",
-  optional: "mdm.article.compliance.requirement.optional",
-  forbidden: "mdm.article.compliance.requirement.forbidden",
-};
-const COMPLIANCE_FIELD_LABEL: Record<string, MessageKey> = {
-  name: "mdm.article.compliance.field.name",
-  dietaryMark: "mdm.article.compliance.field.dietaryMark",
-  taxClass: "mdm.article.compliance.field.taxClass",
-  hsnSacCode: "mdm.article.compliance.field.hsnSacCode",
-  servingSize: "mdm.article.compliance.field.servingSize",
-  caloriesKcal: "mdm.article.compliance.field.caloriesKcal",
-  allergens: "mdm.article.compliance.field.allergens",
-  nutrition: "mdm.article.compliance.field.nutrition",
-  ingredientDeclaration: "mdm.article.compliance.field.ingredientDeclaration",
 };
 const ERP_GROUP_LABEL: Record<string, MessageKey> = {
   erpIdentity: "mdm.erp.group.erpIdentity",
@@ -404,13 +393,13 @@ function ArticleScreen() {
           <>
             <code className="font-mono text-xs text-fg-muted">{article.code}</code>
             <Badge tone="neutral" shape={false}>
-              {t(STATUS_LABEL[article.status] ?? "mdm.article.status.active")}
+              {articleStatusLabel(t, article.status)}
             </Badge>
             <Badge tone="neutral" shape={false}>
-              {t(TYPE_LABEL[article.articleType] ?? "mdm.article.type.food")}
+              {codeLabel(t, TYPE_LABEL[article.articleType], article.articleType)}
             </Badge>
             <Badge tone="neutral" shape={false}>
-              {t(DIET_LABEL[article.currentVersion.dietaryMark ?? "none"] ?? "mdm.article.diet.none")}
+              {dietLabel(t, article.currentVersion.dietaryMark ?? "none")}
             </Badge>
             <span className="text-xs text-fg-muted">
               {t("mdm.article.field.version")} {String(article.currentVersion.version)}
@@ -442,7 +431,7 @@ function ArticleScreen() {
         <Banner tone="info" compact>
           {t("mdm.article.detail.readOnlyRecord", {
             version: String(article.currentVersion.version),
-            status: t(STATUS_LABEL[article.currentVersion.status] ?? "mdm.article.status.active"),
+            status: articleStatusLabel(t, article.currentVersion.status),
           })}
         </Banner>
 
@@ -476,12 +465,12 @@ function ArticleScreen() {
                 { label: t("mdm.article.field.category"), value: article.category.name },
                 {
                   label: t("mdm.article.field.type"),
-                  value: t(TYPE_LABEL[article.articleType] ?? "mdm.article.type.food"),
+                  value: codeLabel(t, TYPE_LABEL[article.articleType], article.articleType),
                 },
                 { label: t("mdm.article.field.baseUom"), value: <code className="font-mono text-xs">{article.baseUomCode}</code> },
                 {
                   label: t("mdm.article.field.diet"),
-                  value: t(DIET_LABEL[article.currentVersion.dietaryMark ?? "none"] ?? "mdm.article.diet.none"),
+                  value: dietLabel(t, article.currentVersion.dietaryMark ?? "none"),
                 },
                 {
                   label: t("mdm.article.field.servingSize"),
@@ -540,7 +529,7 @@ function ArticleScreen() {
                       <span className="flex flex-wrap gap-1">
                         {article.currentVersion.channelFlags.map((channel) => (
                           <Badge key={channel} tone="neutral" shape={false}>
-                            {t(CHANNEL_LABEL[channel] ?? "mdm.article.channel.pos")}
+                            {channelLabel(t, channel)}
                           </Badge>
                         ))}
                       </span>
@@ -749,9 +738,10 @@ function ArticleScreen() {
                         </td>
                         <td className="px-4 py-2">
                           <Badge tone={AVAILABILITY_TONE[row.availability] ?? "neutral"}>
-                            {t(
-                              AVAILABILITY_LABEL[row.availability] ??
-                                "mdm.article.availability.unknown"
+                            {codeLabel(
+                              t,
+                              AVAILABILITY_LABEL[row.availability],
+                              row.availability
                             )}
                           </Badge>
                         </td>
@@ -850,13 +840,10 @@ function ArticleScreen() {
                             <td className="px-4 py-2 font-mono text-2xs">{cell.jurisdiction}</td>
                           ) : null}
                           <td className="px-4 py-2">
-                            {t(
-                              COMPLIANCE_FIELD_LABEL[cell.field] ??
-                                "mdm.article.compliance.field.name"
-                            )}
+                            {complianceFieldLabel(t, cell.field)}
                           </td>
                           <td className="px-4 py-2 text-fg-muted">
-                            {t(REQUIREMENT_LABEL[cell.requirement] ?? "mdm.article.compliance.requirement.optional")}
+                            {complianceRequirementLabel(t, cell.requirement)}
                           </td>
                           <td className="px-4 py-2">
                             {!cell.checked ? (
@@ -921,7 +908,7 @@ function ArticleScreen() {
                       <tr key={allergen.code} className="border-b border-border last:border-b-0">
                         <td className="px-4 py-2">
                           <span className="flex flex-wrap items-baseline gap-2">
-                            <span>{t(ALLERGEN_LABEL[allergen.code] ?? "mdm.article.allergen.column.allergen")}</span>
+                            <span>{allergenLabel(t, allergen.code)}</span>
                             <code className="font-mono text-2xs text-fg-subtle">{allergen.code}</code>
                           </span>
                         </td>
@@ -931,9 +918,7 @@ function ArticleScreen() {
                             : t("mdm.article.allergen.contains")}
                         </td>
                         <td className="px-4 py-2 text-fg-muted">
-                          {ALLERGEN_SOURCE_LABEL[allergen.source]
-                            ? t(ALLERGEN_SOURCE_LABEL[allergen.source])
-                            : allergen.source}
+                          {allergenSourceLabel(t, allergen.source)}
                         </td>
                         <td className="px-4 py-2 text-fg-muted">
                           {allergen.mandatoryHere
@@ -987,7 +972,7 @@ function ArticleScreen() {
                       >
                         <td className="px-4 py-2">
                           <span className="flex flex-wrap items-baseline gap-2">
-                            <span>{t(NUTRIENT_LABEL[row.code] ?? "mdm.article.nutrition.column.nutrient")}</span>
+                            <span>{nutrientLabel(t, row.code)}</span>
                             <code className="font-mono text-2xs text-fg-subtle">{row.code}</code>
                           </span>
                         </td>
@@ -995,7 +980,7 @@ function ArticleScreen() {
                           <QuantityValue value={row.value} uom={row.unit} decimals={2} />
                         </td>
                         <td className="px-4 py-2 text-fg-muted">
-                          {BASIS_LABEL[row.basis] ? t(BASIS_LABEL[row.basis]) : row.basis}
+                          {basisLabel(t, row.basis)}
                         </td>
                       </tr>
                     ))}
@@ -1143,7 +1128,7 @@ function ArticleScreen() {
                       </span>
                     </td>
                     <td className="px-4 py-2">
-                      {t(STATUS_LABEL[version.status] ?? "mdm.article.status.active")}
+                      {articleStatusLabel(t, version.status)}
                     </td>
                     <td className="px-4 py-2">
                       <TimestampValue value={version.effectiveFrom} mode="date" />
@@ -1210,17 +1195,18 @@ function ArticleScreen() {
                       <div key={group} className="flex flex-col gap-1">
                         <div className="flex flex-wrap items-center gap-2">
                           <h3 className="text-2xs font-semibold tracking-wide text-fg-muted uppercase">
-                            {t(ERP_GROUP_LABEL[group] ?? "mdm.erp.section.title")}
+                            {codeLabel(t, ERP_GROUP_LABEL[group], group)}
                           </h3>
                           <ProvenanceChip
                             systemName={article.erp.system?.displayName ?? t("common.unknown")}
-                            groupLabel={t(ERP_GROUP_LABEL[group] ?? "mdm.erp.section.title")}
+                            groupLabel={codeLabel(t, ERP_GROUP_LABEL[group], group)}
                             keyKind={primaryProvenance?.externalKeyKind ?? null}
                             keyValue={primaryProvenance?.externalKeyValue ?? null}
                             lastSyncAt={article.erp.lastSyncAt ?? primaryProvenance?.lastSyncAt ?? null}
-                            systemStatusLabel={t(
-                              ERP_STATUS_LABEL[article.erp.system?.status ?? "not_configured"] ??
-                                "mdm.erp.status.not_configured"
+                            systemStatusLabel={codeLabel(
+                              t,
+                              ERP_STATUS_LABEL[article.erp.system?.status ?? "not_configured"],
+                              article.erp.system?.status ?? "not_configured"
                             )}
                             ownership={
                               ownership
@@ -1239,7 +1225,7 @@ function ArticleScreen() {
                         <DescriptionList
                           columns={2}
                           items={fields.map((field) => ({
-                            label: t(ERP_FIELD_LABEL[field.field] ?? "mdm.erp.section.title"),
+                            label: codeLabel(t, ERP_FIELD_LABEL[field.field], field.field),
                             value: <ErpFieldValue field={field} />,
                           }))}
                         />

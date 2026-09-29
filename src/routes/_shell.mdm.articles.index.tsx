@@ -15,7 +15,7 @@ import {
 import { TimestampValue } from "~/components/values";
 import type { ArticleListItem } from "~/domain/mdm";
 import { useI18n } from "~/i18n";
-import type { MessageKey } from "~/i18n/catalog-en";
+import { articleStatusLabel, articleTypeLabel, dietLabel } from "~/i18n/domain-labels";
 import { complianceFieldLabel, marketName } from "~/i18n/labels";
 import { listArticlesFn } from "~/server-fns";
 /**
@@ -58,26 +58,6 @@ export const Route = createFileRoute("/_shell/mdm/articles/")({
   component: ArticlesScreen,
 });
 
-const STATUS_LABEL: Record<string, MessageKey> = {
-  draft: "mdm.article.status.draft",
-  pending_review: "mdm.article.status.pending_review",
-  active: "mdm.article.status.active",
-  seasonal: "mdm.article.status.seasonal",
-  discontinued: "mdm.article.status.discontinued",
-};
-const TYPE_LABEL: Record<string, MessageKey> = {
-  food: "mdm.article.type.food",
-  beverage: "mdm.article.type.beverage",
-  retail: "mdm.article.type.retail",
-  service: "mdm.article.type.service",
-};
-const DIET_LABEL: Record<string, MessageKey> = {
-  veg: "mdm.article.diet.veg",
-  non_veg: "mdm.article.diet.non_veg",
-  egg: "mdm.article.diet.egg",
-  vegan: "mdm.article.diet.vegan",
-  none: "mdm.article.diet.none",
-};
 
 function ArticlesPending() {
   const { t } = useI18n();
@@ -160,7 +140,7 @@ function ArticlesScreen() {
             // now visible and empty rather than missing from the filter (review S4).
             options={result.options.statuses.map((option) => ({
               value: option.code,
-              label: `${t(STATUS_LABEL[option.code] ?? "mdm.article.status.active")} (${String(option.count)})`,
+              label: `${articleStatusLabel(t, option.code)} (${String(option.count)})`,
             }))}
           />
           <Select
@@ -283,10 +263,10 @@ function ArticlesScreen() {
                     </td>
                     <td className="text-fg-muted">{article.categoryName}</td>
                     <td className="text-fg-muted">
-                      {t(TYPE_LABEL[article.articleType] ?? "mdm.article.type.food")}
+                      {articleTypeLabel(t, article.articleType)}
                     </td>
                     <td className="text-fg-muted">
-                      {t(DIET_LABEL[article.dietaryMark ?? "none"] ?? "mdm.article.diet.none")}
+                      {dietLabel(t, article.dietaryMark ?? "none")}
                     </td>
                     <td className="whitespace-nowrap font-mono text-xs">
                       {article.taxClassCode ?? "—"}
@@ -295,7 +275,7 @@ function ArticlesScreen() {
                       ) : null}
                     </td>
                     <td className="whitespace-nowrap">
-                      {t(STATUS_LABEL[article.status] ?? "mdm.article.status.active")}
+                      {articleStatusLabel(t, article.status)}
                       <span className="ms-2 text-xs text-fg-muted">v{String(article.version)}</span>
                     </td>
                     <td className="numeric">{String(article.outletCount)}</td>
