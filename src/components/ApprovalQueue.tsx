@@ -3,8 +3,10 @@ import { useState, type ReactNode } from "react";
 import { ApprovalStateBadge, CategoryBadge, SeverityBadge, type ApprovalState, type Severity } from "~/components/status";
 import { Banner, Button, Card, ConfirmSummary, Dialog, EmptyState, Field, Select, Textarea } from "~/components/ui";
 import { Clock, Layers } from "~/components/icons";
+import { RecordDiff } from "~/components/RecordDiff";
 import { ARTICLE_REVIEW_REASONS, isArticleReviewReason } from "~/domain/approvals";
 import type { ArticleReviewReasonCode } from "~/domain/approvals";
+import type { ArticleVersionReview } from "~/domain/mdm-approvals";
 import type { MessageKey } from "~/i18n/catalog-en";
 import { MoneyValue, TimestampValue } from "~/components/values";
 import { useI18n } from "~/i18n";
@@ -84,11 +86,32 @@ export interface ApprovalRowView {
     note?: string | null;
   } | null;
   /**
-   * An honest note about what this dialog cannot show. The review read returns one version,
-   * not a pair, so there is no before/after to draw: saying nothing would imply the version
-   * as shown *is* the change.
+   * An honest note about what this dialog cannot show.
+   *
+   * Since the comparison view landed (D18) the dialog *can* show what changed, so this slot
+   * no longer carries the "no comparison is built" sentence — `approval.review.noComparison`
+   * is deleted from the catalogue and nothing sets this. It is kept as the dialog's general
+   * caveat slot: a caller with something true and unwelcome to say about what the reader is
+   * *not* seeing says it here rather than leaving them to infer it from silence.
    */
   reviewNote?: string | null;
+  /**
+   * The comparison to render above the version's own facts — `getArticleVersionReview`'s
+   * payload, passed through untouched (D18's dialog call site, O1's "dialog first").
+   *
+   * `RecordDiff` fetches nothing: the read happened in the queue's own loader, once per open
+   * item, so the surface that asks "what am I approving?" and the surface that answers "what
+   * changed?" cannot disagree — they are one answer (`~/domain/mdm-approvals`, D6).
+   */
+  comparison?: ArticleVersionReview | null;
+  /**
+   * The review read did not answer for this item, so there is no comparison to draw.
+   *
+   * Distinct from "the comparison found no differences" on purpose: S3 means *we compared and
+   * found nothing*, S5 means *we could not compare* (§4). An approver who cannot tell those
+   * apart is deciding on a comparison that was never made.
+   */
+  comparisonUnavailable?: boolean;
   /** What the task points at — the caller decides whether a decision path exists at all. */
   entityType?: string;
 }
@@ -293,9 +316,23 @@ export function ApprovalQueueRow({
           </div>
         ) : null}
         {item.reviewNote ? (
-          // The absent state, said out loud. `getArticleVersionReview` reads one version, so
-          // there is no pair to diff — silence here would read as "nothing changes".
+          // The caveat slot. It used to hold "no comparison view is built yet"; the
+          // comparison is built and sits below, so nothing sets this today.
           <p className="mb-3 text-2xs text-fg-subtle">{item.reviewNote}</p>
+        ) : null}
+        {/*
+          What the decision changes, above the version's own facts and above the confirm
+          summary — the evidence first, the form last (`DESIGN-comparison-view.md` §8.1).
+          `approval.diff.*` copy only; the component composes no sentence of its own.
+        */}
+        {item.comparison ? (
+          <div className="mb-3">
+            <RecordDiff review={item.comparison} />
+          </div>
+        ) : item.comparisonUnavailable ? (
+          <div className="mb-3">
+            <RecordDiff review={null} status="unreadable" />
+          </div>
         ) : null}
         {item.review && item.review.length > 0 ? (
           <div className="mb-3 flex flex-col gap-2">
