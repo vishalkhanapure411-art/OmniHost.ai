@@ -40,6 +40,7 @@ import {
 import { MoneyCell, MoneyValue, QuantityValue, TimestampValue } from "~/components/values";
 import { AlertTriangle, Chat, Check, Globe, InfoCircle, Layers, Lock, Store, XCircle } from "~/components/icons";
 import { LOCALES, catalogCoverage } from "~/i18n/locales";
+import { channelLabel } from "~/i18n/domain-labels";
 import { useI18n } from "~/i18n";
 import type { Money } from "~/i18n/format";
 
@@ -268,10 +269,36 @@ function TokenSection() {
         ))}
       </div>
 
+      <div className="flex flex-col gap-2">
+        <span className="text-2xs text-fg-subtle">
+          Licence tiers — a stored tier this build does not carry is named as unrecognised with its own
+          code and takes the warning tone, never the neutral grey Silver used to get. It is also never
+          compared as Silver: an entitlement check reading an unrecognised tier fails closed.
+        </span>
+        <div className="flex flex-wrap items-center gap-2">
+          {["silver", "gold", "platinum"].map((tier) => (
+            <TierBadge key={tier} tier={tier as "silver" | "gold" | "platinum"} />
+          ))}
+          <TierBadge tier="bronze" />
+          <TierBadge tier="" />
+        </div>
+        <span className="text-2xs text-fg-subtle">
+          Sales channels — a channel code the catalogue does not carry is named as unrecognised with the
+          stored code beside it, rather than rendering as a different, real channel.
+        </span>
+        <div className="flex flex-wrap items-center gap-2">
+          {["pos", "kiosk", "app", "cds", "aggregator"].map((code) => (
+            <Badge key={code} tone="neutral" mono={false}>
+              {channelLabel(t, code)}
+            </Badge>
+          ))}
+          <Badge tone="warn" mono={false}>
+            {channelLabel(t, "counter")}
+          </Badge>
+        </div>
+      </div>
+
       <div className="flex flex-wrap gap-2">
-        {["silver", "gold", "platinum"].map((tier) => (
-          <TierBadge key={tier} tier={tier as "silver" | "gold" | "platinum"} />
-        ))}
         {STATUS_SWATCHES.map((tone) => (
           <Badge key={tone} tone={tone as "accent" | "ok" | "warn" | "danger" | "info"}>
             {tone}
