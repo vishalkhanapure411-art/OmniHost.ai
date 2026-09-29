@@ -15,7 +15,7 @@ import {
 import type { ImportIssue, ImportReport } from "~/domain/import";
 import { useI18n } from "~/i18n";
 import type { MessageKey } from "~/i18n/catalog-en";
-import { importLandingLabel, sentenceParams } from "~/i18n/labels";
+import { codeLabel, codedMessage, importLandingLabel, sentenceParams } from "~/i18n/labels";
 import { commitImportFn, dryRunImportFn, importScreenAccessFn } from "~/server-fns";
 
 /**
@@ -43,6 +43,22 @@ export const Route = createFileRoute("/_shell/mdm/import")({
   loader: async () => importScreenAccessFn(),
   component: ImportScreen,
 });
+
+
+/**
+ * The four outcomes a report line can carry (§16.3).
+ *
+ * Enumerated, because a key built from data fails **open**: this cell used to render
+ * ``t(`mdm.import.outcome.${row.outcome}`)``, which prints the key itself the moment the
+ * server grows a fifth outcome (DECISIONS rule 2, `FINDINGS-label-fallback-sweep.md` §B1).
+ * An outcome outside this map shows its own code rather than a confident wrong word.
+ */
+const OUTCOME_LABEL: Record<string, MessageKey> = {
+  created: "mdm.import.outcome.created",
+  updated: "mdm.import.outcome.updated",
+  unchanged: "mdm.import.outcome.unchanged",
+  rejected: "mdm.import.outcome.rejected",
+};
 
 function ImportScreen() {
   const { t, locale } = useI18n();
@@ -113,7 +129,9 @@ function ImportScreen() {
           : `${t("mdm.import.issue.rowLevel" as MessageKey)}: `}
         {/* A report line names a field and the state the record lands in; both are catalog
             words, not the machine names the plan evaluated (`caloriesKcal`, `pending_review`). */}
-        {t(entry.code as MessageKey, sentenceParams(t, locale, entry.params))}
+        {/* The code comes off a domain refusal, so an unknown one is *named as a gap*
+            rather than printed as a bare key inside an English sentence (§B2). */}
+        {codedMessage(t, entry.code, sentenceParams(t, locale, entry.params))}
       </span>
     ));
 
@@ -214,7 +232,7 @@ function ImportScreen() {
             {report.fileError ? (
               <p className="text-sm text-danger-fg">
                 {t("mdm.import.report.refusedFile" as MessageKey)}{" "}
-                {t(report.fileError.code as MessageKey, report.fileError.params)}
+                {codedMessage(t, report.fileError.code, report.fileError.params)}
               </p>
             ) : null}
 
@@ -260,7 +278,7 @@ function ImportScreen() {
                                     : "neutral"
                             }
                           >
-                            {t(`mdm.import.outcome.${row.outcome}` as MessageKey)}
+                            {codeLabel(t, OUTCOME_LABEL[row.outcome], row.outcome)}
                           </Badge>
                         </td>
                         <td className="p-2 text-xs">

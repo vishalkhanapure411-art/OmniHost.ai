@@ -8,6 +8,7 @@ import { CategoryBadge, ChainStatusBadge, TierBadge } from "~/components/status"
 import { TimestampValue } from "~/components/values";
 import { useI18n } from "~/i18n";
 import { currencyForJurisdiction } from "~/i18n/locales";
+import { tierLabel } from "~/i18n/labels";
 import type { LicenceTier } from "~/domain/chains";
 import { getChainFn, listChainsFn, setChainFeatureFn, updateChainTierFn } from "~/server-fns";
 
@@ -191,7 +192,7 @@ function ChainDetailScreen() {
                           setPendingTier(tier);
                         }}
                       >
-                        {t(`chains.tier.${tier}` as never)}
+                        {tierLabel(t, tier)}
                       </Button>
                     ))}
                     {!canUpdateTier ? (
@@ -252,11 +253,11 @@ function ChainDetailScreen() {
                               title={
                                 feature.blockedByTier
                                   ? t("chains.detail.features.blocked", {
-                                      tier: t(`chains.tier.${feature.minTier}` as never),
-                                      current: t(`chains.tier.${detail.chain.licenceTier}` as never),
+                                      tier: tierLabel(t, feature.minTier),
+                                      current: tierLabel(t, detail.chain.licenceTier),
                                     })
                                   : t("chains.detail.features.availableFrom", {
-                                      tier: t(`chains.tier.${feature.minTier}` as never),
+                                      tier: tierLabel(t, feature.minTier),
                                     })
                               }
                             />
@@ -367,11 +368,11 @@ function ChainDetailScreen() {
         }}
         title={
           pendingTier
-            ? t("chains.detail.tier.confirmTitle", { tier: t(`chains.tier.${pendingTier}` as never) })
+            ? t("chains.detail.tier.confirmTitle", { tier: tierLabel(t, pendingTier) })
             : ""
         }
         description={t("chains.detail.tier.confirmBody", {
-          tier: pendingTier ? t(`chains.tier.${pendingTier}` as never) : "",
+          tier: pendingTier ? tierLabel(t, pendingTier) : "",
         })}
         footer={
           <>
@@ -399,7 +400,12 @@ function ChainDetailScreen() {
           <ConfirmSummary
             items={[
               { label: t("chains.column.chain"), value: detail.ok ? detail.chain.name : "" },
-              { label: t("chains.detail.features.column.minTier"), value: <TierBadge tier={detail.ok ? detail.chain.licenceTier : "silver"} /> },
+              {
+                label: t("chains.detail.features.column.minTier"),
+                // A read that failed is not evidence of a Silver chain: the cell says
+                // there is no value rather than naming the cheapest real tier.
+                value: detail.ok ? <TierBadge tier={detail.chain.licenceTier} /> : t("common.none"),
+              },
               { label: t("action.confirm"), value: <TierBadge tier={pendingTier} /> },
               {
                 label: t("chains.column.sites"),

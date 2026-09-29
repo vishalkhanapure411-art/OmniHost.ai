@@ -40,6 +40,18 @@ export const ARTICLE_STATUS_LABEL: Record<string, MessageKey> = {
   discontinued: "mdm.article.status.discontinued",
 };
 
+/**
+ * What an article *is*: `food` -> "Food". The list and the record both print it, and both
+ * used to fall back to `Food` for anything unmapped - a wrong type on a record a caterer
+ * reads. A type this build does not carry shows its own code instead.
+ */
+export const ARTICLE_TYPE_LABEL: Record<string, MessageKey> = {
+  food: "mdm.article.type.food",
+  beverage: "mdm.article.type.beverage",
+  retail: "mdm.article.type.retail",
+  service: "mdm.article.type.service",
+};
+
 /** The veg/non-veg mark. A legal display duty in India, and a word to a guest. */
 export const DIET_LABEL: Record<string, MessageKey> = {
   veg: "mdm.article.diet.veg",
@@ -111,6 +123,10 @@ export const CHANNEL_LABEL: Record<string, MessageKey> = {
 
 export function articleStatusLabel(t: Translate, status: string): string {
   return codeLabel(t, ARTICLE_STATUS_LABEL[status], status);
+}
+
+export function articleTypeLabel(t: Translate, code: string): string {
+  return codeLabel(t, ARTICLE_TYPE_LABEL[code], code);
 }
 
 export function dietLabel(t: Translate, code: string): string {

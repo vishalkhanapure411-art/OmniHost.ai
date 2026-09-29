@@ -420,7 +420,12 @@ function AuthSection({
   // A narrower const, so the helpers below and the JSX agree on the type.
   const draft: AuthDraft = draftState;
 
-  const ssoOffered = auth.ssoFeatureEnabled && auth.ssoMinimumTier === auth.licenceTier;
+  // A minimum the registry does not record is not an offer: `null` never equals a tier, so
+  // the SSO panel says the minimum is unrecorded rather than inventing one.
+  const ssoOffered =
+    auth.ssoFeatureEnabled &&
+    auth.ssoMinimumTier !== null &&
+    auth.ssoMinimumTier === auth.licenceTier;
   const readOnly = !canWrite;
 
   function update<K extends keyof AuthDraft>(key: K, value: AuthDraft[K]): void {
@@ -522,9 +527,11 @@ function AuthSection({
         )}
         {!ssoOffered && auth.ssoFeatureEnabled ? (
           <Banner tone="info">
-            {t("chains.settings.auth.fixedTier", {
-              tier: codeLabel(t, TIER_LABEL[auth.ssoMinimumTier], auth.ssoMinimumTier),
-            })}
+            {auth.ssoMinimumTier === null
+              ? t("chains.settings.auth.fixedTier.none")
+              : t("chains.settings.auth.fixedTier", {
+                  tier: codeLabel(t, TIER_LABEL[auth.ssoMinimumTier], auth.ssoMinimumTier),
+                })}
           </Banner>
         ) : null}
         {readOnly ? (

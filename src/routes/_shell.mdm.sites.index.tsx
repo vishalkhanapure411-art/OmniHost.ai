@@ -16,7 +16,7 @@ import { TimestampValue } from "~/components/values";
 import type { SiteListItem } from "~/domain/mdm-sites";
 import { useI18n } from "~/i18n";
 import type { MessageKey } from "~/i18n/catalog-en";
-import { sentenceParams, siteFieldLabel } from "~/i18n/labels";
+import { sentenceParams, siteFieldLabel, tierLabel } from "~/i18n/labels";
 import { listSitesFn } from "~/server-fns";
 /**
  * Sites — the master list (§12.4).
@@ -54,11 +54,6 @@ const STATUS_TONE: Record<string, "ok" | "warn" | "danger" | "neutral" | "accent
   active: "ok",
   suspended: "warn",
   closed: "neutral",
-};
-const TIER_LABEL: Record<string, MessageKey> = {
-  silver: "chains.tier.silver",
-  gold: "chains.tier.gold",
-  platinum: "chains.tier.platinum",
 };
 const KIND_LABEL: Record<string, MessageKey> = {
   restaurant: "mdm.outlet.kind.restaurant",
@@ -238,9 +233,7 @@ function SitesScreen() {
                 <h3 className="text-sm font-semibold text-fg">{section.chainName}</h3>
                 <code className="font-mono text-2xs text-fg-muted">{section.chainCode}</code>
                 <Badge tone="neutral" shape={false}>
-                  {t("mdm.sites.chainTier", {
-                    tier: t(TIER_LABEL[section.chainTier] ?? "chains.tier.silver"),
-                  })}
+                  {t("mdm.sites.chainTier", { tier: tierLabel(t, section.chainTier) })}
                 </Badge>
                 <span className="text-xs text-fg-subtle">
                   {t("mdm.sites.chainScopeNote")}

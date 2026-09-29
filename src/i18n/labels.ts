@@ -73,6 +73,43 @@ function labelled(t: Translate, prefix: string, value: string): string {
   return translated === key ? value : translated;
 }
 
+/**
+ * A licence tier in words: `gold` → "Gold" — and never a *different* real tier.
+ *
+ * The mechanism this replaces was `asTier` in the domain, which coerced **any** unrecognised
+ * value to `silver`: a chain with a tier nobody recorded read as the cheapest tier, and the
+ * feature gate compared ranks through the same coercion, so an unrecognised `min_tier`
+ * lowered to silver and a Gold- or Platinum-gated capability could be switched ON
+ * (`FINDINGS-label-fallback-sweep.md` §G1.0). The domain no longer coerces (it returns the
+ * stored value and fails the gate closed — `parseTier`/`tierSatisfies`); the word comes from
+ * here, and a tier this catalog does not carry reads as unrecognised **with the stored code
+ * beside it**, so the tier a reader acts on is never a guess.
+ */
+export function tierLabel(t: Translate, tier: string): string {
+  const key = `chains.tier.${tier}` as MessageKey;
+  const words = t(key);
+  return words === key ? t("labels.unrecognised.named", { code: tier }) : words;
+}
+
+/**
+ * A message whose **key came from data** — an error code off a domain `ValidationError`, a
+ * report-line code — resolved in words, or worded as unrecognised.
+ *
+ * `t(code as MessageKey)` fails *open*: the translator returns the key when neither catalog
+ * carries it, so an operator read `validation.something` inside an English sentence, or a
+ * raw `mdm.import.error.…` where a reason belongs (DECISIONS rule 3). The code stays visible
+ * so the gap can be chased, but it is named as a gap rather than dressed as a sentence.
+ */
+export function codedMessage(
+  t: Translate,
+  code: string,
+  params?: Record<string, string | number>
+): string {
+  const key = code as MessageKey;
+  const words = t(key, params);
+  return words === key ? t("labels.unrecognised.named", { code }) : words;
+}
+
 /** `caloriesKcal` → "Energy per serving". A name the catalog does not carry is left alone. */
 export function complianceFieldLabel(t: Translate, field: string): string {
   return labelled(t, "mdm.article.compliance.field.", field);

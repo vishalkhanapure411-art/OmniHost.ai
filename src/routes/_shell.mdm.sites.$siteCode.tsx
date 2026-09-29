@@ -30,6 +30,7 @@ import {
   complianceRequirementLabel,
   marketName,
   settingLabel,
+  tierLabel,
 } from "~/i18n/labels";
 import { getSiteFn, updateSiteLocaleFn } from "~/server-fns";
 /**
@@ -111,11 +112,6 @@ const SERVICE_MODE_LABEL: Record<string, MessageKey> = {
   delivery: "mdm.site.serviceMode.delivery",
   room_service: "mdm.site.serviceMode.room_service",
   drive_thru: "mdm.site.serviceMode.drive_thru",
-};
-const TIER_LABEL: Record<string, MessageKey> = {
-  silver: "chains.tier.silver",
-  gold: "chains.tier.gold",
-  platinum: "chains.tier.platinum",
 };
 const ERP_GROUP_LABEL: Record<string, MessageKey> = {
   org: "mdm.erp.group.org",
@@ -288,7 +284,7 @@ function SiteScreen() {
                   value: (
                     <span className="flex flex-wrap items-center gap-2">
                       <Badge tone="neutral" shape={false}>
-                        {t(TIER_LABEL[site.chain.licenceTier] ?? "chains.tier.silver")}
+                        {tierLabel(t, site.chain.licenceTier)}
                       </Badge>
                       <span className="text-xs text-fg-muted">{t("mdm.site.field.tierReadOnly")}</span>
                     </span>

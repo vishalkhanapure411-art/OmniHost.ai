@@ -5,7 +5,7 @@ import { auditedMutation, guard } from "~/server/audit";
 import { NotFound, ValidationError } from "~/server/errors";
 import { isLocaleCode, LOCALES } from "~/i18n/locales";
 import { accessibleChainIds, type Principal } from "~/server/session";
-import { TIER_RANK, asTier, type LicenceTier, type MutationMeta } from "~/domain/chains";
+import { tierSatisfies, type MutationMeta } from "~/domain/chains";
 
 /**
  * AppConfig — the delegated configuration vertical.
@@ -63,11 +63,20 @@ export interface ChainAuthConfigView {
   notes: string | null;
   updatedAt: string | null;
   updatedBy: string | null;
-  /** Licence tier, because SSO is a Gold-and-up capability (spec Licensing Tiers). */
-  licenceTier: LicenceTier;
+  /** Licence tier as stored, because SSO is a Gold-and-up capability (spec Licensing Tiers). */
+  licenceTier: string;
   /** The per-chain `sso` feature toggle, which the tier gates but does not replace. */
   ssoFeatureEnabled: boolean;
-  ssoMinimumTier: LicenceTier;
+  /**
+   * The minimum tier the feature registry records for SSO — the stored value, or `null`
+   * when the registry carries no `sso` row at all.
+   *
+   * It used to default to `"gold"` in that case, which stated a minimum nobody recorded.
+   * A registry with no row for the feature is a gap in our configuration, not a Gold gate,
+   * and the screen says so (`chains.settings.auth.fixedTier.none`) instead of inventing a
+   * tier. The SSO gate itself fails closed either way (`updateChainAuthConfig`).
+   */
+  ssoMinimumTier: string | null;
   /** Roles a JIT-provisioned identity may receive; the write is validated against these. */
   assignableRoles: { code: string; name: string; layer: string }[];
 }
@@ -101,7 +110,7 @@ async function readAuthContext(
 ): Promise<{
   row: AuthConfigRow | null;
   licenceTier: string;
-  ssoMinTier: string;
+  ssoMinTier: string | null;
   ssoFeatureEnabled: boolean;
 }> {
   const chainRows = await tx.query<{ licence_tier: string }>(
@@ -133,7 +142,8 @@ async function readAuthContext(
   return {
     row: rows[0] ?? null,
     licenceTier: chainRows[0].licence_tier,
-    ssoMinTier: featureRows[0]?.min_tier ?? "gold",
+    // No `sso` row in the registry is `null`, never an invented `"gold"`.
+    ssoMinTier: featureRows[0]?.min_tier ?? null,
     ssoFeatureEnabled: featureRows[0]?.enabled ?? false,
   };
 }
@@ -177,9 +187,9 @@ export async function getChainAuthConfig(
     notes: row?.notes ?? null,
     updatedAt: row?.updated_at ? row.updated_at.toISOString() : null,
     updatedBy: row?.updated_by ?? null,
-    licenceTier: asTier(context.licenceTier),
+    licenceTier: context.licenceTier,
     ssoFeatureEnabled: context.ssoFeatureEnabled,
-    ssoMinimumTier: asTier(context.ssoMinTier),
+    ssoMinimumTier: context.ssoMinTier,
     assignableRoles: roles,
   };
 }
@@ -306,9 +316,18 @@ export async function updateChainAuthConfig(
       // decided here, not from anything the caller sent.
       const context = await readAuthContext(tx, chainId);
       if (input.authMode === "sso") {
-        if (TIER_RANK[asTier(context.licenceTier)] < TIER_RANK[asTier(context.ssoMinTier)]) {
+        // Fail closed, as the chain feature gate does: SSO is offered only when the
+        // registry records a minimum tier, that minimum is a tier the registry knows, and
+        // the chain's own stored tier meets it. An unreadable value on either side is not
+        // evidence of entitlement, and the refusal quotes what the row actually holds.
+        if (context.ssoMinTier === null) {
           throw new ValidationError(
-            `SSO needs the ${context.ssoMinTier} tier; ${context.licenceTier} was requested elsewhere`
+            "the feature registry records no minimum tier for sso, so it cannot be configured"
+          );
+        }
+        if (!tierSatisfies(context.licenceTier, context.ssoMinTier)) {
+          throw new ValidationError(
+            `SSO needs the ${context.ssoMinTier} tier; this chain is on ${context.licenceTier}`
           );
         }
         if (!context.ssoFeatureEnabled) {
@@ -475,7 +494,8 @@ export interface ChainSiteView {
 export interface ChainSettingsView {
   chainId: string;
   chainName: string;
-  licenceTier: LicenceTier;
+  /** The chain's tier as stored; the screen words it through `tierLabel`. */
+  licenceTier: string;
   settings: ChainSettingView[];
   sites: ChainSiteView[];
   /** The locales this build can render; a site may only be set to one of them. */
@@ -686,7 +706,7 @@ export async function getChainSettings(
   return {
     chainId,
     chainName: chain.name,
-    licenceTier: asTier(chain.licence_tier),
+    licenceTier: chain.licence_tier,
     settings,
     sites: sites.map((site) => ({
       id: site.id,

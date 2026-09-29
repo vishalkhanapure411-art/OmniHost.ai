@@ -18,6 +18,7 @@ import {
 import { BeforeAfter } from "~/components/values";
 import { TimestampValue } from "~/components/values";
 import { useI18n } from "~/i18n";
+import { auditReasonLabel } from "~/i18n/labels";
 import type { AuditEntryView } from "~/domain/inbox";
 import { listAuditFn } from "~/server-fns";
 
@@ -103,7 +104,13 @@ function AuditScreen() {
       render: (entry) => (
         <span className="block">
           <code className="block font-mono text-xs text-fg">{entry.action}</code>
-          {entry.reason ? <span className="block max-w-xs text-2xs text-fg-muted">{entry.reason}</span> : null}
+                    {/* The reason column words a policy code the way the record panels do; a code
+              nobody has words for stays visible as itself rather than as a sentence. */}
+          {entry.reason ? (
+            <span className="block max-w-xs text-2xs text-fg-muted">
+              {auditReasonLabel(t, entry.reason)}
+            </span>
+          ) : null}
         </span>
       ),
     },
