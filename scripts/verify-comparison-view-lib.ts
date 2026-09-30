@@ -90,6 +90,11 @@ export function errorMessage(error: unknown): string {
  * what `authorise()` tests; grants are empty because these identities hold none. `scope` is
  * the highest layer held, and `platformWide` follows the rule in `PrincipalRole`: an App-layer
  * role with no role-level capability is purely delegated and must not widen reach.
+ *
+ * **The site scope matters and is not optional.** A site-layer principal that names no site is
+ * refused by `authorise()` with "your scope names no site" on every action, so a helper that
+ * drops it silently builds a principal that cannot do the job it was assembled for. The site
+ * comes from the assignments' own `site_id` rows, the same way `resolvePrincipal` takes it.
  */
 export async function principalFor(q: Queryable, email: string, chainId: string): Promise<Principal> {
   const users = await q.query<{ id: string; email: string; display_name: string; locale: string | null; status: string }>(
@@ -146,17 +151,28 @@ export async function principalFor(q: Queryable, email: string, chainId: string)
     : roles.some((role) => role.layer === "central")
       ? "central"
       : "site";
+  // The site the assignments name, read exactly as `resolvePrincipal` reads it
+  // (`session.session_site_id ?? roles.find((r) => r.siteId !== null)?.siteId ?? null`).
+  // This used to be written `null` unconditionally, which made every site-layer principal
+  // fail `authorise()` with "your scope names no site" *before* the check under test — a
+  // Site Head's own route write was refused for a scope the account genuinely holds. Found
+  // by S-A's step 4; see the finding in display-foundation-sA-demo-data.txt.
+  const siteId = roles.find((role) => role.siteId !== null)?.siteId ?? null;
 
   return {
-    // Not a session row — the string says so, and nothing reads it on this path.
-    sessionId: "verification-principal",
+    // Not a session row, and it has to say so in the shape the column expects: `audit_log`
+    // stores `session_id` as a **uuid**, so a worded placeholder is refused by Postgres the
+    // moment a real mutation reaches the ledger ("invalid input syntax for type uuid:
+    // \"verification-principal\"" — S-A's step 4, the first write this harness ever made).
+    // The nil uuid is a valid uuid, cannot collide with a session, and reads as "none".
+    sessionId: "00000000-0000-0000-0000-000000000000",
     userId: user.id,
     email: user.email,
     displayName: user.display_name,
     locale: user.locale,
     scope,
     chainId,
-    siteId: null,
+    siteId,
     roles,
     grants: [],
     permissions,

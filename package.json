@@ -12,7 +12,9 @@
     "format": "prettier --write .",
     "db:migrate": "bun run scripts/db.ts migrate",
     "db:seed": "bun run scripts/db.ts seed",
+    "db:seed:reference": "bun run scripts/db.ts seed-reference",
     "db:seed:users": "bun run scripts/db.ts seed-users",
+    "db:seed:display": "bun run scripts/db.ts seed-display",
     "db:reset": "bun run scripts/db.ts reset"
   },
   "dependencies": {

@@ -294,11 +294,21 @@ select r.id, p.id
 on conflict (role_id, permission_id) do nothing;
 
 -- Site Head: view for every function, and site-level approval for every function.
+--
+-- The `%.view` half of this is a *pattern*, and a pattern cannot know about the codes that
+-- did not exist when it was written. Exactly one tenant `%.view` code is deliberately held
+-- by no role — `cds.display.view`, the guest display (section 8, below) — and it is excluded
+-- by name here with its reason. This is not hypothetical: on a **re-run** this statement
+-- reached the code section 8 had inserted on the first run, and granted the guest display's
+-- own capability to Site Head, a person. Statement order hid it on the first pass and the
+-- section-8 comment ("granted to no role on purpose") was true only until the next run.
+-- Section 8 also deletes the grant outright, so the rule holds whichever statement runs.
 insert into role_permission (role_id, permission_id)
 select r.id, p.id
   from role r
   join permission p on p.code like '%.view' and p.layer = 'tenant'
  where r.code = 'SITE_HEAD'
+   and p.code not in ('cds.display.view')
 on conflict (role_id, permission_id) do nothing;
 
 insert into role_permission (role_id, permission_id)
@@ -713,3 +723,157 @@ select r.id, p.id
   join role r on r.code = mg.role_code
   join permission p on p.code like mg.permission_like and p.layer = 'tenant'
 on conflict (role_id, permission_id) do nothing;
+
+-- ---------------------------------------------------------------------------
+-- 8. The display layer — DESIGN-kds-and-ticket-routing.md §2.4, slice S-A.
+--
+--    Registered here, in the reference-data half of the seed, for the same reason every
+--    other code is: the tool registry is the platform's own vocabulary and it is
+--    re-runnable (`on conflict (code) do update`). Nothing below touches tenant data, so
+--    this half of the seed can be applied on its own (`bun run db:seed:reference`) without
+--    re-loading the demo dataset.
+--
+--    Three things this block is, and is not:
+--
+--    * **No new role.** §2.4 item 1: there is no KITCHEN role and we must not invent one.
+--      The PRD's "kitchen hand" is the Site Culinary Team — the role the function grid
+--      already generates and the one `culinary.stockout.mark` was already granted to.
+--    * **No new feature and no tier seeding.** The owner's 29 Sept decision keeps station
+--      routing and the guest display at **Gold**, and the registry already holds exactly
+--      those two gates: `kds_multi_station` and `cds`, both `min_tier = 'gold'` (section 4
+--      above). The entitlement check reads them through the fail-closed `tierSatisfies`
+--      (`src/domain/chains.ts:52`) — an unrecognised tier on either side grants nothing —
+--      and it is `src/domain/display-estate.ts` that asks.
+--    * **`cds.display.view` is granted to no role on purpose.** §2.4: guest-display device
+--      principals only. A person holding a console role never reads the CDS surface; a
+--      paired CDS terminal does, and its capability set is fixed by its display kind
+--      (`src/domain/display.ts`), not by role_permission.
+--
+--    Ordering note, and it is a correction rather than a reassurance. The blanket upserts
+--    earlier in this file (`p.code like '%.view'` for Site Head, `'%.approve.site'`) run
+--    *before* these rows are inserted, so on a **first** run they cannot reach a `kds.*` /
+--    `display.*` code — the codes do not exist yet. On a **re-run** they can and one of them
+--    did: `cds.display.view` ends in `.view` and is layer `tenant`, so the Site Head sweep
+--    granted it. That is why the sweep in section 5 now excludes this code by name, and why
+--    this block ends by deleting the grant outright. A row is only true on every run if
+--    something makes it true on every run. Every other grant this block needs is written out
+--    explicitly, and a missing one would fail closed — the capability would simply not be
+--    held.
+-- ---------------------------------------------------------------------------
+with code (code, kind, site_scope, financial, name, description) as (values
+  ('display.view',          'query',    false, false, 'View the display estate',
+   'The displays, printers and pairing state of an outlet. Read by Site IT, Operations and the Site Head, and by Central IT and Operations for a chain-wide view.'),
+  ('display.manage',        'mutation', true,  false, 'Register, pair and revoke displays',
+   'Provisions a terminal with a single-use pairing code and withdraws it again. A display is paired by a person and never self-registers (O12).'),
+  ('kds.route.view',        'query',    false, false, 'View the routing map',
+   'Which station produces which article at an outlet, and the category defaults behind them.'),
+  ('kds.route.manage',      'mutation', true,  false, 'Maintain the routing map',
+   'Maintained station-first (D17): the kitchen asks what a station produces, not what station an article goes to.'),
+  ('kds.ticket.view',       'query',    true,  false, 'View a station''s tickets',
+   'Held by the station teams and by a station display principal, which sees only its own station (D27).'),
+  ('kds.ticket.advance',    'mutation', true,  false, 'Acknowledge, start and mark a ticket ready',
+   'The kitchen''s one tap, and the capability under which a station display acts on its own station''s tickets.'),
+  ('kds.ticket.serve',      'mutation', true,  false, 'Serve or clear a ready ticket',
+   'A movement at the pass: the expedite display may serve any ready ticket in its outlet but may not advance another station''s (D27).'),
+  ('kds.ticket.recall',     'mutation', true,  false, 'Recall a ticket marked ready in error',
+   'From `ready` only (T5); from `served` the honest act is a void and a new ticket. A reason code is required.'),
+  ('kds.ticket.reroute',    'mutation', true,  false, 'Re-route a ticket to another station',
+   'An explicit, audited act (T9) with a reason: a ticket carries the section it was routed to at fire and routing changes never move it silently (D4).'),
+  ('kds.ticket.void',       'mutation', true,  false, 'Void a ticket',
+   'A production act, not a money act (D9): the PRD routes a *sale* void to Revenue Assurance, and a dish dropped on the floor is not a financial event. A reason code is required.'),
+  ('order.book',            'mutation', true,  true,  'Take a booking',
+   'Creates the booking and prices it from master data. Priced, not paid: no payment provider is connected (D24).'),
+  ('order.fire',            'mutation', true,  true,  'Send a booking to the kitchen',
+   'Resolves each line to a producing station and creates the tickets. An unrouted line is flagged and still fired, never dropped (§1.4 item 4).'),
+  ('order.cancel',          'mutation', true,  true,  'Cancel a booking',
+   'Before fire. A charged line''s cancellation is the money layer''s, and re-enters with it.'),
+  ('cds.display.view',      'query',    true,  false, 'Render the guest display',
+   'Guest-display device principals only. Shows the FSSAI fields of the version pinned at booking and no money at all (D14, D15).')
+)
+insert into permission (code, module, name, description, action_kind, layer, requires_site_scope,
+                        check_function, financial_or_stock, implemented_in)
+select code.code,
+       -- The module is the code's own prefix, so `display.manage` files under `display`
+       -- and a function-scoped grant reads the same way the existing codes do.
+       split_part(code.code, '.', 1),
+       code.name,
+       code.description,
+       code.kind,
+       'tenant',
+       code.site_scope,
+       false,
+       code.financial,
+       'display-sA'
+  from code
+on conflict (code) do update set
+  module = excluded.module, name = excluded.name, description = excluded.description,
+  action_kind = excluded.action_kind, layer = excluded.layer,
+  requires_site_scope = excluded.requires_site_scope,
+  check_function = excluded.check_function, financial_or_stock = excluded.financial_or_stock,
+  implemented_in = excluded.implemented_in;
+
+-- role → capability, exactly the table in §2.4. Read it as the recommendation it is: the
+-- roles are the function grid's own, and no capability is granted to a role the grid does
+-- not already have.
+with display_grant (permission_code, role_code) as (values
+  -- Who configures the estate.
+  ('display.view',       'SITE_IT_TEAM'),
+  ('display.view',       'SITE_OPERATIONS_TEAM'),
+  ('display.view',       'SITE_HEAD'),
+  ('display.view',       'CENTRAL_IT_HEAD'),
+  ('display.view',       'CENTRAL_OPERATIONS_HEAD'),
+  ('display.manage',     'SITE_IT_TEAM'),
+  ('display.manage',     'SITE_HEAD'),
+  ('display.manage',     'CENTRAL_IT_HEAD'),
+  -- Who sees and maintains the routing map.
+  ('kds.route.view',     'SITE_CULINARY_TEAM'),
+  ('kds.route.view',     'SITE_OPERATIONS_TEAM'),
+  ('kds.route.view',     'SITE_HEAD'),
+  ('kds.route.view',     'CENTRAL_CULINARY_HEAD'),
+  ('kds.route.view',     'CENTRAL_CULINARY_TEAM'),
+  ('kds.route.manage',   'SITE_HEAD'),
+  ('kds.route.manage',   'CENTRAL_OPERATIONS_HEAD'),
+  -- The kitchen's work. These three view/advance rows are also what a station display
+  -- principal is fixed to; the grant to the role is what a human holding it does.
+  ('kds.ticket.view',    'SITE_CULINARY_TEAM'),
+  ('kds.ticket.view',    'SITE_OPERATIONS_TEAM'),
+  ('kds.ticket.view',    'SITE_HEAD'),
+  ('kds.ticket.advance', 'SITE_CULINARY_TEAM'),
+  ('kds.ticket.advance', 'SITE_OPERATIONS_TEAM'),
+  ('kds.ticket.serve',   'SITE_OPERATIONS_TEAM'),
+  ('kds.ticket.serve',   'SITE_HEAD'),
+  ('kds.ticket.recall',  'SITE_CULINARY_TEAM'),
+  ('kds.ticket.recall',  'SITE_HEAD'),
+  ('kds.ticket.reroute', 'SITE_CULINARY_TEAM'),
+  ('kds.ticket.reroute', 'SITE_HEAD'),
+  ('kds.ticket.void',    'SITE_CULINARY_TEAM'),
+  ('kds.ticket.void',    'SITE_HEAD'),
+  -- The booking side (S-B).
+  ('order.book',         'SITE_OPERATIONS_TEAM'),
+  ('order.book',         'SITE_HEAD'),
+  ('order.fire',         'SITE_OPERATIONS_TEAM'),
+  ('order.fire',         'SITE_HEAD'),
+  ('order.cancel',       'SITE_OPERATIONS_TEAM'),
+  ('order.cancel',       'SITE_HEAD')
+)
+insert into role_permission (role_id, permission_id)
+select r.id, p.id
+  from display_grant dg
+  join role r on r.code = dg.role_code
+  join permission p on p.code = dg.permission_code
+on conflict (role_id, permission_id) do nothing;
+
+-- The claim two comments up, enforced rather than asserted: **`cds.display.view` is held by
+-- no role.**
+--
+-- The `%.view` sweep in section 5 matches by pattern, and a pattern cannot know that a code
+-- added later belongs to a device principal. Narrowing that sweep stops it re-granting this
+-- on a re-run; this delete additionally makes the rule true on a database where an earlier
+-- run already over-granted it, which is what happened in the owner's demo database (SITE_HEAD
+-- held it, read back 30 Sept 2026). `role_permission` is platform reference data, so removing
+-- a row here removes it for every chain at once — which is the point: no person, on any chain,
+-- reads the guest display through a role. A paired CDS terminal reads it, and its capability
+-- set is fixed by its display kind (`src/domain/display.ts`).
+delete from role_permission rp
+ using permission p
+ where rp.permission_id = p.id and p.code = 'cds.display.view';

@@ -821,9 +821,26 @@ async function loadRawMaterials(tx: Queryable, ctx: Ctx): Promise<void> {
   }
 }
 
-async function loadSections(tx: Queryable, ctx: Ctx): Promise<void> {
+/**
+ * The outlets' production sections, upserted on `(outlet_id, code)`.
+ *
+ * Exported, and resolving the outlets itself rather than taking the loader's `Ctx`, for one
+ * reason: a *new* section has to be addable to the owner's demo database without re-loading
+ * 52 articles, 57 raw materials and 83 outlet prices. `db:seed:display` uses it for exactly
+ * that, and the full master-data seed calls it too, so the statement exists once and a
+ * section added here appears through both paths. Unknown outlet code = skipped, which is the
+ * same tolerance the rest of this loader has for a dataset that names a site the seed has
+ * not created.
+ */
+export async function seedOutletSections(tx: Queryable): Promise<number> {
+  let written = 0;
   for (const section of MDM_OUTLET_SECTIONS) {
-    const outlet = ctx.outletIdByCode.get(section.outletCode);
+    const outlet = (
+      await tx.query<{ id: string; chain_id: string; site_id: string }>(
+        `select id, chain_id, site_id from outlet where code = $1 limit 1`,
+        [section.outletCode]
+      )
+    )[0];
     if (!outlet) continue;
     await tx.query(
       `insert into outlet_section (chain_id, site_id, outlet_id, code, name, kind, sort_order)
@@ -831,9 +848,18 @@ async function loadSections(tx: Queryable, ctx: Ctx): Promise<void> {
        on conflict (outlet_id, code) do update
          set name = excluded.name, kind = excluded.kind, sort_order = excluded.sort_order,
              updated_at = now()`,
-      [outlet.chainId, outlet.siteId, outlet.id, section.code, section.name, section.kind, section.sortOrder]
+      [outlet.chain_id, outlet.site_id, outlet.id, section.code, section.name, section.kind, section.sortOrder]
     );
+    written += 1;
   }
+  return written;
+}
+
+async function loadSections(tx: Queryable, ctx: Ctx): Promise<void> {
+  // One definition, two callers: the master-data load and `db:seed:display`. The outlets it
+  // resolves are the ones `loadChainsAndSites` inserted moments ago in this same
+  // transaction, so reading them back here is the same set `ctx.outletIdByCode` holds.
+  await seedOutletSections(tx);
 
   for (const hours of MDM_SITE_OPERATING_HOURS) {
     const chainId = ctx.chainIdByCode.get(hours.chainCode);

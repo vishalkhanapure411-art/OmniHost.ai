@@ -17,7 +17,7 @@ import { fileURLToPath } from "node:url";
 import { DEV_FALLBACK, exec, getPool, sql, withTransaction, type Queryable } from "../src/db";
 import { hashPassword } from "../src/server/crypto";
 import { DEMO_ACCOUNTS, DEMO_CHAINS, DEMO_SITES, DEMO_SUPPORT_TICKETS } from "../src/domain/demo-data";
-import { seedMdm } from "../src/domain/mdm-seed";
+import { seedMdm, seedOutletSections } from "../src/domain/mdm-seed";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const migrationsDir = path.join(root, "db", "migrations");
@@ -91,6 +91,22 @@ export async function seed(): Promise<void> {
   console.log(
     "seed: master data (jurisdictions, tax classes, UOMs, allergens, vendors, raw materials, articles)"
   );
+}
+
+/**
+ * The reference-data half of the seed on its own: roles, the tool registry,
+ * role→permission, features and setting definitions — the same file and the same single
+ * transaction `seed()` starts with, and nothing else.
+ *
+ * It exists because a new capability (the display layer's, for instance) should not mean
+ * re-loading 52 articles, 57 raw materials and 83 outlet prices into the owner's database,
+ * and because this half is *platform vocabulary*, not tenant data: `db/seed.sql` writes to
+ * `role`, `permission`, `role_permission`, `feature` and `setting_definition` only, every
+ * statement is an upsert, and re-running it is a no-op.
+ */
+export async function referenceSeed(): Promise<void> {
+  await withTransaction((tx) => runSqlFile(tx, path.join(root, "db", "seed.sql")));
+  console.log("seed: reference data (roles, tool registry, role→permission, features) upserted");
 }
 
 /**
@@ -475,14 +491,59 @@ async function reset(): Promise<void> {
   await grantDevFallbackRole();
 }
 
+/**
+ * The display foundation's demo data on its own, through the seeding path — the two things
+ * S-A needs in a database that is already seeded, without re-loading the master data.
+ *
+ * It exists because the display work added one **section** (`KOR-PASS`, the pilot outlet's
+ * pass) and turned one **module switch** on (`kds_multi_station` for `saffron-table`), and
+ * neither is reachable from `db:seed:reference` (no tenant rows) or `db:seed:users` (no
+ * master data). Re-running the full `db:seed` for two rows would re-load 52 articles, 57 raw
+ * materials and 83 outlet prices against the managed database, which is exactly what the
+ * narrower commands above exist to avoid.
+ *
+ * Both halves are the **same statements the full seed runs**, over the **same constants** it
+ * reads — `DEMO_CHAINS[].features` for the switch and `MDM_OUTLET_SECTIONS` for the section,
+ * through the one `seedOutletSections` both callers share — so this is a way to apply the
+ * seed without re-loading it, not a second, hand-typed dataset that could drift from it.
+ * Everything is an upsert on a business key and re-running is a no-op; nothing here touches a
+ * row the full seed does not also write.
+ */
+export async function seedDisplayDemo(): Promise<void> {
+  await withTransaction(async (tx) => {
+    let switches = 0;
+    for (const chain of DEMO_CHAINS) {
+      const rows = await tx.query<{ id: string }>(`select id from chain where code = $1`, [chain.code]);
+      const chainId = rows[0]?.id;
+      if (!chainId) continue;
+      for (const [code, enabled] of Object.entries(chain.features)) {
+        await tx.query(
+          `update chain_feature set enabled = $3, updated_at = now()
+            where chain_id = $1 and feature_code = $2`,
+          [chainId, code, enabled]
+        );
+        switches += 1;
+      }
+    }
+    const sections = await seedOutletSections(tx);
+    console.log(
+      `seed: display demo — ${String(switches)} chain feature switches, ${String(sections)} outlet sections upserted`
+    );
+  });
+}
 async function main(): Promise<void> {
   const command = process.argv[2] ?? "migrate";
   try {
     if (command === "migrate") await migrate();
     else if (command === "seed") await seed();
+    else if (command === "seed-reference") await referenceSeed();
     else if (command === "seed-users") await seedDemoUsers();
+    else if (command === "seed-display") await seedDisplayDemo();
     else if (command === "reset") await reset();
-    else throw new Error(`unknown command "${command}" (expected migrate | seed | seed-users | reset)`);
+    else
+      throw new Error(
+        `unknown command "${command}" (expected migrate | seed | seed-reference | seed-users | seed-display | reset)`
+      );
   } finally {
     await getPool().end();
   }

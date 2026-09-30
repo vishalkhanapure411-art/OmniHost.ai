@@ -58,6 +58,23 @@ export function newSessionToken(): string {
   return randomBytes(32).toString("base64url");
 }
 
+/**
+ * A single-use pairing code a person reads aloud to a terminal (O12).
+ *
+ * Short enough to type on a wall screen and drawn from an alphabet with no `0/O` or `1/I`,
+ * so the one transcription that matters — a kitchen manager reading a code off a console
+ * to a screen across the room — cannot fail on an ambiguous character. It is a *secret*,
+ * so it is stored hashed like every other one on this platform, shown once and cleared the
+ * moment it is redeemed.
+ */
+export function newPairingCode(): string {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const bytes = randomBytes(8);
+  let code = "";
+  for (const byte of bytes) code += alphabet[byte % alphabet.length];
+  return `${code.slice(0, 4)}-${code.slice(4)}`;
+}
+
 export function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }

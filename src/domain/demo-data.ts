@@ -47,9 +47,18 @@ export const DEMO_CHAINS: {
     taxJurisdiction: "IN-KA",
     // Gold and up: SSO configurable, CDS included, full recipe BOM. Platinum-only
     // capabilities stay off, which is what makes the tier rule visible on screen.
+    //
+    // `kds_multi_station` is on as of the display foundation (29 Sept 2026): the tier
+    // entitles it (Gold, owner's sign-off) and the *switch* is the operator's own "on for
+    // us", which both are now enforced as (DECISIONS.md §"Display build — lead rulings on
+    // the S-A read-back"). Without it seeded on, station routing on the pilot chain would
+    // be refused for want of a switch rather than a licence — a demo of the wrong fact.
+    // Nothing about the licence changes here: this is demo data, and the tier was already
+    // Gold.
     features: {
       sso: true,
       cds: true,
+      kds_multi_station: true,
       recipe_full_bom: true,
       operations_dashboards: true,
       site_content_authoring: true,
