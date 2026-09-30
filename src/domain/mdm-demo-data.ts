@@ -1057,6 +1057,15 @@ export const MDM_OUTLET_SECTIONS: {
   { chainCode: "saffron-table", siteCode: "saffron-koramangala", outletCode: "koramangala-restaurant", code: "KOR-GRILL", name: "Tandoor & Grill", kind: "grill", sortOrder: 20 },
   { chainCode: "saffron-table", siteCode: "saffron-koramangala", outletCode: "koramangala-restaurant", code: "KOR-COLD", name: "Cold Kitchen", kind: "cold", sortOrder: 30 },
   { chainCode: "saffron-table", siteCode: "saffron-koramangala", outletCode: "koramangala-restaurant", code: "KOR-DESSERT", name: "Dessert Station", kind: "dessert", sortOrder: 40 },
+  // The pass (kind `expedite`), added with the display foundation (S-A) because D3's
+  // fallback — an unrouted line goes "to the outlet's `expedite` section if one exists" —
+  // had nowhere to land: none of the nine seeded sections was a pass, so the unrouted case
+  // could only ever be demonstrated in its refusing form. With this row the pilot outlet
+  // shows both: a line with no route of its own lands at the pass and is flagged `unrouted`,
+  // while an outlet with no pass still refuses with no invented station (the lead's ruling,
+  // 29 Sept 2026). `sort_order` puts it last: it is where a ticket ends up when nothing else
+  // claims it, not a production station in the middle of the line.
+  { chainCode: "saffron-table", siteCode: "saffron-koramangala", outletCode: "koramangala-restaurant", code: "KOR-PASS", name: "Kitchen Pass", kind: "expedite", sortOrder: 90 },
   { chainCode: "saffron-table", siteCode: "saffron-koramangala", outletCode: "koramangala-bar", code: "KOR-BAR-MAIN", name: "Main Bar", kind: "bar", sortOrder: 10 },
   { chainCode: "saffron-table", siteCode: "saffron-indiranagar", outletCode: "indiranagar-qsr", code: "IND-QSR-KITCHEN", name: "QSR Kitchen", kind: "kitchen", sortOrder: 10 },
   { chainCode: "saffron-table", siteCode: "saffron-indiranagar", outletCode: "indiranagar-qsr", code: "IND-QSR-BEV", name: "Beverage Counter", kind: "beverage", sortOrder: 20 },

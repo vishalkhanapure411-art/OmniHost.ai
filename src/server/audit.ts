@@ -29,8 +29,27 @@ import type { Principal } from "~/server/session";
 export type AuditSource = "screen" | "chatbot" | "api" | "system" | "import";
 export type AuditOutcome = "success" | "denied" | "error";
 
+/**
+ * The actor of a row written by a **device** rather than a person (D26, §2.4 item 2).
+ *
+ * A fixed terminal has no human logged in, so its rows carry `actor_user_id = null`, the
+ * station's operating role code (stored on the display's provisioning record, so it is
+ * never invented at audit time) and `display:<code>` in `reason`. This is the honest
+ * shape, and it is also the limit O2 names: **a row written this way never says which
+ * person tapped the screen**, so no demo, walkthrough or report may claim it does.
+ */
+export interface DeviceActor {
+  /** A real role code from the registry, e.g. `SITE_CULINARY_TEAM`. */
+  roleCode: string;
+  /** The device's own code, from `display.code` — an identifier, never translated. */
+  displayCode: string;
+}
+
 export interface AuditEntry {
-  principal: Principal;
+  /** The signed-in person. Exactly one of `principal` / `device` is required. */
+  principal?: Principal | null;
+  /** The paired terminal, when no person is behind the call. */
+  device?: DeviceActor | null;
   /** The permission/tool code that authorised (or refused) the call. */
   action: string;
   entityType: string;
@@ -82,6 +101,22 @@ export function toJsonState(value: unknown): JsonState {
 
 /** Inserts the audit row using an existing query handle (so it can join a transaction). */
 export async function writeAudit(tx: Queryable, entry: AuditEntry): Promise<string> {
+  // "who, role" is non-negotiable (the spec states it three times), so a row with neither
+  // a person nor a device is a programming error rather than an anonymous log line.
+  if (!entry.principal && !entry.device) {
+    throw new Error(`audit row for ${entry.action} names neither a user nor a device`);
+  }
+  const actorUserId = entry.principal?.userId ?? null;
+  const actorRoleCode = entry.device
+    ? entry.device.roleCode
+    : primaryRoleCode(entry.principal as Principal, entry.action);
+  const actorScope = entry.principal?.scope ?? "site";
+  // A device row is addressed by the device, not by a person: `display:<code>` goes into
+  // `reason` so the trail names the terminal (§2.4 item 2). Anything the caller passed as
+  // its own reason is kept after it rather than replaced.
+  const reason = entry.device
+    ? [`display:${entry.device.displayCode}`, entry.reason].filter(Boolean).join(" ")
+    : (entry.reason ?? null);
   const rows = await tx.query<{ id: string }>(
     `insert into audit_log (
         chain_id, site_id, actor_user_id, actor_role_code, actor_scope,
@@ -94,19 +129,19 @@ export async function writeAudit(tx: Queryable, entry: AuditEntry): Promise<stri
     [
       entry.chainId ?? null,
       entry.siteId ?? null,
-      entry.principal.userId,
-      primaryRoleCode(entry.principal, entry.action),
-      entry.principal.scope,
+      actorUserId,
+      actorRoleCode,
+      actorScope,
       entry.action,
       entry.entityType,
       entry.entityId ?? null,
       toJsonState(entry.beforeState),
       toJsonState(entry.afterState),
       entry.outcome ?? "success",
-      entry.reason ?? null,
+      reason,
       entry.intent ?? null,
       entry.source ?? "api",
-      entry.principal.sessionId,
+      entry.principal?.sessionId ?? null,
       entry.requestId ?? null,
       entry.batchId ?? null,
     ]

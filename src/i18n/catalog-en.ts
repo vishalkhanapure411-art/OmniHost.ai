@@ -2180,6 +2180,66 @@ export const enIN = {
   // failure. The audit row keeps `reason = mdm.approve.self`; this is what the person reads.
   "permission.mdm.approve.self":
     "Refused by the four-eyes rule: the person who submits a version cannot decide it, so a second approver has to. Ask a colleague who holds mdm.article.approve to approve it or to send it back with a reason — this refusal is recorded and nothing has changed.",
+  // ── The display layer (KDS/CDS/KOT, slice S-A) ───────────────────────────────
+  // The sentences DESIGN-kds-and-ticket-routing.md §6.4 and §6.6 define, plus the ones the
+  // S-A domain layer raises that the spec's list does not cover (each marked as an
+  // addition). Only what S-A's own code can raise is here: the rest of §6's copy arrives
+  // with the screens that render it, because an unused key is a translation nobody can
+  // check against anything.
+  //
+  // The differentiator is stated in words (§6.4), the same distinction the approvals screen
+  // carries: a **capability** refusal is recorded as a denied audit row and changes
+  // nothing, so its sentence says "nothing has changed"; a **validation** refusal writes
+  // nothing at all — no ledger row, so the screen is its only record — and its sentence
+  // says what to do next instead of claiming a record was written.
+  "kds.refusal.notYourStation":
+    "This ticket belongs to another station, so it cannot be advanced from here. Nothing has changed.",
+  "kds.refusal.noStationOnTerminal":
+    "This terminal is not attached to a station, so it cannot advance tickets. Nothing has changed.",
+  // Addition to §6.4: the spec's sentences cover a wrong station, a terminal with no
+  // station, a voided ticket and a recall — not "this terminal is not set up for that
+  // action at all", which is what a guest display or a printer reaching a kitchen action
+  // must be told. Using the wrong-station sentence there would be a false statement.
+  "kds.refusal.actionNotOnTerminal":
+    "This terminal is not set up for that action, so nothing has changed.",
+  "route.source.article_route": "Set for this article",
+  "route.source.category_default": "Default for its category",
+  "route.source.expedite_fallback": "Sent to the pass",
+  "route.source.unrouted": "No station matched",
+  "route.validation.duplicatePrimary":
+    "{article} already has a primary station at this outlet: {station}. Remove that one first.",
+  // Additions to §6.6, in the same shape: the two other ways a routing write is refused
+  // before it writes anything.
+  "route.validation.sectionNotInOutlet":
+    "That station belongs to a different outlet. Choose one of this outlet's stations.",
+  "route.validation.routeNotFound":
+    "That article is not routed to that station. Reload the routing map to see what it produces.",
+  "display.validation.printerNeedsSection": "A printer must be attached to a station.",
+  "display.validation.codeRequired": "A display needs a code.",
+  "display.validation.nameRequired": "A display needs a name.",
+  "display.validation.kindUnknown": "{kind} is not a display type.",
+  "display.validation.transportUnknown": "{transport} is not a connection type.",
+  "display.validation.transportOnlyOnPrinter":
+    "Only a printer has a connection type. Clear it before saving a screen.",
+  "display.validation.sectionNotInOutlet":
+    "That station belongs to a different outlet. Choose one of this outlet's stations.",
+  "display.validation.codeTaken":
+    "This outlet already has a display with the code {code}. Use a different code.",
+  "display.validation.revokeReasonRequired": "Withdrawing access needs a reason.",
+  "display.validation.deactivateReasonRequired": "Deactivating a display needs a reason.",
+  "display.validation.noLiveCredential":
+    "This terminal has no active access to withdraw. Reload to see its current pairing.",
+  // The tier gate (owner, 29 Sept 2026): station routing and the guest display are Gold. A
+  // capability refusal — recorded, nothing changed — quoting the tier as stored, never a
+  // label that could name a tier the row does not carry.
+  "permission.licence.tierBelow":
+    "{capability} needs the {minTier} licence tier, and this chain is on {tier}. Nothing has changed; the licence is what has to move, not the configuration.",
+  // The other gate, and deliberately a different sentence: the licence covers the module
+  // and the chain has switched it off, so the remedy is the switch and not the licence
+  // (lead ruling, 29 Sept 2026 - the tier and the module switch mean different things and
+  // both are enforced). `{module}` is the feature registry's own name, never its code.
+  "permission.licence.moduleOff":
+    "{module} is switched off for this chain, so nothing was routed. The licence covers it; the module switch is the chain's own setting.",
   "validation.number.invalid": "{value} is not a number.",
   "validation.date.format": "{value} is not a date. Use {format}.",
   "validation.invalidEnum": "{value} is not one of {values}.",
