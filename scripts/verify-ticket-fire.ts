@@ -570,7 +570,6 @@ async function main(): Promise<void> {
     [o.id]
   );
 
-  const scratchBefore = await counts();
   const existingScratch = await q.query<{ id: string; outlet_order_id: string; status: string }>(
     `select o.id, oo.id as outlet_order_id, oo.status
        from "order" o join outlet_order oo on oo.order_id = o.id
@@ -823,13 +822,20 @@ async function main(): Promise<void> {
     t.say(
       `removing the scratch booking: ${String(removed[0]?.tickets ?? 0)} ticket(s) and ${String(removed[0]?.lines ?? 0)} order line(s) go with it by cascade`
     );
+    const beforeDelete = await counts();
     await q.query(`delete from "order" where id = $1`, [scratch.id]);
     const gone = await counts();
+    const scratchGone = await q.query<{ n: number }>(
+      `select count(*)::int as n from "order" where id = $1`,
+      [scratch.id]
+    );
     t.say(countsLine("after the removal", gone));
     t.check(
       "the scratch booking and its tickets are gone",
-      gone.orders === scratchBefore.orders && gone.tickets === scratchBefore.tickets,
-      `orders ${String(scratchBefore.orders)} -> ${String(gone.orders)}, tickets ${String(scratchBefore.tickets)} -> ${String(gone.tickets)}`
+      scratchGone[0]?.n === 0 &&
+        gone.orders === beforeDelete.orders - 1 &&
+        gone.tickets === beforeDelete.tickets - scratchTickets.length,
+      `orders ${String(beforeDelete.orders)}-1 vs ${String(gone.orders)}, tickets ${String(beforeDelete.tickets)}-${String(scratchTickets.length)} vs ${String(gone.tickets)}`
     );
     t.say(
       "the audit rows of the scratch fire remain: audit_log is append-only by trigger, so a removed booking's fire is still in the ledger"
