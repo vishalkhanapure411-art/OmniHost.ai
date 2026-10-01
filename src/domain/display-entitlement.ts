@@ -158,6 +158,98 @@ export async function displayEntitlementForChain(chainId: string): Promise<Displ
   return displayEntitlement(poolQueryable(), chainId);
 }
 
+// ---------------------------------------------------------------------------
+// The estate's own read of both gates (S4)
+// ---------------------------------------------------------------------------
+
+/**
+ * One of the display estate's two gated features, reported to a screen as data: which of
+ * the two gates is holding it, and the catalogue key and parameters of **that gate's own
+ * sentence**.
+ *
+ * Why this exists rather than the screen reading `tierEntitled`/`toggleEnabled` itself:
+ * the precedence ("the tier is asked first") and the fail-closed comparison are the
+ * domain's, and a second copy of them in a component is the class of defect the copy sweep
+ * found 55 sites of (`FINDINGS-label-fallback-sweep.md`). The screen renders a sentence; it
+ * does not decide which sentence.
+ *
+ * **The two gates are never collapsed into one sentence** (lead ruling, 29 Sept 2026): a
+ * licence that does not cover the module and a module switched off by the operator are
+ * different facts with different remedies, so this reports `holding: "tier" | "switch"` and
+ * the matching key — never one "display estate is not available" sentence.
+ */
+export interface DisplayGateRow {
+  featureCode: string;
+  /** The registry's own name for the feature, so a refusal can name the module in words. */
+  featureName: string;
+  minTier: string;
+  /** The chain's stored tier, as stored — never coerced or labelled as another tier. */
+  storedTier: string;
+  tierEntitled: boolean;
+  toggleEnabled: boolean;
+  /** The conjunction, exactly as `assertFeatureOpen` asks it. */
+  entitled: boolean;
+  /** Which of the two is holding this feature. `null` when the feature is open. */
+  holding: "tier" | "switch" | null;
+  /** The held gate's own sentence, ready for a screen to render. `null` when nothing holds. */
+  refusal: { code: string; params: Record<string, string | number> } | null;
+}
+
+function gateRow(feature: FeatureEntitlement): DisplayGateRow {
+  // The same order `assertFeatureOpen` uses: when both are holding, the licence is the
+  // sentence an operator should read first, so the tier branch is taken first.
+  const holding: DisplayGateRow["holding"] = !feature.tierEntitled
+    ? "tier"
+    : !feature.toggleEnabled
+      ? "switch"
+      : null;
+  return {
+    featureCode: feature.featureCode,
+    featureName: feature.featureName,
+    minTier: feature.minTier,
+    storedTier: feature.storedTier,
+    tierEntitled: feature.tierEntitled,
+    toggleEnabled: feature.toggleEnabled,
+    entitled: feature.entitled,
+    holding,
+    refusal:
+      holding === "tier"
+        ? {
+            code: "permission.licence.tierBelow",
+            params: {
+              capability: feature.featureCode,
+              minTier: feature.minTier,
+              tier: feature.storedTier,
+            },
+          }
+        : holding === "switch"
+          ? { code: "permission.licence.moduleOff", params: { module: feature.featureName } }
+          : null,
+  };
+}
+
+/**
+ * Both gated features of the display estate, with the gate holding each one named.
+ *
+ * `entitled` on a row is not the estate's answer — an estate with routing switched off but
+ * the guest display open is still usable for a CDS. A caller that wants "may anything be
+ * provisioned here" asks `estateGateRows(...).some((row) => row.entitled)`.
+ *
+ * A missing `chain` or a missing registry row reports both features as held by the tier
+ * gate: `missingFeature` grants nothing (fail closed), and its `tierEntitled` is false, so
+ * the switch sentence — which would have to name a module nobody can find — is unreachable.
+ */
+export function estateGateRows(entitlement: DisplayEntitlement | null): DisplayGateRow[] {
+  if (!entitlement) {
+    const storedTier = "";
+    return [
+      gateRow(missingFeature(ROUTING_FEATURE, "gold", storedTier)),
+      gateRow(missingFeature(GUEST_DISPLAY_FEATURE, "gold", storedTier)),
+    ];
+  }
+  return [gateRow(entitlement.routing), gateRow(entitlement.guestDisplay)];
+}
+
 /** The registry is reference data; a missing row must never read as an entitlement. */
 function missingFeature(featureCode: string, minTier: string, storedTier: string): FeatureEntitlement {
   return {

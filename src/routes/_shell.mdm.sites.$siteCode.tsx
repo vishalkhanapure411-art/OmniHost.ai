@@ -33,6 +33,7 @@ import {
   tierLabel,
 } from "~/i18n/labels";
 import { getSiteFn, updateSiteLocaleFn } from "~/server-fns";
+import { DisplaysCard } from "~/components/DisplayEstate";
 /**
  * The site record (§12.4): Identity · Address · Trading · Outlets · Language ·
  * Configuration · Compliance · Change history · ERP-maintained.
@@ -201,6 +202,10 @@ function SiteScreen() {
   }
   const site = result.site;
   const canSetLocale = principal.permissions.includes("site.locale.update");
+  // S4's own capability, read from the resolved registry the server sent with the page. The
+  // screen uses it to decide what to *offer*; the server decides what is *allowed*, per
+  // mutation, through `display.manage`.
+  const canManageDisplays = principal.permissions.includes("display.manage");
 
   const erpGroups = ["org", "admin"].filter((group) =>
     site.erp.fields.some((field) => field.group === group)
@@ -503,6 +508,9 @@ function SiteScreen() {
             })}
           </p>
         </Card>
+
+        {/* ── Displays (S4: the display estate, per outlet) ─────────────────── */}
+        <DisplaysCard outlets={site.outlets} canManage={canManageDisplays} />
 
         {/* ── Language ──────────────────────────────────────────────────────── */}
         <Card>
@@ -1071,7 +1079,8 @@ function OutletPane({ outlet }: { outlet: OutletView }) {
           },
         ]}
       />
-      <p className="text-xs text-fg-subtle">{t("mdm.outlet.displays.note")}</p>
+      {/* The display estate is its own section above (S4); this pane no longer states its
+          absence, because it is no longer absent. */}
     </section>
   );
 }

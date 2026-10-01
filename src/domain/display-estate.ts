@@ -11,7 +11,7 @@ import {
   type DisplayKind,
   type DisplayTransport,
 } from "~/domain/display";
-import { displayEntitlement, type DisplayEntitlement } from "~/domain/display-entitlement";
+import { displayEntitlement, estateGateRows, type DisplayEntitlement, type DisplayGateRow } from "~/domain/display-entitlement";
 
 /**
  * The display estate (S4's server half): registering a device, pairing it, withdrawing its
@@ -84,6 +84,25 @@ export interface DisplayEstate {
   displays: DisplayRecord[];
   /** The tier gate, reported rather than assumed (§11.5.6). */
   entitlement: DisplayEntitlement | null;
+  /**
+   * Both gated features with the gate holding each one named, and the held gate's own
+   * sentence (`estateGateRows`). Carried as data so the screen renders one of the two
+   * sentences it is given instead of re-deriving the precedence — and so neither sentence
+   * can be collapsed into the other (lead ruling, 29 Sept 2026).
+   */
+  gates: DisplayGateRow[];
+  /**
+   * True when at least one of the two features is open. The estate's own answer to "may a
+   * terminal be provisioned here", which is what the screen refuses its writes on.
+   */
+  licensed: boolean;
+  /**
+   * How long an issued pairing code is good for. Here because a screen must not import
+   * `PAIRING_WINDOW_MINUTES` from this server-only module to fill in a sentence: that
+   * import is what drags `pg` and `node:crypto` into the client bundle and stops the app
+   * hydrating (see the header of `~/domain/display`). The value crosses as data.
+   */
+  pairingWindowMinutes: number;
 }
 
 interface OutletContext {
@@ -228,11 +247,19 @@ export async function outletDisplayEstateIn(
       where chain_id = $1 and outlet_id = $2 order by sort_order, code`,
     [outlet.chainId, outlet.id]
   );
+  const entitlement = await displayEntitlement(db, outlet.chainId);
+  const gates = estateGateRows(entitlement);
   return {
     outlet: { id: outlet.id, code: outlet.code, name: outlet.name, chainId: outlet.chainId, siteId: outlet.siteId },
     stations,
     displays: displayRows.map(toDisplay),
-    entitlement: await displayEntitlement(db, outlet.chainId),
+    entitlement,
+    gates,
+    // The estate's writes need one of the two features open; with neither, the screen must
+    // say which of the two gates is holding each one rather than offering a button the
+    // licence does not cover.
+    licensed: gates.some((gate) => gate.entitled),
+    pairingWindowMinutes: PAIRING_WINDOW_MINUTES,
   };
 }
 

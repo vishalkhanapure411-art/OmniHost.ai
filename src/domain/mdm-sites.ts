@@ -2,7 +2,8 @@ import "@tanstack/react-start/server-only";
 
 import { poolQueryable, type Queryable } from "~/db";
 import { guard, toJsonState, type JsonState } from "~/server/audit";
-import { NotFound, ValidationError } from "~/server/errors";
+import { NotFound, ValidationError, isHttpError } from "~/server/errors";
+import { outletDisplayEstateIn, type DisplayEstate } from "~/domain/display-estate";
 import type { Principal } from "~/server/session";
 import { jurisdictionFieldRules } from "~/domain/jurisdiction";
 import type { ErpOwnedField, ErpOwnershipRow, ErpSystemView, MutationMeta } from "~/domain/mdm";
@@ -68,11 +69,15 @@ export interface OutletView {
   pricedArticleCount: number;
   pricedArticleCodes: string[];
   /**
-   * Displays are not a master in this build: the KDS/CDS/KOT topology and per-product-line
-   * routing is its own spec, scheduled after this slab. Stated as absent rather than shown
-   * as an empty panel that implies zero displays exist.
+   * The outlet's display estate (S4's screen), or the refusal. The read is
+   * `display.view`, which the site record's own read does not imply, so a caller who may
+   * read the site but not the estate gets the capability the server refused on and the rest
+   * of the record renders unchanged — the same shape the change-history panel uses for
+   * `chain.audit.read` rather than failing the whole page.
    */
-  displays: { available: boolean; note: string };
+  displays:
+    | { state: "available"; estate: DisplayEstate }
+    | { state: "denied"; permission: string };
   /** Everything the outlet does not own. Reported so the pane cannot read as a second source. */
   inherited: {
     siteCode: string;
@@ -585,6 +590,37 @@ export async function getSite(principal: Principal, code: string): Promise<SiteD
   const currency = (row.currency ?? "").trim();
   const preferredLocale = principal.locale ?? "en-IN";
 
+  /**
+   * The display estate, per outlet, read through S-A's own estate read so the screen and the
+   * chatbot cannot disagree about what is at an outlet.
+   *
+   * A refusal is caught here and carried as `denied`, **not thrown**: `mdm.site.view` and
+   * `display.view` are different capabilities, and a caller who may read the site record but
+   * not the estate must get the record with one panel refusing — the pattern the history
+   * panel already uses. The refused read is `guard()`'s, so it writes a `denied` audit row
+   * and changes no data, exactly as the platform's refusal rule says; that is one ledger row
+   * per outlet rather than one per page, which is why this is a loop and not a single check.
+   */
+  const displayEstates = new Map<string, OutletView["displays"]>();
+  for (const outlet of outletRows) {
+    try {
+      displayEstates.set(outlet.id, {
+        state: "available",
+        estate: await outletDisplayEstateIn(db, principal, outlet.id),
+      });
+    } catch (error) {
+      if (isHttpError(error) && error.status === 403) {
+        const action = (error.details as { action?: unknown } | undefined)?.action;
+        displayEstates.set(outlet.id, {
+          state: "denied",
+          permission: typeof action === "string" ? action : "display.view",
+        });
+        continue;
+      }
+      throw error;
+    }
+  }
+
   const outlets: OutletView[] = outletRows.map((outlet) => ({
     id: outlet.id,
     code: outlet.code,
@@ -608,7 +644,7 @@ export async function getSite(principal: Principal, code: string): Promise<SiteD
     pricedArticleCodes: pricedCodes
       .filter((price) => price.outlet_id === outlet.id)
       .map((price) => price.code),
-    displays: { available: false, note: "mdm.outlet.displays.note" },
+    displays: displayEstates.get(outlet.id) ?? { state: "denied", permission: "display.view" },
     inherited: {
       siteCode: row.code,
       siteName: row.name,
