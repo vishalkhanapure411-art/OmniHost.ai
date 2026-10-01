@@ -529,6 +529,50 @@ export const hiIN: Partial<Record<MessageKey, string>> = {
   "order.validation.notServed":
     "बुकिंग परोसे जाने के बाद बंद होती है, और यह अभी परोसी नहीं गई। फिर से लोड करके देखें कि यह कहाँ तक पहुँची है।",
   "order.validation.reasonRequired": "इसके लिए कारण चाहिए। क्यों किया जा रहा है, लिखें और आगे बढ़ें।",
+  // ——— S-B/2b: ticket lifecycle — every key the station screens gained, in Hindi ———
+  "ticket.state.queued": "कतार में",
+  "ticket.state.acknowledged": "स्वीकार किया",
+  "ticket.state.in_prep": "तैयार हो रहा है",
+  "ticket.state.ready": "तैयार",
+  "ticket.state.served": "परोसा गया",
+  "ticket.state.voided": "रद्द",
+  "ticket.state.held_unavailable": "रोका गया — उपलब्ध नहीं",
+  "ticket.action.acknowledge": "स्वीकार करें",
+  "ticket.action.start": "शुरू करें",
+  "ticket.action.ready": "तैयार चिह्नित करें",
+  "ticket.action.recall": "वापस लाएँ",
+  "ticket.action.serve": "परोसें",
+  "ticket.action.void": "रद्द करें",
+  "ticket.action.reroute": "दूसरे स्टेशन पर भेजें",
+  "ticket.action.close": "बुकिंग बंद करें",
+  "ticket.reason.marked_ready_in_error": "गलती से तैयार चिह्नित",
+  "ticket.reason.quality_check_failed": "गुणवत्ता जाँच विफल",
+  "ticket.reason.dropped": "रसोई में गिर गया",
+  "ticket.reason.guest_cancelled": "मेहमान ने रद्द किया",
+  "ticket.reason.article_unavailable": "कोई लेख उपलब्ध नहीं रहा",
+  "ticket.reason.duplicate_ticket": "दोहरा टिकट",
+  "ticket.reason.wrong_station": "गलत स्टेशन",
+  "ticket.reason.station_unavailable": "स्टेशन यह बना नहीं सकता",
+  "kds.refusal.movedOn":
+    "यह टिकट आगे बढ़ चुका है — अब यह {state} पर है। कहाँ तक पहुँचा है यह देखने के लिए दोबारा लोड करें।",
+  "kds.refusal.voidedTicket": "यह टिकट रद्द किया जा चुका है। कुछ नहीं बदला।",
+  "kds.refusal.heldTicket":
+    "यह टिकट इसलिए रोका गया है क्योंकि कोई लेख उपलब्ध नहीं रहा। पहले उसकी पंक्तियों पर निर्णय लें — कुछ नहीं बदला।",
+  "kds.refusal.recallFromServed":
+    "यह टिकट परोसा जा चुका है। कुछ नहीं बदला। इसके बजाय इसे रद्द करें और नया टिकट भेजें।",
+  "ticket.validation.voidServed":
+    "यह टिकट परोसा जा चुका है, इसलिए इसे रद्द नहीं किया जा सकता। अगर व्यंजन वापस आ गया है, तो उसके लिए नया टिकट भेजें।",
+  "ticket.validation.reasonUnknown":
+    "{reason} इस कार्य के लिए दिए जाने वाले कारणों में नहीं है। सूची से कोई कारण चुनें।",
+  "ticket.validation.rerouteTargetRequired":
+    "दूसरे स्टेशन पर भेजने के लिए स्टेशन चुनना ज़रूरी है। वह स्टेशन चुनें जो यह काम करेगा।",
+  "ticket.validation.rerouteSameStation":
+    "यह टिकट पहले से {station} पर है। कोई दूसरा स्टेशन चुनें, या इसे वहीं रहने दें।",
+  "ticket.validation.rerouteStationTaken":
+    "इस बुकिंग का टिकट {ticket} पहले से {station} पर है, और एक बुकिंग का हर स्टेशन पर एक ही टिकट होता है। पहले उसे रद्द करें, या कोई दूसरा स्टेशन चुनें।",
+  "ticket.validation.rerouteStationBusy":
+    "उस स्टेशन पर इस बुकिंग का टिकट पहले से है, और एक बुकिंग का हर स्टेशन पर एक ही टिकट होता है। टिकट देखने के लिए दोबारा लोड करें, फिर उसे रद्द करें या कोई दूसरा स्टेशन चुनें।",
+
 };
 
 /** Latin → look-alike mapping used by the right-to-left layout test. */

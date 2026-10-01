@@ -129,9 +129,260 @@ export type TicketState = (typeof TICKET_STATES)[number];
  * §2.3's transition labels, as the ledger and the journal name them (T1 fire … T11 close).
  * A code, because a code is the subject here: a screen words it from the catalogue (S-B/2b
  * writes T2–T11; T1 is the fire path's).
+ *
+ * **T8 (`hold_unavailable`) and T10 (re-fire/print) are deliberately absent.** §2.3 lists
+ * eleven transitions and S-B/2b builds the eight that change a ticket's life without a
+ * printer or an 86: T8 needs the availability path (its own slice) and T10 is S-E's print
+ * job, which is not a state change at all. A code nothing writes is a promise the platform
+ * cannot keep, so the two are named here and not registered.
  */
 export const TICKET_TRANSITION_CODES = {
   fire: "T1",
+  acknowledge: "T2",
+  start: "T3",
+  ready: "T4",
+  recall: "T5",
+  serve: "T6",
+  void: "T7",
+  reroute: "T9",
+  close: "T11",
+} as const;
+
+/** The acts the ticket lifecycle records, for a read-back or a screen that lists them. */
+export type TicketTransitionName = keyof typeof TICKET_TRANSITION_CODES;
+
+/**
+ * §2.3's lifecycle as one table: which state an act may start from, where it lands, and the
+ * capability it needs. Data rather than a chain of `if`s, for the same reason
+ * `ORDER_TRANSITIONS` is: **the refusal kind depends on it.** A transition attempted from a
+ * state it does not list is a *validation* refusal — nothing written at all, not even a
+ * ledger row — and the sentence says where the ticket has got to instead.
+ *
+ * The `from` lists are §2.3's own, read literally:
+ *   * T2 acknowledge takes `queued` only. Acknowledge is the optional claim, so an already
+ *     acknowledged ticket is not acknowledged twice.
+ *   * T3 start takes `queued` **or** `acknowledged`: this is the kitchen's one tap, and the
+ *     fast path deliberately skips the claim (D8).
+ *   * T4 ready takes `in_prep` only.
+ *   * T5 recall takes `ready` only. From `served` there is nothing to recall — the food left
+ *     the pass — and §2.3 says the honest act there is a void plus a new ticket.
+ *   * T6 serve takes `ready` only: nothing goes to the pass before it is ready.
+ *   * T7 void takes every **non-terminal** state. `served` is excluded on purpose (§2.3's
+ *     own sentence and §2.7's example): voiding served work is a different act with a
+ *     different remedy, and the copy says so.
+ *   * T9 re-route leaves the state alone and takes the three states before `ready`. Once a
+ *     ticket is ready the food exists at that station, so moving the *ticket* would move a
+ *     record and not the plate; that call is a choice §2.3 leaves open, and it is the
+ *     conservative one.
+ *   * T11 close is the booking's own act (`from: ["served"]`, in `ORDER_TRANSITIONS`); the
+ *     row below exists so a read-back or a screen can list all of §2.3 in one place, and
+ *     `closeOutletOrder` in `~/domain/order` is the code that performs it.
+ */
+export interface TicketTransitionRule {
+  /** §2.3's row label — the `transition_code` the journal stores. */
+  code: string;
+  /** The act, and the `intent` its audit row carries. */
+  intent: string;
+  capability: string;
+  from: readonly TicketState[];
+  /** `null` for T9, the one transition that changes the ticket without changing its state. */
+  to: TicketState | null;
+  /** True when the act writes a `reason_code` into the journal — and, for a void, the ticket. */
+  needsReason: boolean;
+}
+
+export const TICKET_TRANSITIONS: Record<
+  "acknowledge" | "start" | "ready" | "recall" | "serve" | "void" | "reroute",
+  TicketTransitionRule
+> = {
+  acknowledge: {
+    code: TICKET_TRANSITION_CODES.acknowledge,
+    intent: "ticket.acknowledge",
+    capability: "kds.ticket.advance",
+    from: ["queued"],
+    to: "acknowledged",
+    needsReason: false,
+  },
+  start: {
+    code: TICKET_TRANSITION_CODES.start,
+    intent: "ticket.start",
+    capability: "kds.ticket.advance",
+    from: ["queued", "acknowledged"],
+    to: "in_prep",
+    needsReason: false,
+  },
+  ready: {
+    code: TICKET_TRANSITION_CODES.ready,
+    intent: "ticket.ready",
+    capability: "kds.ticket.advance",
+    from: ["in_prep"],
+    to: "ready",
+    needsReason: false,
+  },
+  recall: {
+    code: TICKET_TRANSITION_CODES.recall,
+    intent: "ticket.recall",
+    capability: "kds.ticket.recall",
+    from: ["ready"],
+    to: "in_prep",
+    needsReason: true,
+  },
+  serve: {
+    code: TICKET_TRANSITION_CODES.serve,
+    intent: "ticket.serve",
+    capability: "kds.ticket.serve",
+    from: ["ready"],
+    to: "served",
+    needsReason: false,
+  },
+  void: {
+    code: TICKET_TRANSITION_CODES.void,
+    intent: "ticket.void",
+    capability: "kds.ticket.void",
+    from: ["queued", "acknowledged", "in_prep", "ready"],
+    to: "voided",
+    needsReason: true,
+  },
+  reroute: {
+    code: TICKET_TRANSITION_CODES.reroute,
+    intent: "ticket.reroute",
+    capability: "kds.ticket.reroute",
+    // No `to`: a re-route changes the station and leaves the state where it is (§2.3 T9).
+    from: ["queued", "acknowledged", "in_prep"],
+    to: null,
+    needsReason: true,
+  },
+};
+
+/** T11's rule, quoted from the order side so one table describes all of §2.3. */
+export const TICKET_CLOSE_RULE = {
+  code: TICKET_TRANSITION_CODES.close,
+  intent: ORDER_INTENTS.close,
+  capability: "order.close",
+  from: ["served"] as readonly string[],
+  to: "closed" as const,
+};
+
+/**
+ * The reason codes each reasoned act offers, and the only ones it accepts.
+ *
+ * **Why a closed list rather than free text.** A reason code is our vocabulary, not the
+ * operator's prose: it is counted ("how many tickets were voided as dropped this week?"),
+ * and it is rendered through a catalogue key so no screen ever prints a machine value as if
+ * it were English (the fail-open class the copy sweep found 55 times). An unregistered code
+ * is therefore refused — a validation refusal that writes nothing — rather than stored and
+ * later rendered as `unknown_reason` at a person.
+ *
+ * The list is deliberately short and is **this slice's own**: §6.4 names the refusal
+ * sentences but no reason codes, so these are named here; a rename later is a catalogue edit
+ * and a row in this map, not a redesign.
+ */
+export const TICKET_REASON_CODES = {
+  recall: ["marked_ready_in_error", "quality_check_failed"],
+  void: ["dropped", "guest_cancelled", "article_unavailable", "duplicate_ticket"],
+  reroute: ["wrong_station", "station_unavailable"],
+} as const;
+
+export type TicketReasonAct = keyof typeof TICKET_REASON_CODES;
+
+/** The codes one act accepts, as a readonly array of its own union. */
+export function ticketReasonCodes(act: TicketReasonAct): readonly string[] {
+  return TICKET_REASON_CODES[act];
+}
+
+/** The label key for a reason code, or `null` for a code this build does not know. */
+export function ticketReasonLabelKey(code: string): string | null {
+  return TICKET_REASON_LABEL_KEY[code] ?? null;
+}
+
+export const TICKET_REASON_LABEL_KEY: Record<string, string> = {
+  marked_ready_in_error: "ticket.reason.marked_ready_in_error",
+  quality_check_failed: "ticket.reason.quality_check_failed",
+  dropped: "ticket.reason.dropped",
+  guest_cancelled: "ticket.reason.guest_cancelled",
+  article_unavailable: "ticket.reason.article_unavailable",
+  duplicate_ticket: "ticket.reason.duplicate_ticket",
+  wrong_station: "ticket.reason.wrong_station",
+  station_unavailable: "ticket.reason.station_unavailable",
+};
+
+/**
+ * A ticket state code is a code in the database and a word on a screen. One key per state,
+ * an explicit map, **no fallback** — the same discipline `ORDER_STATUS_LABEL_KEY` follows.
+ * `ticket.state.*` rather than `order.line.state.*` is §6.3's own named key space.
+ */
+export const TICKET_STATE_LABEL_KEY: Record<TicketState, string> = {
+  queued: "ticket.state.queued",
+  acknowledged: "ticket.state.acknowledged",
+  in_prep: "ticket.state.in_prep",
+  ready: "ticket.state.ready",
+  served: "ticket.state.served",
+  voided: "ticket.state.voided",
+  held_unavailable: "ticket.state.held_unavailable",
+};
+
+/** The label key for a ticket state, or `null` — never a neighbouring state's word. */
+export function ticketStateLabelKey(state: string): string | null {
+  return (TICKET_STATE_LABEL_KEY as Record<string, string | undefined>)[state] ?? null;
+}
+
+/**
+ * §2.3's acts in words, one key per transition code. The code stays the code in the journal
+ * and in an identifier position; this is what a button or a ledger line reads as.
+ */
+export const TICKET_TRANSITION_LABEL_KEY: Record<string, string> = {
+  [TICKET_TRANSITION_CODES.acknowledge]: "ticket.action.acknowledge",
+  [TICKET_TRANSITION_CODES.start]: "ticket.action.start",
+  [TICKET_TRANSITION_CODES.ready]: "ticket.action.ready",
+  [TICKET_TRANSITION_CODES.recall]: "ticket.action.recall",
+  [TICKET_TRANSITION_CODES.serve]: "ticket.action.serve",
+  [TICKET_TRANSITION_CODES.void]: "ticket.action.void",
+  [TICKET_TRANSITION_CODES.reroute]: "ticket.action.reroute",
+  [TICKET_TRANSITION_CODES.close]: "ticket.action.close",
+};
+
+/** The label key for a transition code, or `null` — never a neighbouring act's word. */
+export function ticketTransitionLabelKey(code: string): string | null {
+  return TICKET_TRANSITION_LABEL_KEY[code] ?? null;
+}
+
+/**
+ * The validation refusals the ticket lifecycle raises, each with the sentence it reads as.
+ *
+ * Four of them are §6.4's own sentences (`kds.refusal.movedOn`, `voidedTicket`,
+ * `heldTicket`, `recallFromServed`) and keep the designer's wording verbatim — the rest are
+ * additions in the same shape, each marked as one where it is declared in the catalog. A
+ * **validation** refusal aborts its transaction and writes nothing at all, so these
+ * sentences are the only record the act leaves; every one of them says what to do next.
+ *
+ * `params.state` carries a *state code*, and the screen words it through
+ * `ticketStateLabelKey` — the domain has no locale and must not invent one.
+ */
+export const TICKET_VALIDATION_KEY = {
+  /** The ticket moved on: zero rows matched the state the caller expected (§2.3's rule). */
+  movedOn: "kds.refusal.movedOn",
+  /** T2–T4 against a voided ticket. */
+  voided: "kds.refusal.voidedTicket",
+  /** T2–T4 against a held ticket — §2.6's decision comes first. */
+  held: "kds.refusal.heldTicket",
+  /** T5 from `served`: the honest act is a void plus a new ticket (§2.3). */
+  recallFromServed: "kds.refusal.recallFromServed",
+  /** T7 against a `served` ticket: the food left the pass. Addition to §6.4. */
+  voidServed: "ticket.validation.voidServed",
+  /** No reason code at all where one is required (§2.3's reason column). */
+  reasonRequired: "order.validation.reasonRequired",
+  /** A reason code this act does not offer. Addition to §6.4. */
+  reasonUnknown: "ticket.validation.reasonUnknown",
+  /** T9 with no target station. Addition to §6.4. */
+  rerouteTargetRequired: "ticket.validation.rerouteTargetRequired",
+  /** T9 to the station the ticket is already on. Addition to §6.4. */
+  rerouteSameStation: "ticket.validation.rerouteSameStation",
+  /** T9 to a station that already has a ticket for this booking (the D5 one-ticket rule). */
+  rerouteStationTaken: "ticket.validation.rerouteStationTaken",
+  /** The same fact as the one-ticket-per-station key sees it, when the write raced the check. */
+  rerouteStationBusy: "ticket.validation.rerouteStationBusy",
+  /** The ticket is not one this caller's tenant may touch — worded, never confirmed. */
+  crossTenant: "kds.refusal.notYourStation",
 } as const;
 
 /**

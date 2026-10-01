@@ -811,8 +811,18 @@ select code.code,
        code.site_scope,
        false,
        code.financial,
-       -- S-A registered the display and kitchen codes; S-B/1 registered the booking side's.
-       case when code.code like 'order.%' then 'display-sB1' else 'display-sA' end
+       -- S-A registered the display and kitchen codes; S-B/1 the booking side's; S-B/2b
+       -- implemented the five ticket mutations (§2.3 T2–T7, T9). Registration and
+       -- implementation are different claims and this column is where they differ:
+       -- migration 0015 makes the same correction in a live database, which cannot be
+       -- re-seeded. `kds.ticket.view` keeps `display-sA` on purpose — its read path is the
+       -- station screen's, which is S-C's, so the value is still the honest one.
+       case
+         when code.code like 'order.%' then 'display-sB1'
+         when code.code in ('kds.ticket.advance', 'kds.ticket.serve', 'kds.ticket.recall',
+                            'kds.ticket.reroute', 'kds.ticket.void') then 'display-sB2b'
+         else 'display-sA'
+       end
   from code
 on conflict (code) do update set
   module = excluded.module, name = excluded.name, description = excluded.description,

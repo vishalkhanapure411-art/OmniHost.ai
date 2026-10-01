@@ -555,7 +555,7 @@ try {
   t.json(`${articleC.code} (no route, no default) resolves to`, resolvedC);
   t.check("the unrouted line is reported unrouted, never dropped", resolvedC.unrouted === true);
   t.equal("and falls to the outlet's pass — a real station, not an invention", resolvedC.targets[0]?.sectionId, pass?.id);
-  t.equal("recorded as the expedite fallback", resolvedC.targets[0]?.routeSource, "expedite_fallback");
+  t.equal("recorded as unrouted, the same value the fire path records (lead ruling, 1 Oct 2026)", resolvedC.targets[0]?.routeSource, "unrouted");
   t.equal("with nothing outstanding, because the pass exists", resolvedC.needsPassSection, false);
 
   if (noPass) {
