@@ -158,13 +158,19 @@ export const ORDER_VALIDATION_KEY = {
   linesRequired: "order.validation.linesRequired",
   quantityInvalid: "order.validation.quantityInvalid",
   articleUnknown: "order.validation.articleUnknown",
+  // A line with no article at all names nothing, so it is its own sentence.
+  articleRequired: "order.validation.articleRequired",
   articleNotSellable: "order.validation.articleNotSellable",
   priceMissing: "order.validation.priceMissing",
   priceAmbiguous: "order.validation.priceAmbiguous",
   taxClassMissing: "order.validation.taxClassMissing",
   taxRateMissing: "order.validation.taxRateMissing",
+  // Not a number at all: nothing to quote back, so it is its own sentence.
+  serviceChargeNotANumber: "order.validation.serviceChargeNotANumber",
   serviceChargeOutOfRange: "order.validation.serviceChargeOutOfRange",
   currencyUnknown: "order.validation.currencyUnknown",
+  // Priced in a currency this outlet does not trade in. Separately actionable from a currency this build cannot convert at all.
+  currencyMismatch: "order.validation.currencyMismatch",
   outletUnknown: "order.validation.outletUnknown",
   originUnknown: "order.validation.originUnknown",
   referenceTaken: "order.validation.referenceTaken",

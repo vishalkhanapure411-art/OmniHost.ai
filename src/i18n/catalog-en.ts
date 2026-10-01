@@ -2361,6 +2361,105 @@ export const enIN = {
   "display.notice.deactivated": "{display} was deactivated.",
   "display.error.load": "The estate could not be read.",
 
+  // ── The booking side (order core, slice S-B/1) ───────────────────────────────
+  // What a booking reads as — its status, each line's state, the channel it came from and
+  // the sentence each refusal carries — as `DESIGN-kds-and-ticket-routing.md` §2.1–§2.4
+  // define them. The keys are the ones `src/domain/order-rules.ts` addresses, and every one
+  // of them is resolved from an explicit map with an enumerated union, never
+  // a key built from a template literal over the status: that shape fails *open* and prints itself
+  // (§6.8, DECISIONS.md:117).
+  //
+  // §6.8's discipline, applied: a status, a channel and a refusal are **words**, because a
+  // person reads them as prose; the stored code stays on the row and in the chip beside the
+  // word, where an operator quoting a booking needs it. So nothing below prints `in_prep`,
+  // `guest_app` or a version's raw status at a person.
+  //
+  // The refusal differentiator is stated in words. A **capability** refusal is recorded as a
+  // denied audit row and changes nothing, so its sentence says "nothing has changed". A
+  // **validation** refusal writes nothing at all — no ledger row, so the screen is its only
+  // record — and each sentence below says what to do next instead of claiming that something
+  // was written. Each also names the failed check in words rather than by code.
+
+  // The outlet order's states (§2.1). `draft` and `rejected` exist in the PRD's list and are
+  // not reachable in this slice, so they have no word here.
+  "order.status.placed": "Placed",
+  "order.status.accepted": "Accepted",
+  "order.status.fired": "Sent to the kitchen",
+  "order.status.in_progress": "Being prepared",
+  "order.status.ready": "Ready",
+  "order.status.served": "Served",
+  "order.status.closed": "Closed",
+  "order.status.cancelled": "Cancelled",
+
+  // A line's own state. The production words are deliberately the same as the order's, so a
+  // line and the ticket carrying it never read as two different things.
+  "order.line.state.placed": "Placed",
+  "order.line.state.fired": "Sent to the kitchen",
+  "order.line.state.in_prep": "Being prepared",
+  "order.line.state.ready": "Ready",
+  "order.line.state.served": "Served",
+  "order.line.state.voided": "Voided",
+  "order.line.state.held_unavailable": "Held — not available",
+
+  // Where a booking came from: a channel, not a device (§2.2). The three a booking shares
+  // with an article's selling channels read as the article's do (`mdm.article.channel.*`),
+  // so one channel has one word across the console; `guest_app` and `chat` are the order
+  // side's own.
+  "order.origin.pos": "POS",
+  "order.origin.kiosk": "Kiosk",
+  "order.origin.tab": "Tab",
+  "order.origin.guest_app": "Guest app",
+  "order.origin.chat": "Chat",
+
+  // The validation refusals (§2.7's ledger rule). One sentence each, no code in prose, and
+  // each says what to do next. Most carry a `{placeholder}`; the refusals whose call site has
+  // no value to interpolate — a line with no article at all, a service charge that is not a
+  // number, and a price in a currency the outlet does not trade in — have their own key
+  // rather than a sentence with an unfilled placeholder on screen.
+  "order.validation.linesRequired":
+    "A booking needs at least one item. Add one before taking the booking.",
+  "order.validation.quantityInvalid":
+    "{value} is not a whole number of one or more, so this line cannot be booked. Correct the quantity and add it again.",
+  "order.validation.articleRequired":
+    "A booking line needs an item. Choose one from this outlet's menu.",
+  "order.validation.articleUnknown":
+    "{article} is not one of this chain's articles, so it cannot be booked. Choose an article this chain sells.",
+  "order.validation.articleNotSellable":
+    "{article} is on version {version}, which is not a version anyone may sell. Get that version approved, then book it.",
+  "order.validation.priceMissing":
+    "{article} has no price at this outlet on {date}. Price it for this outlet, then book it.",
+  "order.validation.priceAmbiguous":
+    "{article} has {count} prices open at this outlet on {date}, so the price to sell it at is unclear. Close the extra window, then book it.",
+  "order.validation.taxClassMissing":
+    "{article} has no tax class, so its tax cannot be resolved. Set one on its version, then book it.",
+  "order.validation.taxRateMissing":
+    "{taxClass} has no tax rate in force on {date} for a sale inside the state, and the platform will not price a line at a tax it has not resolved. Add the rate, then book it.",
+  "order.validation.serviceChargeNotANumber":
+    "The service charge setting is not a number, so this booking cannot be priced. Correct it for this site, then book it.",
+  "order.validation.serviceChargeOutOfRange":
+    "The service charge is set to {value}, outside the {min} to {max} the platform allows. Correct it for this site, then book it.",
+  "order.validation.currencyUnknown":
+    "This build has no minor-unit rule for {currency}, so it will not price a line in it. Report the currency rather than booking it.",
+  "order.validation.currencyMismatch":
+    "{article} is priced in {price} and this outlet trades in {outlet}. Correct the price for this outlet, then book it.",
+  "order.validation.outletUnknown":
+    "That outlet is not one this chain has. Reload the screen and choose an outlet of this chain.",
+  "order.validation.originUnknown":
+    "{origin} is not a booking channel this build knows. Reload the screen and book through one of the channels it offers.",
+  "order.validation.referenceTaken":
+    "That guest reference is already in use at this site today. Use a different one.",
+  // The three transition refusals. Each says where the booking has got to instead of naming
+  // the stored state, because "it can only be cancelled from placed" is a sentence about the
+  // database, not about the guest's order.
+  "order.validation.notAccepted":
+    "A booking is accepted as soon as it is taken, so there is nothing left to accept on this one — it has moved on. Reload it to see where it has got to.",
+  "order.validation.cannotCancel":
+    "A booking can only be cancelled before it goes to the kitchen, and this one has already moved on. Reload it to see where it has got to — a dish already fired is voided at its station.",
+  "order.validation.notServed":
+    "A booking is closed once it has been served, and this one has not been served yet. Reload it to see where it has got to.",
+  "order.validation.reasonRequired":
+    "This needs a reason. Enter why it is being done, then continue.",
+
   // The design gallery's preview of this screen's gate states. The pilot chain holds Gold
   // with both switches on, so neither refusal is reachable from its data; the gallery shows
   // them rather than the owner's chain rows being edited to make one appear.

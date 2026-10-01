@@ -247,7 +247,7 @@ export async function priceArticleAtOutlet(
 ): Promise<PricingFacts> {
   const code = input.articleCode.trim();
   if (!code) {
-    throw validation("A booking line needs an article.", ORDER_VALIDATION_KEY.articleUnknown);
+    throw validation("A booking line needs an article.", ORDER_VALIDATION_KEY.articleRequired);
   }
   const rows = await db.query<{
     article_id: string;
@@ -420,7 +420,7 @@ export async function resolveServiceChargePercent(
   if (!Number.isFinite(value)) {
     throw validation(
       "The service charge setting is not a number, so the booking cannot be priced.",
-      ORDER_VALIDATION_KEY.serviceChargeOutOfRange
+      ORDER_VALIDATION_KEY.serviceChargeNotANumber
     );
   }
   const min = row.min_value === null ? null : Number(row.min_value);
@@ -486,7 +486,7 @@ async function prepareLines(
     if (facts.currencyCode !== ctx.currency) {
       throw validation(
         `${facts.articleName ?? facts.articleCode} is priced in ${facts.currencyCode} and this outlet trades in ${ctx.currency}.`,
-        ORDER_VALIDATION_KEY.currencyUnknown,
+        ORDER_VALIDATION_KEY.currencyMismatch,
         { article: facts.articleName ?? facts.articleCode, price: facts.currencyCode, outlet: ctx.currency }
       );
     }
