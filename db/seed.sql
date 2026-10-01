@@ -725,7 +725,8 @@ select r.id, p.id
 on conflict (role_id, permission_id) do nothing;
 
 -- ---------------------------------------------------------------------------
--- 8. The display layer — DESIGN-kds-and-ticket-routing.md §2.4, slice S-A.
+-- 8. The display layer (DESIGN-kds-and-ticket-routing.md §2.4, slice S-A) and the booking
+--    side's own codes (§2.3 T11, §2.4; slice S-B/1).
 --
 --    Registered here, in the reference-data half of the seed, for the same reason every
 --    other code is: the tool registry is the platform's own vocabulary and it is
@@ -733,7 +734,7 @@ on conflict (role_id, permission_id) do nothing;
 --    this half of the seed can be applied on its own (`bun run db:seed:reference`) without
 --    re-loading the demo dataset.
 --
---    Three things this block is, and is not:
+--    Four things this block is, and is not:
 --
 --    * **No new role.** §2.4 item 1: there is no KITCHEN role and we must not invent one.
 --      The PRD's "kitchen hand" is the Site Culinary Team — the role the function grid
@@ -748,6 +749,11 @@ on conflict (role_id, permission_id) do nothing;
 --      principals only. A person holding a console role never reads the CDS surface; a
 --      paired CDS terminal does, and its capability set is fixed by its display kind
 --      (`src/domain/display.ts`), not by role_permission.
+--    * **`order.close` is an addition to §2.4, and marked as one.** §2.3's T11 names
+--      `order.close` in its capability column and §2.4's table never registers it, so
+--      without a row here T11 is a transition no role may make. It is granted to the roles
+--      T11 names — Site Operations Team and Site Head — and its `implemented_in` reads
+--      `display-sB1`, so the registered codes stay distinguishable from the one we added.
 --
 --    Ordering note, and it is a correction rather than a reassurance. The blanket upserts
 --    earlier in this file (`p.code like '%.view'` for Site Head, `'%.approve.site'`) run
@@ -787,6 +793,8 @@ with code (code, kind, site_scope, financial, name, description) as (values
    'Resolves each line to a producing station and creates the tickets. An unrouted line is flagged and still fired, never dropped (§1.4 item 4).'),
   ('order.cancel',          'mutation', true,  true,  'Cancel a booking',
    'Before fire. A charged line''s cancellation is the money layer''s, and re-enters with it.'),
+  ('order.close',           'mutation', true,  true,  'Close a booking',
+   'Addition to §2.4: §2.3 T11 names order.close and §2.4 registers nothing, so without this row T11 is a transition no role may make. Granted to the roles T11 names.'),
   ('cds.display.view',      'query',    true,  false, 'Render the guest display',
    'Guest-display device principals only. Shows the FSSAI fields of the version pinned at booking and no money at all (D14, D15).')
 )
@@ -803,7 +811,8 @@ select code.code,
        code.site_scope,
        false,
        code.financial,
-       'display-sA'
+       -- S-A registered the display and kitchen codes; S-B/1 registered the booking side's.
+       case when code.code like 'order.%' then 'display-sB1' else 'display-sA' end
   from code
 on conflict (code) do update set
   module = excluded.module, name = excluded.name, description = excluded.description,
@@ -812,7 +821,8 @@ on conflict (code) do update set
   check_function = excluded.check_function, financial_or_stock = excluded.financial_or_stock,
   implemented_in = excluded.implemented_in;
 
--- role → capability, exactly the table in §2.4. Read it as the recommendation it is: the
+-- role → capability: §2.4's table, plus the one code §2.3's T11 names and §2.4 does not
+-- (`order.close`, marked above). Read it as the recommendation it is: the
 -- roles are the function grid's own, and no capability is granted to a role the grid does
 -- not already have.
 with display_grant (permission_code, role_code) as (values
@@ -854,7 +864,10 @@ with display_grant (permission_code, role_code) as (values
   ('order.fire',         'SITE_OPERATIONS_TEAM'),
   ('order.fire',         'SITE_HEAD'),
   ('order.cancel',       'SITE_OPERATIONS_TEAM'),
-  ('order.cancel',       'SITE_HEAD')
+  ('order.cancel',       'SITE_HEAD'),
+  -- T11's capability, whose roles are §2.3's rather than §2.4's (see the section header).
+  ('order.close',        'SITE_OPERATIONS_TEAM'),
+  ('order.close',        'SITE_HEAD')
 )
 insert into role_permission (role_id, permission_id)
 select r.id, p.id

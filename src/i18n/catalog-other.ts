@@ -468,6 +468,67 @@ export const hiIN: Partial<Record<MessageKey, string>> = {
   "config.locale.column.locale": "डिफ़ॉल्ट भाषा",
   "config.locale.column.timezone": "समय क्षेत्र",
   "config.locale.inherit": "चेन का अनुसरण करें",
+
+  // बुकिंग पक्ष (ऑर्डर कोर, स्लाइस S-B/1) — स्थितियाँ, पंक्ति की अवस्थाएँ, चैनल और हर इनकार का
+  // वाक्य। हर स्थिति, चैनल और इनकार शब्दों में है; कच्चा कोड पंक्ति पर और शब्द के बगल वाले चिप
+  // में रहता है। नियम वही है: इनकार लिखा जाता है तो वाक्य कहता है कि कुछ नहीं बदला, और जाँच
+  // विफल होने पर कुछ भी नहीं लिखा जाता — इसलिए वह वाक्य बताता है कि आगे क्या करें।
+  "order.status.placed": "दर्ज",
+  "order.status.accepted": "स्वीकृत",
+  "order.status.fired": "रसोई को भेजा",
+  "order.status.in_progress": "तैयार हो रहा है",
+  "order.status.ready": "तैयार",
+  "order.status.served": "परोसा गया",
+  "order.status.closed": "बंद",
+  "order.status.cancelled": "रद्द",
+  "order.line.state.placed": "दर्ज",
+  "order.line.state.fired": "रसोई को भेजा",
+  "order.line.state.in_prep": "तैयार हो रहा है",
+  "order.line.state.ready": "तैयार",
+  "order.line.state.served": "परोसा गया",
+  "order.line.state.voided": "निरस्त",
+  "order.line.state.held_unavailable": "रोका गया — उपलब्ध नहीं",
+  "order.origin.pos": "बिक्री काउंटर",
+  "order.origin.kiosk": "कियोस्क",
+  "order.origin.tab": "टैब",
+  "order.origin.guest_app": "अतिथि ऐप",
+  "order.origin.chat": "चैट",
+  "order.validation.linesRequired": "बुकिंग में कम से कम एक वस्तु चाहिए। बुकिंग लेने से पहले एक जोड़ें।",
+  "order.validation.quantityInvalid":
+    "{value} एक या अधिक की पूर्ण संख्या नहीं है, इसलिए यह पंक्ति दर्ज नहीं हो सकती। संख्या ठीक करके फिर जोड़ें।",
+  "order.validation.articleRequired": "बुकिंग की पंक्ति में एक वस्तु चाहिए। इस आउटलेट के मेन्यू से एक चुनें।",
+  "order.validation.articleUnknown":
+    "{article} इस चेन की वस्तु नहीं है, इसलिए इसे दर्ज नहीं किया जा सकता। इस चेन की कोई वस्तु चुनें।",
+  "order.validation.articleNotSellable":
+    "{article} संस्करण {version} पर है, जिसे बेचा नहीं जा सकता। पहले वह संस्करण स्वीकृत कराएँ, फिर दर्ज करें।",
+  "order.validation.priceMissing":
+    "{date} को इस आउटलेट पर {article} का कोई मूल्य नहीं है। इस आउटलेट के लिए मूल्य तय करें, फिर दर्ज करें।",
+  "order.validation.priceAmbiguous":
+    "{date} को इस आउटलेट पर {article} के {count} मूल्य खुले हैं, इसलिए बेचने का मूल्य स्पष्ट नहीं है। अतिरिक्त अवधि बंद करें, फिर दर्ज करें।",
+  "order.validation.taxClassMissing":
+    "{article} में कर वर्ग नहीं है, इसलिए उसका कर तय नहीं हो सकता। उसके संस्करण पर कर वर्ग सेट करें, फिर दर्ज करें।",
+  "order.validation.taxRateMissing":
+    "{date} को राज्य के भीतर बिक्री के लिए {taxClass} की कोई कर दर लागू नहीं है, और प्लेटफ़ॉर्म बिना तय किए गए कर पर मूल्य नहीं लगाता। दर जोड़ें, फिर दर्ज करें।",
+  "order.validation.serviceChargeNotANumber":
+    "सेवा शुल्क की सेटिंग संख्या नहीं है, इसलिए इस बुकिंग का मूल्य नहीं लगाया जा सकता। इस साइट के लिए इसे ठीक करें, फिर दर्ज करें।",
+  "order.validation.serviceChargeOutOfRange":
+    "सेवा शुल्क {value} पर सेट है, जो प्लेटफ़ॉर्म की अनुमत {min} से {max} की सीमा के बाहर है। इस साइट के लिए इसे ठीक करें, फिर दर्ज करें।",
+  "order.validation.currencyUnknown":
+    "इस बिल्ड में {currency} के लघु-इकाई नियम नहीं हैं, इसलिए यह उसमें कोई पंक्ति दर्ज नहीं करेगा। बुक करने के बजाय मुद्रा की सूचना दें।",
+  "order.validation.currencyMismatch":
+    "{article} का मूल्य {price} में है और यह आउटलेट {outlet} में व्यापार करता है। इस आउटलेट का मूल्य ठीक करें, फिर दर्ज करें।",
+  "order.validation.outletUnknown":
+    "यह आउटलेट इस चेन का नहीं है। स्क्रीन फिर से लोड करें और इस चेन का आउटलेट चुनें।",
+  "order.validation.originUnknown":
+    "{origin} कोई ज्ञात बुकिंग चैनल नहीं है। स्क्रीन फिर से लोड करें और दिए गए चैनलों में से एक से बुक करें।",
+  "order.validation.referenceTaken": "यह अतिथि संदर्भ आज इस साइट पर पहले से इस्तेमाल में है। दूसरा चुनें।",
+  "order.validation.notAccepted":
+    "बुकिंग लेते ही स्वीकृत हो जाती है, इसलिए इस पर स्वीकार करने के लिए कुछ बाकी नहीं है — यह आगे बढ़ चुकी है। फिर से लोड करके देखें कि यह कहाँ तक पहुँची है।",
+  "order.validation.cannotCancel":
+    "बुकिंग रसोई में जाने से पहले ही रद्द की जा सकती है, और यह आगे बढ़ चुकी है। फिर से लोड करके देखें कि यह कहाँ तक पहुँची है — रसोई में जा चुका व्यंजन उसके स्टेशन पर निरस्त किया जाता है।",
+  "order.validation.notServed":
+    "बुकिंग परोसे जाने के बाद बंद होती है, और यह अभी परोसी नहीं गई। फिर से लोड करके देखें कि यह कहाँ तक पहुँची है।",
+  "order.validation.reasonRequired": "इसके लिए कारण चाहिए। क्यों किया जा रहा है, लिखें और आगे बढ़ें।",
 };
 
 /** Latin → look-alike mapping used by the right-to-left layout test. */
