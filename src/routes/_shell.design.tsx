@@ -41,6 +41,7 @@ import { MoneyCell, MoneyValue, QuantityValue, TimestampValue } from "~/componen
 import { AlertTriangle, Chat, Check, Globe, InfoCircle, Layers, Lock, Store, XCircle } from "~/components/icons";
 import { LOCALES, catalogCoverage } from "~/i18n/locales";
 import { channelLabel } from "~/i18n/domain-labels";
+import { codedMessage, tierLabel } from "~/i18n/labels";
 import { useI18n } from "~/i18n";
 import type { Money } from "~/i18n/format";
 
@@ -78,6 +79,7 @@ function DesignGallery() {
         <FeedbackSection />
         <MoneySection />
         <ChatSection />
+        <DisplaysGateSection />
         <PatternSection />
       </div>
     </>
@@ -811,6 +813,53 @@ function ChatSection() {
           {t("pattern.chatcard.committed")}
         </div>
         <TimestampValue value={due} mode="weekday" className="text-xs text-fg-muted" />
+      </div>
+    </Section>
+  );
+}
+
+// ── The display estate's two licence sentences (S4) ─────────────────────────────
+
+/**
+ * The `permission.licence.*` sentences, **shown here because the pilot's own data cannot
+ * produce them**: `saffron-table` is Gold with both `kds_multi_station` and `cds` switched
+ * on, so neither gate is reachable from the demo database — and flipping the owner's
+ * `chain_feature` rows to make one appear would be editing their data to stage a shot.
+ *
+ * The gallery is the honest alternative: the same two catalogue sentences the refusal path
+ * renders, with the captions that say which gate is holding. The sentences stay distinct on
+ * purpose (lead ruling, 29 Sept 2026) — a licence that does not cover a module and a module
+ * the chain switched off are different facts with different remedies, and collapsing them
+ * would name the wrong remedy.
+ */
+function DisplaysGateSection() {
+  const { t } = useI18n();
+  const feature = "KDS multi-station routing";
+  return (
+    <Section title={t("design.displays.title")} body={t("design.displays.body")} id="displays">
+      <div className="flex flex-col gap-3">
+        <Card>
+          <CardHeader title={t("design.displays.tier")} />
+          <div className="p-4 text-sm text-fg-muted">
+            {codedMessage(t, "permission.licence.tierBelow", {
+              capability: feature,
+              minTier: tierLabel(t, "gold"),
+              tier: tierLabel(t, "silver"),
+            })}
+          </div>
+        </Card>
+        <Card>
+          <CardHeader title={t("design.displays.switch")} />
+          <div className="p-4 text-sm text-fg-muted">
+            {codedMessage(t, "permission.licence.moduleOff", { module: feature })}
+          </div>
+        </Card>
+        <Card>
+          <CardHeader title={t("design.displays.readOnly")} />
+          <div className="p-4 text-sm text-fg-muted">
+            {t("display.manage.readOnly", { permission: "display.manage" })}
+          </div>
+        </Card>
       </div>
     </Section>
   );
