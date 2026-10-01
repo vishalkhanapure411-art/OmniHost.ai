@@ -163,13 +163,16 @@ async function articleIdFor(db: Queryable, chainId: string, code: string): Promi
 }
 
 /**
- * Migration 0012's `order_line_arithmetic`, asked **one clause at a time** over a set of
+ * Migration 0013's `order_line_arithmetic`, asked **one clause at a time** over a set of
  * numbers, so the clause that fails is named rather than implied. The database evaluates the
- * three identities itself, which is the only authority on what the constraint accepts.
+ * identities itself, which is the only authority on what the constraint accepts. The first
+ * clause is the branch-dependent one: an inclusive line's menu amount is its unit price times
+ * its quantity (the tax is extracted from it), an exclusive line's net is.
  */
 async function arithmeticClauses(numbers: {
   unitAmountMinor: number;
   quantity: number;
+  taxInclusive: boolean;
   netMinor: number;
   taxMinor: number;
   amountMinor: number;
@@ -177,11 +180,14 @@ async function arithmeticClauses(numbers: {
   totalMinor: number;
 }): Promise<string> {
   const rows = await q.query<{
-    net_is_unit_times_qty: boolean;
+    branch_identity: boolean;
     amount_is_net_plus_tax: boolean;
     total_is_amount_plus_sc: boolean;
   }>(
-    `select ($1::int = $2::int * $3::int) as net_is_unit_times_qty,
+    `select (
+              ($8::boolean and $4::int = $2::int * $3::int)
+              or ((not $8::boolean) and $1::int = $2::int * $3::int)
+            ) as branch_identity,
             ($4::int = $1::int + $5::int) as amount_is_net_plus_tax,
             ($6::int = $4::int + $7::int) as total_is_amount_plus_sc`,
     [
@@ -192,10 +198,12 @@ async function arithmeticClauses(numbers: {
       numbers.taxMinor,
       numbers.totalMinor,
       numbers.serviceChargeMinor,
+      numbers.taxInclusive,
     ]
   );
   const id = rows[0];
-  return `net = unit x qty -> ${String(id?.net_is_unit_times_qty)} | line_amount = net + tax -> ${String(
+  const branch = numbers.taxInclusive ? "inclusive: line_amount = unit x qty" : "exclusive: net = unit x qty";
+  return `${branch} -> ${String(id?.branch_identity)} | line_amount = net + tax -> ${String(
     id?.amount_is_net_plus_tax
   )} | line_total = line_amount + service_charge -> ${String(id?.total_is_amount_plus_sc)}`;
 }
@@ -314,6 +322,16 @@ async function main(): Promise<void> {
   const serviceChargePercent = await resolveServiceChargePercent(q, { chainId: o.chain_id, siteId: o.site_id });
   t.say(`service charge resolved by the domain: ${String(serviceChargePercent)} per cent`);
 
+  // The constraint the booking is up against, read from the catalog rather than described: the
+  // branch-dependent clause was the defect S-B/1c found (0012 -> 0013).
+  await block(
+    "the order_line_arithmetic the database actually enforces",
+    `select pg_get_constraintdef(c.oid) as line
+       from pg_constraint c
+       join pg_class t on t.oid = c.conrelid
+      where t.relname = 'order_line' and c.conname = 'order_line_arithmetic'`
+  );
+
   // (a) the routing map — empty at the start of this session, and §11.3 item 2 needs three stations.
   const routeIds: string[] = [];
   for (const line of FIXTURE_LINES) {
@@ -422,7 +440,7 @@ async function main(): Promise<void> {
     );
     t.say("");
     t.say(
-      "no row was stored, so the pricing is read back from the resolution the code performs (read-only) and each line's arithmetic is tested clause by clause against migration 0012's order_line_arithmetic:"
+      "no row was stored, so the pricing is read back from the resolution the code performs (read-only) and each line's arithmetic is tested clause by clause against the order_line_arithmetic the database enforces:"
     );
     let sumNet = 0;
     let sumTax = 0;
@@ -466,7 +484,7 @@ async function main(): Promise<void> {
       t.say(
         `    arithmetic   : qty ${String(line.quantity)} x unit ${String(unit)} = ${String(unit * line.quantity)} | net ${String(a.netMinor)} | tax ${String(a.taxMinor)} | line amount ${String(a.amountMinor)} | service charge ${String(a.serviceChargeMinor)} | line total ${String(a.totalMinor)}`
       );
-      t.say(`    constraint   : ${await arithmeticClauses({ ...a, quantity: line.quantity })}`);
+      t.say(`    constraint   : ${await arithmeticClauses({ ...a, quantity: line.quantity, taxInclusive: facts.taxInclusive })}`);
     }
     t.say(
       `  the outlet_order the code would have written: subtotal ${money(sumAmount, o.currency)} (sum of line amounts), tax ${money(sumTax, o.currency)}, service charge ${money(sumServiceCharge, o.currency)}, total ${money(sumAmount + sumServiceCharge, o.currency)}; net of tax ${money(sumNet, o.currency)}`
@@ -602,12 +620,13 @@ async function main(): Promise<void> {
         unitFromMaster === line.unitAmountMinor,
         `master ${String(unitFromMaster)} vs pinned ${String(line.unitAmountMinor)}`
       );
-      // The three identities migration 0012 makes structural, asked one at a time against the
+      // The identities the constraint makes structural, asked one at a time against the
       // numbers the database actually stored — so the failing clause is named, not implied.
       t.say(
-        `    migration 0012's order_line_arithmetic, clause by clause: ${await arithmeticClauses({
+        `    the order_line_arithmetic the database enforces, clause by clause: ${await arithmeticClauses({
           unitAmountMinor: line.unitAmountMinor,
           quantity: line.quantity,
+          taxInclusive: line.taxInclusive,
           netMinor: line.netAmountMinor,
           taxMinor: line.taxAmountMinor,
           amountMinor: line.amountMinor,
@@ -666,6 +685,39 @@ async function main(): Promise<void> {
     "and no audit row either — the ledger's gap is deliberate",
     afterValidation.audits === beforeValidation.audits,
     `${String(beforeValidation.audits)} -> ${String(afterValidation.audits)}`
+  );
+
+  // (d-bis) the same refusal, in its bluntest form: an order with NO lines at all. `order.ts`
+  // refuses it at the door (`A booking needs at least one line.`), so nothing is resolved, no
+  // insert is attempted and the ledger must not move.
+  const beforeEmpty = await counts();
+  t.say("");
+  t.say("a validation refusal (a booking with no lines at all):");
+  try {
+    await bookOutletOrder(author, {
+      outletId: o.id,
+      origin: "pos",
+      serviceReference: "SB1C-NO-LINES",
+      lines: [],
+    });
+    t.failures.push("the empty booking was NOT refused");
+    t.say("  UNEXPECTED: it was accepted");
+  } catch (error) {
+    t.say(`  refused with: ${errorMessage(error)}`);
+  }
+  const afterEmpty = await counts();
+  t.say(countsLine("  before the refusal", beforeEmpty));
+  t.say(countsLine("  after the refusal ", afterEmpty));
+  t.check(
+    "the empty booking wrote no order, no outlet order and no line",
+    afterEmpty.orders === beforeEmpty.orders &&
+      afterEmpty.outletOrders === beforeEmpty.outletOrders &&
+      afterEmpty.orderLines === beforeEmpty.orderLines
+  );
+  t.check(
+    "and no audit row either — a zero-line booking is refused before the first insert",
+    afterEmpty.audits === beforeEmpty.audits,
+    `${String(beforeEmpty.audits)} -> ${String(afterEmpty.audits)}`
   );
 
   // (e) a CAPABILITY refusal: a real account that does not hold order.book.

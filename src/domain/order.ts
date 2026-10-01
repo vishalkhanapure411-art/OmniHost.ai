@@ -54,12 +54,16 @@ import {
  *     only for a currency this build has an exponent for; an unknown currency is a refusal,
  *     not a guess.
  *
- * The amounts, stated so they can be re-checked against the database by hand:
+ * The amounts, stated so they can be re-checked against the database by hand. The first identity is
+ * the one that depends on the tax class, so it is written twice — the menu price of an
+ * **inclusive** class *is* the gross the guest pays (the tax is extracted from it), while an
+ * **exclusive** class has the tax added on top:
  *
  *     unit_amount_minor            = round(article_price.amount x 10^exponent)   [INR: x100]
- *     net_amount_minor             = unit_amount_minor x quantity
+ *     inclusive:  line_amount_minor = unit_amount_minor x quantity
+ *     exclusive:  net_amount_minor  = unit_amount_minor x quantity
  *     tax_amount_minor             = inclusive: amount - net   | exclusive: round(net x rate%)
- *     line_amount_minor            = net + tax                  (what the menu prints)
+ *     line_amount_minor            = net + tax
  *     service_charge_amount_minor  = round(net x service_charge_percent / 100)
  *     line_total_minor             = line_amount_minor + service_charge_amount_minor
  *     outlet_order.subtotal_minor  = SUM(line_amount_minor)
@@ -67,9 +71,10 @@ import {
  *     outlet_order.service_charge_minor = SUM(service_charge_amount_minor)
  *     outlet_order.total_minor     = subtotal_minor + service_charge_minor
  *
- * Every identity in that list is a check constraint on `order_line` / `outlet_order`
- * (migration 0012), so a future caller that computes any of them differently is refused by
- * the database rather than believed.
+ * Every identity in that list is a check constraint on `order_line` / `outlet_order` — migration
+ * 0012, with the branch-dependent one corrected by `0013_order_line_arithmetic.sql` after a real
+ * booking was refused by it (S-B/1c) — so a future caller that computes any of them differently is
+ * refused by the database rather than believed.
  *
  * **Tenant boundary.** There is no RLS policy (DECISIONS.md:8, D22). The outlet, the site and
  * the chain are read from the `outlet` row and never from a request parameter, every write
