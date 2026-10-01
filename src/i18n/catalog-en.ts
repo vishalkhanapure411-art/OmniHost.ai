@@ -2245,6 +2245,131 @@ export const enIN = {
   "validation.invalidEnum": "{value} is not one of {values}.",
   "validation.code.format": "{value} is not a usable code (letters, digits, dot, dash, underscore).",
   "validation.defaulted": "{field} was not given, so the platform used {value}.",
+  // ── S4 — the display estate on the site record (§6.6) ──────────────────────
+  // The keys §6.6 names, plus the states and sentences this screen needs and the spec's
+  // list does not carry. One key per string, no key built from data (§6.8): every state,
+  // kind and transport resolves through an explicit map with a worded entry for a value the
+  // build does not carry, so an unknown token cannot borrow a neighbouring word — the
+  // defect class the copy sweep put 55 call sites behind
+  // (`FINDINGS-label-fallback-sweep.md`).
+  "display.list.title": "Displays",
+  "display.list.subtitle":
+    "The terminals at this outlet and the station each one serves. A display is configured where the outlet is configured, and every change below is audited.",
+  "display.add": "Add a display",
+  "display.column.name": "Display",
+  "display.column.code": "Code",
+  "display.column.kind": "Type",
+  "display.column.station": "Station",
+  "display.column.connection": "Connection",
+  "display.column.state": "Pairing",
+  "display.column.actions": "Actions",
+  "display.kind.kds": "Kitchen display",
+  "display.kind.cds": "Guest display",
+  "display.kind.status": "Status board",
+  "display.kind.printer": "Printer",
+  "display.kind.unrecognised": "A type this build does not carry",
+  "display.transport.kds_hosted": "Rendered by the kitchen display",
+  "display.transport.lan_escpos": "Direct to a network printer",
+  "display.transport.print_agent": "Through a print agent",
+  "display.transport.unrecognised": "A connection this build does not carry",
+  "display.station.outletScope": "This whole outlet",
+  "display.station.none": "This outlet has no stations yet, so a screen cannot be attached to one.",
+  "display.field.code": "Code",
+  "display.field.code.hint":
+    "An identifier, not a name: letters, digits, dot, dash and underscore. It is shown as a code and is never translated.",
+  "display.field.name": "Name",
+  "display.field.kind": "Type",
+  "display.field.section": "Station",
+  "display.field.section.hint":
+    "The station whose work this terminal shows. The list holds this outlet's own stations and nothing else.",
+  "display.field.section.outletScope": "Not attached to one station",
+  "display.field.transport": "Connection",
+  "display.field.transport.hint": "Only a printer has one: a screen is identified by its own record.",
+  "display.field.address": "Address",
+  "display.field.address.hint": "Host and port, or the print agent's identifier. Never a credential.",
+  "display.field.requirePin": "Ask for an operator PIN",
+  "display.field.requirePin.hint":
+    "Off in the pilot. Turning it on changes what the platform can attribute to a person, and that work is costed separately.",
+  "display.register.title": "Add a display",
+  "display.register.description": "Registered against {outlet}. The write is audited.",
+  "display.register.confirm": "Register the display",
+  "display.state.notPaired": "Not paired",
+  "display.state.pairingPending": "Pairing code issued, not used yet",
+  "display.state.paired": "Paired",
+  "display.state.accessWithdrawn": "Access withdrawn",
+  "display.state.inactive": "Deactivated",
+  "display.state.unrecognised": "A pairing state this build does not carry",
+  "display.state.pendingExpires": "The code stops working at {time}",
+  "display.state.pairedSince": "Paired {time}",
+  "display.state.withdrawnReason": "Withdrawn because {reason}",
+  "display.state.inactiveNote": "A deactivated display is kept for the history; nothing is sent to it.",
+  "display.lastSeen": "Last contact {time}",
+  "display.lastSeen.never": "It has not contacted the platform yet",
+  "display.operatorPin": "Asks for an operator PIN",
+  "display.pairing.title": "Pair this terminal",
+  "display.pairing.body":
+    "Enter this code on the terminal within {minutes} minutes. The code is single-use.",
+  "display.pairing.action": "Pair",
+  "display.pairing.action.again": "Issue a new code",
+  "display.pairing.issued.title": "Pairing code",
+  "display.pairing.once":
+    "This code is shown once. The platform keeps only a digest of it, so it cannot be looked up, listed or shown a second time. If it is lost, pair the terminal again: that withdraws the code above and issues a new one.",
+  "display.pairing.expiresAt": "It stops working at {time}",
+  "display.pairing.singleUse": "Single use: the terminal trades it for its own credential.",
+  "display.pairing.reissued":
+    "The terminal's previous access was withdrawn in the same step, so it holds one credential at a time.",
+  "display.pairing.reissuedNone": "No previous access was live, so nothing was withdrawn.",
+  "display.pairing.done": "Done",
+  "display.pairing.role": "Its own audit rows will carry the {role} role, not a person's.",
+  "display.pairing.pending":
+    "A code has been issued for this terminal and not yet used. Issuing another one withdraws it.",
+  "display.revoke": "Withdraw access",
+  "display.revoke.confirm":
+    "The terminal stops working immediately, and anything it has queued and not sent is discarded.",
+  "display.revoke.reason": "Why is access being withdrawn?",
+  "display.revoke.reason.hint": "Recorded on the credential and in the audit row.",
+  "display.deactivate": "Deactivate",
+  "display.deactivate.confirm":
+    "The display is marked inactive and any live terminal access is withdrawn in the same step. Nothing is sent to it again, and it stays on this record for the history.",
+  "display.deactivate.reason": "Why is this display being deactivated?",
+  "display.deactivate.reason.hint": "Recorded in the audit row.",
+  "display.empty.title": "No displays at this outlet",
+  "display.empty.body":
+    "Nothing is showing kitchen work for this outlet yet. Add a display and pair it to the station it serves — a printer is optional per station and never a precondition.",
+  "display.manage.hint":
+    "Registering, pairing, withdrawing access and deactivating each need {permission}, and each writes one audit row.",
+  "display.manage.readOnly":
+    "You can read this estate, but changing it needs {permission}, which your resolved registry does not include.",
+  "display.gate.title": "Displays are not switched on for this chain",
+  "display.gate.body":
+    "Provisioning a terminal needs one of the two gated features open. Each one below names the gate holding it, because the licence and the chain's own switch are different facts with different remedies.",
+  "display.gate.readOnly":
+    "The estate can still be read: reading needs display.view, which is not tier-gated. Only the writes below are held back.",
+  "display.entitlement.title": "Licence and switch",
+  "display.entitlement.subtitle":
+    "Reported, never assumed. The tier is the chain's licence; the switch is the chain's own setting, and both must be open.",
+  "display.entitlement.tier": "Licence: needs {minTier}, this chain is on {tier}",
+  "display.entitlement.switchOn": "Switched on for this chain",
+  "display.entitlement.switchOff": "Switched off for this chain",
+  "display.entitlement.open": "Open",
+  "display.entitlement.held": "Held by the {gate}",
+  "display.entitlement.gate.tier": "licence tier",
+  "display.entitlement.gate.switch": "module switch",
+  "display.notice.registered": "{name} was registered at {outlet}.",
+  "display.notice.paired": "A pairing code was issued for {display}.",
+  "display.notice.revoked": "Access for {display} was withdrawn.",
+  "display.notice.deactivated": "{display} was deactivated.",
+  "display.error.load": "The estate could not be read.",
+
+  // The design gallery's preview of this screen's gate states. The pilot chain holds Gold
+  // with both switches on, so neither refusal is reachable from its data; the gallery shows
+  // them rather than the owner's chain rows being edited to make one appear.
+  "design.displays.title": "Display estate — the licence gate",
+  "design.displays.body":
+    "The display estate's two gated features, and the sentence each gate produces. The pilot chain holds Gold with both switches on, so neither is reachable from its data: shown here rather than changing the chain's own rows to produce one. The two sentences are deliberately different — a licence that does not cover a module and a module switched off are different facts with different remedies.",
+  "design.displays.tier": "The licence tier is holding",
+  "design.displays.switch": "The chain's own switch is holding",
+  "design.displays.readOnly": "A reader without the write capability",
 } as const;
 
   // ---------------------------------------------------------------------------

@@ -634,6 +634,13 @@ import {
   verifyVendorTaxRegistration,
 } from "~/domain/mdm-vendors";
 import { getSite, listSites } from "~/domain/mdm-sites";
+import {
+  deactivateDisplay,
+  outletDisplayEstate,
+  pairDisplay,
+  registerDisplay,
+  revokeDisplayCredential,
+} from "~/domain/display-estate";
 
 /**
  * The vendor master read. Like the article list it takes no filters as input: the screen
@@ -776,6 +783,106 @@ export const getSiteFn = createServerFn({ method: "GET" })
     if (!principal) return failure(new Unauthenticated());
     try {
       return { ok: true as const, site: await getSite(principal, data.code) };
+    } catch (error) {
+      return failure(error);
+    }
+  });
+
+// ---------------------------------------------------------------------------
+// The display estate (S4) — the five calls the site record makes
+// ---------------------------------------------------------------------------
+/**
+ * The estate's screen half. Four mutations and one read, each one thin: the domain
+ * function decides the capability (`display.manage` for every write, `display.view` for the
+ * read), resolves the tenant from the row it reads first, writes one transaction with one
+ * audit row, and returns a coded refusal for a validation failure. Nothing here decides a
+ * rule, and nothing here holds a pairing code beyond the single response that carries it.
+ *
+ * `pairDisplayFn` is the one call that returns a secret. It is returned **once**, from the
+ * response to the issue, and no other call in the platform can produce it again — the
+ * digest is all the database keeps, so the screen must show it at issue and then forget it
+ * (which is what `display.pairing.once` says in words).
+ */
+export const getOutletDisplayEstateFn = createServerFn({ method: "GET" })
+  .validator((input: unknown) => input as { outletId: string })
+  .handler(async ({ data }) => {
+    const principal = await currentPrincipal();
+    if (!principal) return failure(new Unauthenticated());
+    try {
+      return { ok: true as const, estate: await outletDisplayEstate(principal, data.outletId) };
+    } catch (error) {
+      return failure(error);
+    }
+  });
+
+export const registerDisplayFn = createServerFn({ method: "POST" })
+  .validator(
+    (input: unknown) =>
+      input as {
+        outletId: string;
+        code: string;
+        name: string;
+        kind: string;
+        sectionId?: string | null;
+        transport?: string | null;
+        address?: string | null;
+        requireOperatorPin?: boolean;
+      }
+  )
+  .handler(async ({ data }) => {
+    const principal = await currentPrincipal();
+    if (!principal) return failure(new Unauthenticated());
+    try {
+      return {
+        ok: true as const,
+        result: await registerDisplay(principal, data, {
+          source: "screen",
+          intent: "display.register",
+        }),
+      };
+    } catch (error) {
+      return failure(error);
+    }
+  });
+
+export const pairDisplayFn = createServerFn({ method: "POST" })
+  .validator((input: unknown) => input as { displayId: string; operatingRoleCode?: string })
+  .handler(async ({ data }) => {
+    const principal = await currentPrincipal();
+    if (!principal) return failure(new Unauthenticated());
+    try {
+      return {
+        ok: true as const,
+        // The only place the code exists in a response. It is not stored, not logged and
+        // not in the audit row the issue writes.
+        issue: await pairDisplay(principal, data, { source: "screen", intent: "display.pair" }),
+      };
+    } catch (error) {
+      return failure(error);
+    }
+  });
+
+export const revokeDisplayCredentialFn = createServerFn({ method: "POST" })
+  .validator((input: unknown) => input as { displayId: string; reason: string })
+  .handler(async ({ data }) => {
+    const principal = await currentPrincipal();
+    if (!principal) return failure(new Unauthenticated());
+    try {
+      await revokeDisplayCredential(principal, data, { source: "screen", intent: "display.revoke" });
+      return { ok: true as const };
+    } catch (error) {
+      return failure(error);
+    }
+  });
+
+export const deactivateDisplayFn = createServerFn({ method: "POST" })
+  .validator((input: unknown) => input as { displayId: string; reason: string })
+  .handler(async ({ data }) => {
+    const principal = await currentPrincipal();
+    if (!principal) return failure(new Unauthenticated());
+    try {
+      await deactivateDisplay(principal, data, { source: "screen", intent: "display.deactivate" });
+      return { ok: true as const };
     } catch (error) {
       return failure(error);
     }
