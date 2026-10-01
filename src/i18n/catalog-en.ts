@@ -2469,6 +2469,60 @@ export const enIN = {
   "design.displays.tier": "The licence tier is holding",
   "design.displays.switch": "The chain's own switch is holding",
   "design.displays.readOnly": "A reader without the write capability",
+  // ——— S-B/2b: the ticket lifecycle (§2.3 T2–T7, T9, §2.4, §6.3–§6.4) ——————————————
+  //
+  // The states a ticket is in, in words (one key per state, an explicit map in
+  // `~/domain/order-rules`, no fallback — a state this build does not know prints its code
+  // rather than a neighbouring state's word).
+  "ticket.state.queued": "Queued",
+  "ticket.state.acknowledged": "Acknowledged",
+  "ticket.state.in_prep": "Being prepared",
+  "ticket.state.ready": "Ready",
+  "ticket.state.served": "Served",
+  "ticket.state.voided": "Voided",
+  "ticket.state.held_unavailable": "Held — not available",
+  // §2.3's acts as a screen names them: the button a cook presses, and the journal line.
+  "ticket.action.acknowledge": "Acknowledge",
+  "ticket.action.start": "Start",
+  "ticket.action.ready": "Mark ready",
+  "ticket.action.recall": "Recall",
+  "ticket.action.serve": "Serve",
+  "ticket.action.void": "Void",
+  "ticket.action.reroute": "Move to another station",
+  "ticket.action.close": "Close the booking",
+  // §2.3's reason column. Every code a reasoned act accepts has a word here, so no screen
+  // ever prints `marked_ready_in_error` at a person.
+  "ticket.reason.marked_ready_in_error": "Marked ready by mistake",
+  "ticket.reason.quality_check_failed": "Quality check failed",
+  "ticket.reason.dropped": "Dropped in the kitchen",
+  "ticket.reason.guest_cancelled": "The guest cancelled",
+  "ticket.reason.article_unavailable": "An article became unavailable",
+  "ticket.reason.duplicate_ticket": "Duplicate ticket",
+  "ticket.reason.wrong_station": "Wrong station",
+  "ticket.reason.station_unavailable": "The station cannot produce it",
+  // §6.4's refusal sentences, verbatim — {state} and {station} are filled by the screen,
+  // and a state is worded through the `ticket.state.*` keys above.
+  "kds.refusal.movedOn":
+    "This ticket has already moved on — it is now {state}. Reload to see where it is.",
+  "kds.refusal.voidedTicket": "This ticket was voided. Nothing has changed.",
+  "kds.refusal.heldTicket":
+    "This ticket is held because an article became unavailable. Decide on its lines first — nothing has changed.",
+  "kds.refusal.recallFromServed":
+    "This ticket has already been served. Nothing has changed. Void it and fire a new one instead.",
+  // Additions to §6.4, in the same shape (each names the act it refuses).
+  "ticket.validation.voidServed":
+    "This ticket has already been served, so it cannot be voided. If the dish came back, fire a new ticket for it.",
+  "ticket.validation.reasonUnknown":
+    "{reason} is not one of the reasons this action offers. Choose a reason from the list.",
+  "ticket.validation.rerouteTargetRequired":
+    "A re-route needs a station. Choose the station that will produce this work.",
+  "ticket.validation.rerouteSameStation":
+    "This ticket is already at {station}. Choose a different station, or leave it where it is.",
+  "ticket.validation.rerouteStationTaken":
+    "This booking already has ticket {ticket} at {station}, and one booking has one ticket per station. Void that one first, or choose another station.",
+  "ticket.validation.rerouteStationBusy":
+    "That station already has a ticket for this booking, and one booking has one ticket per station. Reload to see the tickets, then void that one or choose another station.",
+
 } as const;
 
   // ---------------------------------------------------------------------------

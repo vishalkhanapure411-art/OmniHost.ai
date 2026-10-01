@@ -145,7 +145,16 @@ export async function resolveLineRoute(
   );
   if (pass[0]) {
     return {
-      targets: [{ sectionId: pass[0].id, isPrimary: true, routeSource: "expedite_fallback" }],
+      // THE RECORDED SOURCE, not the preview's word for it (lead ruling, 1 Oct 2026:
+      // "preview and ledger must agree"). The fire path records `unrouted` on the line and
+      // on the ticket for exactly this resolution — nothing matched, so the line went to the
+      // pass and the debt is counted on the status board. Reporting `expedite_fallback` here
+      // meant the routing screen previewed one thing and the ledger held another, which is
+      // the class of defect the copy and routing sweeps exist to close. `expedite_fallback`
+      // stays defined in the vocabulary for the case it was written for — a *known* target
+      // that is unavailable, where the pass is the fallback — and the pilot has no such case,
+      // so nothing records it today.
+      targets: [{ sectionId: pass[0].id, isPrimary: true, routeSource: "unrouted" }],
       unrouted: true,
       needsPassSection: false,
     };
