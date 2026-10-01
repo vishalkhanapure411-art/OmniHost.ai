@@ -77,8 +77,16 @@ export interface OrderTransitionRule {
   to: OutletOrderStatus;
 }
 
-export const ORDER_TRANSITIONS: Record<"accept" | "cancel" | "close", OrderTransitionRule> = {
+export const ORDER_TRANSITIONS: Record<"accept" | "cancel" | "close" | "fire", OrderTransitionRule> = {
   accept: { intent: "order.accept", capability: "order.book", from: ["placed"], to: "accepted" },
+  // §2.3 T1 — Fire. It is in this table because it is the same kind of fact as the other
+  // three (a state the booking may move from, the capability that permits it, the state it
+  // lands in), even though the work it does is much larger: it writes the tickets. The
+  // `from` list is what the fire path quotes when it refuses a booking that has already
+  // moved on. Only `accepted` is listed: §2.1's reachable states in this slice fire from
+  // `accepted`, and `placed` never survives a booking's own transaction (acceptance is
+  // written in it — O13).
+  fire: { intent: "order.fire", capability: "order.fire", from: ["accepted"], to: "fired" },
   // Cancel before fire only. After fire the tickets exist and the honest act is a ticket
   // void (T7), which is the station's, not the booking's (§2.1's own wording).
   cancel: {
@@ -96,7 +104,69 @@ export const ORDER_INTENTS = {
   accept: "order.accept",
   cancel: "order.cancel",
   close: "order.close",
+  /** §2.3 T1. The same intent on the booking's row and on each ticket's row: the act is one. */
+  fire: "order.fire",
 } as const;
+
+/**
+ * A ticket's states (§2.2, §2.3). The lifecycle's alphabet — **not** the state machine:
+ * which transition may start from which state, and the capability each needs, is §2.3's
+ * table and S-B/2b's code. Kept here, in the import-free module, because the station
+ * display (S-C) asks for `TicketState` and the seven words it may show.
+ */
+export const TICKET_STATES = [
+  "queued",
+  "acknowledged",
+  "in_prep",
+  "ready",
+  "served",
+  "voided",
+  "held_unavailable",
+] as const;
+export type TicketState = (typeof TICKET_STATES)[number];
+
+/**
+ * §2.3's transition labels, as the ledger and the journal name them (T1 fire … T11 close).
+ * A code, because a code is the subject here: a screen words it from the catalogue (S-B/2b
+ * writes T2–T11; T1 is the fire path's).
+ */
+export const TICKET_TRANSITION_CODES = {
+  fire: "T1",
+} as const;
+
+/**
+ * The **fire path's** validation refusals (§1.4, §2.2, §2.5, §2.6 case 1), each with the
+ * sentence it reads as in `~/domain/ticket`.
+ *
+ * **Catalogue entries for these land with S-B/2b/S-C, not here** — deliberately, and this
+ * delegation's own instruction: a catalogue key exists for copy a surface consumes, and no
+ * screen fires a booking in S-B/2a. The strings are the codes a refusal reaches a screen as
+ * (the same `{ code, params }` shape `ORDER_VALIDATION_KEY` uses), so the entry is one line
+ * beside its neighbours in `catalog-en`/`catalog-other` when the screen that shows it
+ * exists. Until then the domain sentences are the only wording, which is the same place the
+ * booking side was at the end of S-B/1.
+ */
+export const FIRE_VALIDATION_KEY = {
+  /** The booking is not in a state it may be fired from — §2.3 T1's `from` list. */
+  wrongState: "order.validation.fireWrongState",
+  /** A line's article is 86'd at this outlet (§2.6 case 1: refused before the ticket exists). */
+  articleUnavailable: "order.validation.fireArticleUnavailable",
+  /** A line matched no route and the outlet has no pass to fall back to (D3, lead ruling). */
+  unroutedNoStation: "order.validation.fireUnroutedNoStation",
+  /** Nothing in the booking resolves to a station at all — the same refusal, named once. */
+  noStations: "order.validation.fireNoStations",
+  /** The site has no prep-time SLA defined, so no deadline can be captured (§2.5). */
+  slaMissing: "order.validation.fireSlaMissing",
+  /** The SLA in force is not a number the platform can turn into a deadline. */
+  slaNotANumber: "order.validation.fireSlaNotANumber",
+  /** The SLA in force is outside the bounds its own definition sets. */
+  slaOutOfRange: "order.validation.fireSlaOutOfRange",
+  /** Two fires raced for the same station's next number. Nothing was written. */
+  ticketNumberTaken: "order.validation.fireTicketNumberTaken",
+  /** The booking has no lines, so there is no work to raise. */
+  linesMissing: "order.validation.fireLinesMissing",
+} as const;
+
 
 /**
  * A state code is a code in the database and a word on a screen. One key per state, an
