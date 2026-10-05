@@ -452,6 +452,15 @@ async function perform(args: {
   const sectionAlready = args.expectedSection ? current.section_code === args.expectedSection : true;
   if (current.state === args.expectedState && sectionAlready) {
     const journal = await lastJournal(args.ticket.id, rule.code);
+    // **A skipped step proves nothing.** This state is in the table because an *earlier* run
+    // reached it, so quoting its journal row back would restate that run and not this one
+    // (WORKFLOW.md, "Evidence that can be checked" — the rule this harness itself breached once).
+    // It is therefore a FAILURE with the fix named, and the fix is a committed script rather than
+    // a different reading of the same row.
+    t.failures.push(
+      `${args.label}: SKIPPED — the ticket is already ${args.expectedState}, reached by an earlier run; ` +
+        `reset the fixture first (bun run scripts/reset-ticket-lifecycle-fixture.ts), then run this harness once`
+    );
     await readBackAct({
       label: args.label,
       act: args.act,
@@ -552,6 +561,8 @@ async function validationRefusal(args: {
 async function capabilityRefusal(args: {
   label: string;
   actorDescription: string;
+  /** The capability the actor does not hold — `kds.ticket.advance` unless an act says otherwise. */
+  capability?: string;
   priorDenialSql: string;
   priorDenialParams: unknown[];
   /** How to find the denial's own row: the generic path does not always name the ticket. */
@@ -560,6 +571,7 @@ async function capabilityRefusal(args: {
   call: () => Promise<unknown>;
   entityId: string;
 }): Promise<void> {
+  const capability = args.capability ?? REFUSED_ACT;
   t.say("");
   t.say(`--- ${args.label} ---`);
   t.say(`  ${args.actorDescription}`);
@@ -612,7 +624,7 @@ async function capabilityRefusal(args: {
        from audit_log
       where action = $1 and outcome = 'denied' and entity_type = 'ticket' and ${args.rowWhere}
       order by created_at desc limit 1`,
-    [REFUSED_ACT, ...args.rowParams]
+    [capability, ...args.rowParams]
   );
   const row = denied[0];
   t.say(
@@ -624,7 +636,7 @@ async function capabilityRefusal(args: {
   t.say(`      before_state=${row?.before_state ?? "NULL"} after_state=${row?.after_state ?? "NULL"}`);
   t.check(
     `${args.label}: the denied row names the capability as its action`,
-    row?.action === REFUSED_ACT,
+    row?.action === capability,
     row?.action ?? "none"
   );
   t.check(
@@ -819,6 +831,27 @@ async function main(): Promise<void> {
   t.say(
     `a kds terminal's capability set, from the product's own registry: ${displayCapabilities("kds").join(", ")} — so it may advance (T2/T3/T4) and read, and may not serve, recall, void or re-route; those four are people's acts in this run`
   );
+  // **Which actor path each act has, measured rather than left to a reader's inference.** Every
+  // act in this run has exactly one path, and the other path is a refusal the product's own
+  // registry produces — not an untested branch:
+  //   * T2/T3/T4 (`kds.ticket.advance`): the station terminal. No seeded account holds the
+  //     capability (above), so the person path is the Site Head's refusal in step 4.
+  //   * T5 recall, T6 serve, T7 void, T9 re-route: a person, the Site Head. `displayCapabilities`
+  //     gives a KDS terminal view and advance only, so no terminal in this build can hold any of
+  //     the four; the terminal path is the refusal in step 4b, made on a ticket in the state the
+  //     act would otherwise apply to.
+  const personOnlyActs = [
+    TICKET_TRANSITIONS.recall.capability,
+    TICKET_TRANSITIONS.serve.capability,
+    TICKET_TRANSITIONS.void.capability,
+    TICKET_TRANSITIONS.reroute.capability,
+  ];
+  t.check(
+    "a kds terminal's registry gives it no person-only act — which is why recall, serve, void and re-route have one path",
+    personOnlyActs.every((code) => !displayCapabilities("kds").includes(code)),
+    displayCapabilities("kds").join(", ")
+  );
+  t.say(`  the four acts a terminal may not hold, from the registry: ${personOnlyActs.join(", ")}`);
 
   // ---------------------------------------------------------------------------------------
   // 3. Migration 0016, read back.
@@ -1023,6 +1056,26 @@ async function main(): Promise<void> {
     actor: advanceActor(hot),
     call: () => advanceTicket(advanceActor(hot), { ticketId: hot.id, to: "ready" }),
   });
+  // Step 4b: the terminal half of the four person-only acts. The ticket is `ready`, which is
+  // exactly the state a recall applies to, and the KOR-HOT terminal is the device that could
+  // otherwise advance it — so this is the refusal that would otherwise have been a missing branch.
+  await capabilityRefusal({
+    label: `the ${hot.section_code} terminal attempts T5 recall (a person's act — a terminal holds no ${TICKET_TRANSITIONS.recall.capability})`,
+    actorDescription: `display ${hotDevice.code} capabilities ${displayCapabilities("kds").join(",")} — holds ${TICKET_TRANSITIONS.recall.capability}: false`,
+    capability: TICKET_TRANSITIONS.recall.capability,
+    priorDenialSql: `select id::text, to_char(created_at at time zone 'UTC', '${UTC_STAMP}') as created_at, reason
+                       from audit_log
+                      where action = $1 and outcome = 'denied' and entity_type = 'ticket' and entity_id = $2
+                        and actor_user_id is null and reason like $3
+                      order by created_at desc limit 1`,
+    priorDenialParams: [TICKET_TRANSITIONS.recall.capability, hot.id, `display:${hotDevice.code}%`],
+    rowWhere: `actor_user_id is null and reason like $2`,
+    rowParams: [`display:${hotDevice.code}%`],
+    entityId: hot.id,
+    call: () =>
+      recallTicket(deviceActor(hotDevice), { ticketId: hot.id, reasonCode: "marked_ready_in_error" }),
+  });
+
   await validationRefusal({
     label: "T5 recall with NO reason",
     expectKey: TICKET_VALIDATION_KEY.reasonRequired,
@@ -1226,10 +1279,32 @@ async function main(): Promise<void> {
   );
   const servedAudit = servedJournal[0]?.audit_id ? await readAudit(servedJournal[0].audit_id) : null;
   t.say(`  the T6 ledger row's after-state: ${servedAudit?.after_state ?? "NULL"}`);
+  // **The decision this assertion's owner asked for (2 October 2026): the assertion is RIGHT and
+  // it was unreachable, not wrong.** `~/domain/ticket` records the booking's move in the serve
+  // act's own after-state — `outletOrder: { status: "served", because: "…" }` — and this serve is
+  // the one that finishes the booking, because the KOR-COLD ticket is voided and the KOR-HOT one
+  // served. It could never pass before the void reason-code placeholder was fixed: the third
+  // ticket stayed open, the booking never reached `served`, and the ledger had no `outletOrder`
+  // field to read. The check reads that field rather than a substring, so it says which booking
+  // moved and why, and a missing `because` fails it.
+  let bookingMovedTo: { status?: string; because?: string } | undefined;
+  try {
+    bookingMovedTo = (
+      JSON.parse(servedAudit?.after_state ?? "{}") as {
+        outletOrder?: { status?: string; because?: string };
+      }
+    ).outletOrder;
+  } catch {
+    bookingMovedTo = undefined;
+  }
   t.check(
     "the ledger row records WHY the booking moved, in the after-state",
-    (servedAudit?.after_state ?? "").includes("outletOrder") && (servedAudit?.after_state ?? "").includes("served"),
+    bookingMovedTo?.status === "served" && (bookingMovedTo.because ?? "").length > 0,
     servedAudit?.after_state ?? "NULL"
+  );
+  t.say(
+    `  the booking's move as the ledger records it: outletOrder.status=${bookingMovedTo?.status ?? "MISSING"} ` +
+      `because="${bookingMovedTo?.because ?? "MISSING"}"`
   );
   t.say(countsLine("  before the last serve", beforeLastServe));
   t.say(countsLine("  after the last serve ", afterLastServe));
@@ -1440,6 +1515,10 @@ async function main(): Promise<void> {
     "* NOTHING ELSE: no booking created, no display registered, no credential minted, no row edited. The two constraint demonstrations and every refusal wrote nothing at all.",
     "* The three device principals this run acts as (`verify-kds-hot`, `verify-kds-grill`, `verify-kds-cold`) exist only in this process — no `display` or `display_credential` row backs them (see HONEST LIMITS).",
     "",
+    "RE-RUNNING THIS HARNESS: run `bun run scripts/reset-ticket-lifecycle-fixture.ts` (committed, and it writes",
+    "evidence/sb2b-fixture-reset.txt) and then run this harness ONCE. It FAILS rather than skipping a step whose",
+    "state an earlier run already reached, because a skipped step proves nothing.",
+    "",
     "REMOVAL SQL (the fixture booking's lifecycle, if it ever needs reversing — it does not while the display work is in flight):",
     "-- delete from ticket_transition where ticket_id in (select id from ticket where outlet_order_id = '620dd087-ff75-4926-a97d-3e3c1b7ed5f2');",
     "-- delete from ticket_line where ticket_id in (select id from ticket where outlet_order_id = '620dd087-ff75-4926-a97d-3e3c1b7ed5f2');",
@@ -1454,6 +1533,7 @@ async function main(): Promise<void> {
     "2. No account holds `kds.ticket.advance` in this database, so T2/T3/T4 have no person-driven read-back: the acts run the same code path, but the person half of `guard()` for those three capabilities is proven only by the refusal it produces for the Site Head.",
     "3. T8 (`held_unavailable`) and T10 (print) are not in this slice: no hold and no print job ran, and the `hold_reason_code` constraint could only be compared against the union of the code's vocabulary rather than a hold-only list.",
     "4. `transition_id` is dormant by design: the column and the partial index are proven from the catalogue, and S-F is the slice that writes it. No journal row in this run carries one.",
+    "5. **Actor paths: each act has exactly ONE, and the other is refused rather than untested.** T2/T3/T4 are driven by a station terminal because no seeded account holds `kds.ticket.advance`; their person half is the Site Head's refusal (step 4). T5 recall, T6 serve, T7 void and T9 re-route are driven by a person (the Site Head) because `displayCapabilities('kds')` gives a terminal view and advance only; their terminal half is the KOR-HOT terminal's refused recall (step 4b). **T7 void's parameter path therefore exists only on the person side** — no terminal in this build can reach it — and that is also the path the missing `$` broke.",
   ].join("\n");
   writeFileSync("/tmp/ticket-lifecycle-readback.txt", report);
   try {

@@ -1,6 +1,6 @@
 import "@tanstack/react-start/server-only";
 
-import { poolQueryable, type Queryable } from "~/db";
+import { assertPlaceholdersMatch, poolQueryable, type Queryable } from "~/db";
 import { auditedMutation, guard, primaryRoleCode, recordAudit, writeAudit, type AuditSource } from "~/server/audit";
 import { NotFound, PermissionDenied, ValidationError } from "~/server/errors";
 import { accessibleChainIds, type Principal } from "~/server/session";
@@ -1133,7 +1133,16 @@ async function applyTicketTransition(
     if (act === "recall") setParts.push("ready_at = null");
     if (act === "serve") setParts.push("served_at = now()");
     if (act === "void") {
-      setParts.push("voided_at = now()", `void_reason_code = ${String(setParams.length + 1)}`);
+      // The `$` matters here as much as it does in the `where` clause below. Without it this
+      // emitted the **integer literal** `2`, so the reason code was still pushed as parameter
+      // $2 and the statement never referenced it: Postgres refuses at parse time with
+      // `could not determine data type of parameter $2` (42P18), the UPDATE never runs, and
+      // **T7 void — the only form a void may legally take — failed for every caller, person and
+      // terminal alike.** Because a void is what frees a ticket, the booking could never reach
+      // `served` and T11 could never close. Found by the S-B/2b read-back, one run after the
+      // `where` clause's own missing `$` (see the person-scope comment below);
+      // `assertPlaceholdersMatch` in `~/db` now refuses both shapes before the statement is sent.
+      setParts.push("voided_at = now()", `void_reason_code = $${String(setParams.length + 1)}`);
       setParams.push(reasonCode);
     }
   }
@@ -1220,6 +1229,24 @@ async function applyTicketTransition(
           }
         }
 
+        // One statement, assembled from the parts above, with its parameters in the order its
+        // placeholders were numbered. `assertPlaceholdersMatch` is the check that would have
+        // caught both of this function's shipped defects (`$2` unreferenced, and four missing
+        // `$`s): it is made here, before the statement is sent, and throws an ordinary Error —
+        // a programmer's defect must never reach an operator as a refusal, and it must never
+        // reach Postgres as a raw 42P18 either.
+        const updateSql = `update ticket
+              set ${setParts.join(", ")}
+            where ${scope.sql}
+            returning ticket.ticket_no, ticket.state, ticket.section_id,
+                      (select s.code from outlet_section s where s.id = ticket.section_id) as section_code,
+                      to_char(ticket.ready_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as ready_at,
+                      to_char(ticket.served_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as served_at,
+                      to_char(ticket.voided_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as voided_at,
+                      ticket.void_reason_code`;
+        const updateParams = [...setParams, ...scope.params];
+        assertPlaceholdersMatch(updateSql, updateParams);
+
         const updated = await tx.query<{
           ticket_no: number;
           state: string;
@@ -1230,16 +1257,8 @@ async function applyTicketTransition(
           voided_at: string | null;
           void_reason_code: string | null;
         }>(
-          `update ticket
-              set ${setParts.join(", ")}
-            where ${scope.sql}
-            returning ticket.ticket_no, ticket.state, ticket.section_id,
-                      (select s.code from outlet_section s where s.id = ticket.section_id) as section_code,
-                      to_char(ticket.ready_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as ready_at,
-                      to_char(ticket.served_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as served_at,
-                      to_char(ticket.voided_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as voided_at,
-                      ticket.void_reason_code`,
-          [...setParams, ...scope.params]
+          updateSql,
+          updateParams
         );
         const after = updated[0];
         if (!after) {

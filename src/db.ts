@@ -149,6 +149,45 @@ export function sql(): SqlTag {
 }
 
 /**
+ * A statement's text and its bind parameters must agree exactly: every `$n` from 1 to the
+ * parameter count appears, and no parameter is left unreferenced.
+ *
+ * **Why this is checked rather than trusted.** Postgres catches neither mismatch as a
+ * *refusal* — both arrive as raw database errors, and both are the shape a hand-assembled
+ * statement produces when an index is interpolated without its `$`:
+ *
+ *   * an **unreferenced** parameter fails at parse time with
+ *     `could not determine data type of parameter $n` (SQLSTATE 42P18);
+ *   * a `$n` with no parameter fails with `there is no parameter $n` (SQLSTATE 42P02).
+ *
+ * Two defects of exactly this shape shipped in `~/domain/ticket`'s `applyTicketTransition`,
+ * the second one only found by the S-B/2b read-back: four missing `$`s made every
+ * person-driven transition throw *before writing anything*, and a fifth made T7 void — the
+ * only legal form of a void — fail for every caller, which in turn stranded the booking short
+ * of `served` and T11. Checking the two together here turns a third into a named error at the
+ * call site instead of a raw parse failure at the database. It throws an ordinary `Error`, not
+ * a `ValidationError`: a programmer's defect is never a user's refusal.
+ */
+export function assertPlaceholdersMatch(text: string, params: readonly unknown[]): void {
+  const placeholders = new Set<number>();
+  for (const match of text.matchAll(/\$(\d+)/g)) placeholders.add(Number(match[1]));
+  for (let index = 1; index <= params.length; index += 1) {
+    if (!placeholders.has(index)) {
+      throw new Error(
+        `SQL placeholder $${String(index)} is missing from a statement given ${String(params.length)} parameter(s): ${text}`
+      );
+    }
+  }
+  for (const index of placeholders) {
+    if (index > params.length) {
+      throw new Error(
+        `SQL placeholder $${String(index)} has no parameter (${String(params.length)} given): ${text}`
+      );
+    }
+  }
+}
+
+/**
  * Runs `fn` inside a single database transaction and commits, or rolls back on any
  * throw. Every mutating domain call goes through this so the write and the
  * audit_log row describing it either both land or neither does.
