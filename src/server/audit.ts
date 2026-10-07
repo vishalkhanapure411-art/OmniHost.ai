@@ -215,7 +215,10 @@ export async function guard(args: GuardArgs): Promise<PermissionMeta> {
 }
 
 export interface AuditedMutationArgs {
-  principal: Principal;
+  /** The signed-in person. Exactly one of `principal` / `device` is required (D26, §2.4 item 2). */
+  principal?: Principal | null;
+  /** The paired terminal, when a screen with nobody logged in is the actor (S-B/2b, S-C). */
+  device?: DeviceActor | null;
   action: string;
   entityType: string;
   chainId?: string | null;
@@ -230,6 +233,18 @@ export interface AuditedMutationArgs {
    * before and after so the caller cannot forget to supply them.
    */
   run: (tx: Queryable) => Promise<MutationOutcome>;
+  /**
+   * Runs **in the same transaction, after the audit row exists**, with that row's id.
+   *
+   * It exists for one shape and no other: a *journal* row that must name the ledger row it
+   * belongs to. `ticket_transition.audit_id` is that id (0014's own comment: "every row it
+   * will hold in S-B/2b carries `audit_id` — the id of the audit row written in the same
+   * transaction"), and the id only exists once `writeAudit` has returned. Without this hook
+   * the caller's only options are a second transaction (which §2.3 calls a defect) or a
+   * second audit row (which the refusal rule forbids). The journal row is not an audit row:
+   * this hook does not let a caller write a second ledger entry.
+   */
+  linkAudit?: (tx: Queryable, auditId: string) => Promise<void>;
 }
 
 /**
@@ -240,8 +255,9 @@ export interface AuditedMutationArgs {
 export async function auditedMutation(args: AuditedMutationArgs): Promise<MutationOutcome> {
   return withTransaction(async (tx) => {
     const outcome = await args.run(tx);
-    await writeAudit(tx, {
-      principal: args.principal,
+    const auditId = await writeAudit(tx, {
+      principal: args.principal ?? null,
+      device: args.device ?? null,
       action: args.action,
       entityType: args.entityType,
       entityId: outcome.entityId ?? null,
@@ -256,6 +272,7 @@ export async function auditedMutation(args: AuditedMutationArgs): Promise<Mutati
       requestId: args.requestId ?? null,
       batchId: args.batchId ?? null,
     });
+    if (args.linkAudit) await args.linkAudit(tx, auditId);
     return outcome;
   });
 }
