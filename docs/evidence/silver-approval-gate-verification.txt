@@ -1,6 +1,8 @@
 OmniHost.ai — four eyes in the SILVER baseline: the tier gate, proved by calling it.
 database under test: postgresql://neondb_owner:***@ep-empty-water-b3p8hf5h-pooler.c-4.ap-southeast-1.aws.neon.tech/omnihost_check?sslmode=require&channel_binding=require
-No owner row is touched: this is the scratch database only.
+the owner's database, read only: OmniHost (the two rows the control could reach are compared before and after)
+run note: the run kept as the proof: one run of the committed harness from its own reset — the switch was found ON and is put back ON, both scratch identities pre-dated this run, no fixture article and no session rows at the start
+No owner row is touched: every write below goes to the scratch database only.
 
 The claim under test: `mdm_approval_gated` is entitled at Silver, the per-chain switch is
 what turns it on, and the four-eyes path is alive on a Silver chain once it is on.
@@ -8,7 +10,45 @@ what turns it on, and the four-eyes path is alive on a Silver chain once it is o
 chain coastal-catch = a78b2f13-7792-4d76-b294-2fc7e355ee09 (silver)
 
 ==============================================================================
-STEP 1. The registry row IS Silver — the change, read back from the database
+STEP 1. What this run found, and the column types the reads depend on
+==============================================================================
+The owner's database, BEFORE this run (read only, all of it):
+  feature.mdm_approval_gated          [{"code":"mdm_approval_gated","min_tier":"silver","description":"Silver baseline: four eyes on every master-data change. The chain switch turns the approval queue on.","toggleable":true}]
+  coastal-catch.mdm_approval_gated          [{"enabled":false,"updated_by_user_id":null,"updated_at":"2026-09-21T14:13:17.062Z"}]
+
+Column types, read from information_schema rather than assumed — the ledger's own id is
+the one that is not a uuid, which is why the ledger is addressed as text here:
+  approval_task.id :: uuid
+  article_version.id :: uuid
+  audit_log.entity_id :: text
+  audit_log.id :: bigint
+
+the scratch ledger as this run starts: 135 rows, highest id 135
+
+the fixture this harness uses, as found:
+  feature row: {"min_tier":"silver","description":"Silver baseline: four eyes on every master-data change. The chain switch turns the approval queue on.","toggleable":true}
+  chain_feature row: {"enabled":true,"updated_by_user_id":"1b93f5ca-1396-41b2-8334-2d6a495407b6","updated_at":"2026-10-07T13:30:17.731Z"}
+  fixture article CHK-SILVER-GATE: absent
+  session rows minted by this harness's mark: 0
+
+==============================================================================
+STEP 2. RESET — the run's own baseline, and the SQL that reverses it
+==============================================================================
+An earlier attempt at this run was cut off mid-flight, so the scratch database may carry
+its leavings. Each is named and removed here, before a single assertion is made, so that
+the state this run is judged from is one this run established:
+  * no fixture article was left over — nothing to remove there
+  * no session row was left over — nothing to remove there
+  * the switch was found ON; the control and the
+    four-eyes walk below need it OFF to start, so that switching it ON is a real
+    transition and the ledger row that transition writes can be named. It is put back to
+    the value found (true) in the restore step at the end.
+chain_feature row from which the run proceeds: {"enabled":false,"updated_by_user_id":"1b93f5ca-1396-41b2-8334-2d6a495407b6","updated_at":"2026-10-07T13:48:16.922Z"}
+  PASS  the run starts from the switch OFF — expected false, read false
+  PASS  the registry row is left alone by the reset — expected "silver", read "silver"
+
+==============================================================================
+STEP 3. The registry row IS Silver — the change, read back from the database
 ==============================================================================
 feature row (mdm_approval_gated): {"min_tier":"silver","description":"Silver baseline: four eyes on every master-data change. The chain switch turns the approval queue on.","toggleable":true}
   PASS  the registry's minimum tier is silver — expected "silver", read "silver"
@@ -19,7 +59,7 @@ feature row (mdm_approval_gated): {"min_tier":"silver","description":"Silver bas
   PASS  tierSatisfies(silver, gold) does not hold — the comparison is real — expected false, read false
 
 ==============================================================================
-STEP 2. The fixture this run writes, and the SQL that reverses it
+STEP 4. The fixture identities this run needs, and the SQL that reverses them
 ==============================================================================
 The scratch database's seeded MDM accounts are scoped to the GOLD pilot chain, and the
 point of this run is a SILVER chain, so the fixture is two identities on it — one who
@@ -54,22 +94,21 @@ approver silver.approver.scratch@coastal.example (CENTRAL_MDM_HEAD) user aec0555
   PASS  the author also holds the approve act — so nothing but four eyes stops a self-approval — expected true, read true
   PASS  the second person may approve — expected true, read true
   PASS  the admin holding chain.feature.update is entitled to switch a feature on — expected true, read true
-
-  gate as found for coastal-catch: {"enabled":true,"updated_by_user_id":"1b93f5ca-1396-41b2-8334-2d6a495407b6","updated_at":"2026-10-07T08:56:59.265Z"}
-FIXTURE (scratch database): coastal-catch's mdm_approval_gated switch was true; this script switches it ON through setChainFeature and back to true at the end
 reference data: category CC-BEVERAGES, base UoM BAG, allergen celery, tax class GST5-REST, outlet bandra-restaurant (INR)
 
 ==============================================================================
-STEP 3. CONTROL — with the registry row put back to Gold, the same call is refused
+STEP 5. CONTROL — with the registry row put back to Gold, the same call is refused
 ==============================================================================
 This step exists so that 'the call succeeded' means something. The registry value is
 moved to `gold` for one moment (one statement, in the scratch database), the same
 `setChainFeature` call is made, and the refusal a Silver chain met before 7 Oct comes
 back — the generic sentence `chains.detail.features.blocked` renders beside it. Then the
-value is restored and the read back confirms it.
+value is restored and the read back confirms it. This step can only ever run against
+`omnihost_check`: the database name in the connection string is the scratch one.
 FIXTURE (scratch database): feature.mdm_approval_gated.min_tier set to 'gold' for the control, then restored to 'silver'
   PASS  the control state is in place — expected "gold", read "gold"
-chain detail while the registry says gold: {"minTier":"gold","enabled":true,"blockedByTier":true}
+  the owner's database is NOT written by this: its row is read again at the end of the run
+chain detail while the registry says gold: {"minTier":"gold","enabled":false,"blockedByTier":true}
   PASS  the screen reports the feature as blocked by the tier — expected true, read true
 the badge the screen would pick: {"key":"chains.detail.features.blocked","sentence":"Needs the gold tier; this chain is on silver."}
   PASS  the badge is the blocked sentence — expected "chains.detail.features.blocked", read "chains.detail.features.blocked"
@@ -77,31 +116,139 @@ the badge the screen would pick: {"key":"chains.detail.features.blocked","senten
   PASS  the call refused while the registry row says gold — "mdm_approval_gated needs the gold tier; this chain is on silver"
   PASS  the refusal is the domain's own validation refusal, not a database error — instanceof ValidationError: true
   PASS  the sentence names the minimum tier and the chain's tier — expected "mdm_approval_gated needs the gold tier; this chain is on silver", read "mdm_approval_gated needs the gold tier; this chain is on silver"
-  PASS  the refused call changed no switch row — expected true, read true
+  PASS  the refused call changed no switch row — expected false, read false
+ledger rows named by this predicate that the refusal added: []
   PASS  the refused call wrote no success row in the ledger — expected 0, read 0
   PASS  the control is restored: the registry row is silver again — expected "silver", read "silver"
 
 ==============================================================================
-STEP 4. SILVER — the same call is accepted, and the screen stops refusing
+STEP 6. SILVER — the same call is accepted, and the screen stops refusing
+==============================================================================
+
+setChainFeature(mdm_approval_gated, true) -> {"featureCode":"mdm_approval_gated","before":false,"after":true}
+chain_feature row, read back: {"enabled":true,"updated_by_user_id":"1b93f5ca-1396-41b2-8334-2d6a495407b6","updated_at":"2026-10-07T13:48:25.756Z"}
+  PASS  the switch row is enabled — expected true, read true
+  PASS  the switch records the admin who made it — expected "1b93f5ca-1396-41b2-8334-2d6a495407b6", read "1b93f5ca-1396-41b2-8334-2d6a495407b6"
+the ledger rows THIS call wrote: [{"id":"137","action":"chain.feature.update","entity_type":"chain_feature","entity_id":"a78b2f13-7792-4d76-b294-2fc7e355ee09:mdm_approval_gated","outcome":"success","reason":null,"before_state":{"enabled":false,"featureCode":"mdm_approval_gated"},"after_state":{"enabled":true,"featureCode":"mdm_approval_gated"},"actor_user_id":"1b93f5ca-1396-41b2-8334-2d6a495407b6","created_at":"2026-10-07T13:48:25.756Z"}]
+  PASS  the accepted switch wrote exactly one ledger row — expected 1, read 1
+  PASS  the row is a success — expected "success", read "success"
+  PASS  the row records the switch going from off to on — expected true, read true
+  PASS  the row names the chain and the feature — expected "a78b2f13-7792-4d76-b294-2fc7e355ee09:mdm_approval_gated", read "a78b2f13-7792-4d76-b294-2fc7e355ee09:mdm_approval_gated"
+chain detail after the switch: {"minTier":"silver","enabled":true,"blockedByTier":false}
+  PASS  the screen no longer reports the feature as blocked by the tier — expected false, read false
+  PASS  the feature row carries the registry's own minimum tier — expected "silver", read "silver"
+  PASS  the feature reads as switched on — expected true, read true
+the badge the screen would pick: {"key":"chains.detail.features.availableFrom","sentence":"Available from silver."}
+  PASS  the badge is the available sentence, not the blocked one — expected "chains.detail.features.availableFrom", read "chains.detail.features.availableFrom"
+        rendered: "Available from silver."
+
+==============================================================================
+STEP 7. FOUR EYES on that Silver chain — a version raised lands non-active, in the approver's queue
+==============================================================================
+
+createArticle -> {"id":"df84bb9f-f697-4bf5-950e-1d7d9abe63b7","code":"CHK-SILVER-GATE","status":"pending_review","version":1,"outcome":"created","changed":["article","version","prices"],"pricesWritten":1,"missingRequired":[]}
+versions after the create: [{"id":"d19bce2e-1d03-4cc0-91aa-ac5543611d56","version":1,"status":"pending_review","approved_by_user_id":null}]
+article after the create: {"id":"df84bb9f-f697-4bf5-950e-1d7d9abe63b7","code":"CHK-SILVER-GATE","status":"pending_review","current_version_id":"d19bce2e-1d03-4cc0-91aa-ac5543611d56","current_version":1,"current_version_status":"pending_review"}
+  PASS  the create landed one version — expected 1, read 1
+  PASS  no required-in-market field was missing — expected 0, read 0
+  PASS  the version did NOT land active — the chain's approval switch gated it — expected "pending_review", read "pending_review"
+  PASS  the create reports that landing — expected "pending_review", read "pending_review"
+open review tasks for this article: [{"id":"b88935de-5595-441a-8433-fc91542d2fe6","status":"open","entity_type":"article_version","entity_id":"d19bce2e-1d03-4cc0-91aa-ac5543611d56","raised_by_user_id":"657fd49c-b3a1-49f2-bc9d-47b786d7c9f8","assigned_role_code":"CENTRAL_MDM_HEAD","assigned_user_id":null,"decided_by_user_id":null,"decided_at":null,"decision_note":null}]
+  PASS  the raise opened exactly one review task — expected 1, read 1
+  PASS  the task names the version as its entity — expected "d19bce2e-1d03-4cc0-91aa-ac5543611d56", read "d19bce2e-1d03-4cc0-91aa-ac5543611d56"
+  PASS  the task's entity type is the version, not the article — expected "article_version", read "article_version"
+  PASS  the task is routed to the article approver role — expected "CENTRAL_MDM_HEAD", read "CENTRAL_MDM_HEAD"
+  PASS  the task records the author as its raiser — expected "657fd49c-b3a1-49f2-bc9d-47b786d7c9f8", read "657fd49c-b3a1-49f2-bc9d-47b786d7c9f8"
+the approver's waiting queue, filtered to this task: [{"id":"b88935de-5595-441a-8433-fc91542d2fe6","chainId":"a78b2f13-7792-4d76-b294-2fc7e355ee09","chainName":"Coastal Catch Kitchens","siteId":null,"siteName":null,"category":"mdm","title":"CHK-SILVER-GATE","summary":null,"status":"open","entityType":"article_version","entityId":"d19bce2e-1d03-4cc0-91aa-ac5543611d56","articleCode":"CHK-SILVER-GATE","articleVersion":1,"dueAt":null,"raisedBy":"Silver Author (omnihost_check)","raisedByRole":"CENTRAL_MDM_HEAD","raisedByRoleName":"MDM Head","assignedRole":"CENTRAL_MDM_HEAD","assignedRoleName":"MDM Head","returnedToMe":false,"createdAt":"2026-10-07T13:48:27.685Z","decisionReason":null,"decisionNote":null,"decidedBy":null,"decidedAt":null}]
+  PASS  the task is in the approver role's queue — expected 1, read 1
+  PASS  the queue names the chain's own approver role — expected "CENTRAL_MDM_HEAD", read "CENTRAL_MDM_HEAD"
+
+==============================================================================
+STEP 8. Four eyes — the author cannot approve their own raise, by CALLING decideArticleReview
+==============================================================================
+row counts before the refusal: approval_task(chain)=1 audit_log(denied set)=0
+  PASS  the author's own approval is refused by the four-eyes rule — permission.mdm.approve.self
+row counts after the refusal:  approval_task(chain)=1 audit_log(denied set)=1
+the named denied set, before / after: [[],["139"]]
+  PASS  the refusal wrote exactly one denied row in that call — expected 1, read 1
+  PASS  and that row is the one the call added — expected 1, read 1
+  PASS  the refusal changed no approval_task row — expected "1", read "1"
+  PASS  the version is still waiting — expected "pending_review", read "pending_review"
+  PASS  the task is still open — expected 1, read 1
+
+==============================================================================
+STEP 9. The second person's approval takes the version live, in one transaction
+==============================================================================
+
+decideArticleReview(approve) -> {"taskId":"b88935de-5595-441a-8433-fc91542d2fe6","code":"","decision":"approve","versionStatus":"active","reasonCode":null}
+versions after approval: [{"id":"d19bce2e-1d03-4cc0-91aa-ac5543611d56","version":1,"status":"active","approved_by_user_id":"aec0555a-7091-41d5-8fd6-3e13ef6db4b6"}]
+article after approval: {"id":"df84bb9f-f697-4bf5-950e-1d7d9abe63b7","code":"CHK-SILVER-GATE","status":"active","current_version_id":"d19bce2e-1d03-4cc0-91aa-ac5543611d56","current_version":1,"current_version_status":"active"}
+tasks after approval: [{"id":"b88935de-5595-441a-8433-fc91542d2fe6","status":"approved","entity_type":"article_version","entity_id":"d19bce2e-1d03-4cc0-91aa-ac5543611d56","raised_by_user_id":"657fd49c-b3a1-49f2-bc9d-47b786d7c9f8","assigned_role_code":"CENTRAL_MDM_HEAD","assigned_user_id":null,"decided_by_user_id":"aec0555a-7091-41d5-8fd6-3e13ef6db4b6","decided_at":"2026-10-07T13:48:34.621Z","decision_note":null}]
+  PASS  the version is active — expected "active", read "active"
+  PASS  the version records who approved it — expected "aec0555a-7091-41d5-8fd6-3e13ef6db4b6", read "aec0555a-7091-41d5-8fd6-3e13ef6db4b6"
+  PASS  the article points at it — expected "d19bce2e-1d03-4cc0-91aa-ac5543611d56", read "d19bce2e-1d03-4cc0-91aa-ac5543611d56"
+  PASS  the task is approved and records the second person — expected "approved/aec0555a-7091-41d5-8fd6-3e13ef6db4b6", read "approved/aec0555a-7091-41d5-8fd6-3e13ef6db4b6"
+the ledger row the approval wrote: [{"id":"140","action":"mdm.article.approve","entity_type":"approval_task","entity_id":"b88935de-5595-441a-8433-fc91542d2fe6","outcome":"success","reason":null,"before_state":{"version":1,"versionId":"d19bce2e-1d03-4cc0-91aa-ac5543611d56","taskStatus":"open","articleCode":"CHK-SILVER-GATE","versionStatus":"pending_review","currentVersionId":"d19bce2e-1d03-4cc0-91aa-ac5543611d56"},"after_state":{"note":null,"version":1,"decision":"approve","versionId":"d19bce2e-1d03-4cc0-91aa-ac5543611d56","reasonCode":null,"taskStatus":"approved","closedPrices":null,"versionStatus":"active","returnedToUserId":null,"supersededVersion":null,"supersededVersionId":null},"actor_user_id":"aec0555a-7091-41d5-8fd6-3e13ef6db4b6","created_at":"2026-10-07T13:48:34.621Z"}]
+  PASS  the approval wrote exactly one success row — expected 1, read 1
+  PASS  the row is a success — expected "success", read "success"
+
+==============================================================================
+STEP 10. Restore everything this run wrote, and read the rows back
 ==============================================================================
 
 setChainFeature(mdm_approval_gated, true) -> {"featureCode":"mdm_approval_gated","before":true,"after":true}
-chain_feature row, read back: {"enabled":true,"updated_by_user_id":"1b93f5ca-1396-41b2-8334-2d6a495407b6","updated_at":"2026-10-07T08:57:10.730Z"}
-  PASS  the switch row is enabled — expected true, read true
-  PASS  the switch records the admin who made it — expected "1b93f5ca-1396-41b2-8334-2d6a495407b6", read "1b93f5ca-1396-41b2-8334-2d6a495407b6"
+chain_feature row after the restore: {"enabled":true,"updated_by_user_id":"1b93f5ca-1396-41b2-8334-2d6a495407b6","updated_at":"2026-10-07T13:48:37.271Z"}
+  PASS  the switch is back at the value this run found — expected true, read true
+  PASS  the registry row is left at silver — expected "silver", read "silver"
+FIXTURE (scratch database): deleting the fixture article CHK-SILVER-GATE (versions, prices and tasks with it)
+  PASS  no fixture article is left behind — expected undefined, read undefined
+  PASS  no fixture version is left behind — expected 0, read 0
+  PASS  no review task is left behind — expected 0, read 0
+FIXTURE (scratch database): deleting the session rows this run minted (user_agent = 'verify-approval-gate-silver')
+  sessions minted by this run: 3
+  PASS  no session row is left behind — expected "0", read "0"
 
-ABORTED: operator does not exist: bigint = uuid
-error: operator does not exist: bigint = uuid
-    at <anonymous> (/home/team/shared/site/node_modules/pg-pool/index.js:45:11)
-    at processTicksAndRejections (native:7:39)
+  silver.author.scratch@coastal.example already existed when this run started (as found: true), so
+  the run leaves it exactly where it found it — it is the fixture, not this run's leavings.
+  PASS  the pre-existing fixture identity is left in place (silver.author.scratch@coastal.example) — expected true, read true
+
+  silver.approver.scratch@coastal.example already existed when this run started (as found: true), so
+  the run leaves it exactly where it found it — it is the fixture, not this run's leavings.
+  PASS  the pre-existing fixture identity is left in place (silver.approver.scratch@coastal.example) — expected true, read true
+
+The owner's database, AFTER this run (read only, all of it):
+  feature.mdm_approval_gated          [{"code":"mdm_approval_gated","min_tier":"silver","description":"Silver baseline: four eyes on every master-data change. The chain switch turns the approval queue on.","toggleable":true}]
+  coastal-catch.mdm_approval_gated          [{"enabled":false,"updated_by_user_id":null,"updated_at":"2026-09-21T14:13:17.062Z"}]
+  PASS  the owner's OmniHost.feature row is untouched by this run — byte-identical before and after
+  PASS  the owner's OmniHost.chain_feature row is untouched by this run — byte-identical before and after
+  PASS  the owner's OmniHost.feature row still reads silver — expected "silver", read "silver"
+
+LEFT BEHIND IN THE SCRATCH DATABASE, deliberately:
+  * `audit_log` rows (append-only: a rewrite of the ledger would defeat its purpose);
+  * the fixture identities that already existed when this run started, where they were;
+  * nothing else — the article, its versions, prices, tasks and the sessions this run
+    created are all deleted above, and the switch is back at the value it was found with.
+    The delete SQL for those two identities, should a later reader want the scratch
+    database pristine, is printed beside each one above.
 
 ==============================================================================
-steps: 4
-fixture writes: 4
+steps: 10
+fixture writes: 5
   FIXTURE  fixture identity silver.author.scratch@coastal.example (657fd49c-b3a1-49f2-bc9d-47b786d7c9f8) holding CENTRAL_MDM_HEAD on coastal-catch
   FIXTURE  fixture identity silver.approver.scratch@coastal.example (aec0555a-7091-41d5-8fd6-3e13ef6db4b6) holding CENTRAL_MDM_HEAD on coastal-catch
-  FIXTURE  coastal-catch's mdm_approval_gated switch was true; this script switches it ON through setChainFeature and back to true at the end
   FIXTURE  feature.mdm_approval_gated.min_tier set to 'gold' for the control, then restored to 'silver'
-failures: 1
-  FAILED  aborted: operator does not exist: bigint = uuid
-VERDICT: SEE FAILURES ABOVE.
+  FIXTURE  deleting the fixture article CHK-SILVER-GATE (versions, prices and tasks with it)
+  FIXTURE  deleting the session rows this run minted (user_agent = 'verify-approval-gate-silver')
+failures: 0
+PROVES: `mdm_approval_gated` is entitled at the Silver baseline; the per-chain switch is
+        what turns it on; with the registry row put back to gold the same call is refused
+        in the domain's own words; and on the Silver chain four eyes is alive — the raise
+        lands non-active, the task reaches the approver's queue, the self-approval is
+        refused by calling `decideArticleReview`, and the second person's approval takes
+        the version live. Every step was read back from the database after the call.
+DOES NOT PROVE: that a Silver chain's *screen* refuses the toggle (the server refusal is
+        called here, the browser path was not); the terminal half of the ticket lifecycle;
+        an `entity_id = NULL` refusal; or anything about the owner's database beyond the
+        two rows compared above. Nor does it prove master-data thresholds, which do not
+        exist in code yet.
+VERDICT: four eyes is entitled at Silver, the switch is what turns it on, and the gate is proved by calling it.
