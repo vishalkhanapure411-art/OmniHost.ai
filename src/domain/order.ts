@@ -7,6 +7,7 @@ import type { Principal } from "~/server/session";
 import {
   ORDER_ORIGINS,
   ORDER_INTENTS,
+  ORDER_READ_CAPABILITY,
   ORDER_TRANSITIONS,
   ORDER_VALIDATION_KEY,
   priceLine,
@@ -1043,11 +1044,13 @@ export interface OutletOrderReadback {
 /**
  * Reads one booking back, pinned values and all.
  *
- * **SPEC-GAP, flagged rather than papered over:** §2.4 registers no read capability for the
- * order side — it has `order.book`, `order.fire` and `order.cancel` and nothing that says
- * who may *look* at a booking. This read is gated on `order.book`, the capability of the
- * people who take them, because the alternative was inventing an `order.view` code the spec
- * does not have. It is one line to change when the lead rules on it.
+ * **The read is gated on `order.view`, not on `order.book`** — the split S-B/2c makes, and the
+ * SPEC-GAP this function used to carry in its own comment ("§2.4 registers no read capability
+ * for the order side … this read is gated on `order.book` … one line to change when the lead
+ * rules on it"). `order.book` is a mutation: gating a read on it meant the kitchen reading the
+ * booking behind its tickets, or an account that exists to look, had to hold the capability to
+ * *take* a booking. `ORDER_READ_CAPABILITY` in `~/domain/order-rules` carries the code and the
+ * reasoning; the write path is untouched.
  */
 export async function readOutletOrder(
   principal: Principal,
@@ -1058,7 +1061,7 @@ export async function readOutletOrder(
   const ctx = await outletOrderContext(db, outletOrderId);
   await guard({
     principal,
-    action: "order.book",
+    action: ORDER_READ_CAPABILITY,
     entityType: "outlet_order",
     chainId: ctx.chainId,
     siteId: ctx.siteId,

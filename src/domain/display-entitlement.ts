@@ -311,14 +311,13 @@ function switchRefusal(entitlement: FeatureEntitlement, action: string): Permiss
  * should read first. Neither branch is reachable by "falling through" — every path that
  * does not pass throws.
  *
- * **A note for S-B, because this is a gap rather than a feature.** The refusal is raised
- * here, inside whatever transaction the caller is in, and `guard()` is what writes a
- * `denied` audit row. So a refused resolution currently changes nothing and records nothing:
- * the verifier asserts exactly that (it counts the audit rows before and after). If the fire
- * path wants the refusal in the ledger — and the platform's refusal rule says a capability
- * refusal is a `denied` row — then S-B must ask this gate **before** it opens the
- * transaction, or record the refusal itself. The check is in the right place for safety; the
- * ledger half of it is still to build.
+ * **The ledger half, closed by S-B.** The refusal is raised here, inside whatever transaction
+ * the caller is in, and `guard()` is what writes a `denied` audit row — so a caller that asks
+ * this *inside* its transaction rolls back and records nothing. Every caller that owns the act
+ * therefore asks it **before** opening its transaction and records the `denied` row itself
+ * (`~/domain/ticket`'s fire path and lifecycle since S-B/2a, `~/domain/display-estate`'s
+ * register/pair since S-B/2c). The verifier counts rows around each refusal rather than
+ * trusting this paragraph.
  */
 function assertFeatureOpen(entitlement: FeatureEntitlement, action: string): void {
   if (!entitlement.tierEntitled) throw tierRefusal(entitlement, action);
@@ -346,4 +345,54 @@ export async function assertGuestDisplayEntitled(db: Queryable, chainId: string)
     throw tierRefusal(missingFeature(GUEST_DISPLAY_FEATURE, "gold", ""), "cds.display.view");
   }
   assertFeatureOpen(entitlement.guestDisplay, "cds.display.view");
+}
+
+/**
+ * **The display estate's own gate, in the domain — not only on the screen** (lead ruling,
+ * 30 Sept 2026: "a gate that holds only at the screen is not a gate").
+ *
+ * The S4 screen withholds its register/pair/revoke writes when neither gated feature is open
+ * (`estateGateRows(...).some((row) => row.entitled)`, carried to the screen as `licensed`), and
+ * until this slice that was the *only* place the rule held: `registerDisplay` and `pairDisplay`
+ * accepted a call from anything — a curl, the chatbot gateway, a script — on a chain with no
+ * licence and no switch. This function is the domain half, so the screen's decision and the
+ * server's are the same decision, and the one a caller cannot skip.
+ *
+ * **The two refusals stay two refusals.** When neither feature is open the sentence thrown is
+ * the *first* closed gate's own: the routing feature is asked first (it is the estate's
+ * primary, and the same order `gateRow` uses internally), and inside it the licence before the
+ * switch — `permission.licence.tierBelow` or `permission.licence.moduleOff`, never a merged
+ * "the display estate is not available". Either is a true statement about a genuinely closed
+ * gate, which is the property that matters: a caller who reads the sentence knows whether to
+ * buy the tier or turn the module on.
+ *
+ * **Open when *either* feature is open**, which is the screen's own rule: a chain with the
+ * guest display licensed and routing switched off may still provision a CDS.
+ *
+ * **The ledger half is the caller's, deliberately.** This throws a `PermissionDenied` carrying
+ * the catalogue key; the caller asks it *before* its transaction and records the `denied` row
+ * (`~/domain/display-estate` does, for the display mutations; `~/domain/ticket` does, for the
+ * fire path). A refusal raised inside a transaction would roll back and record nothing — the
+ * gap this module names in its own header note.
+ */
+export async function assertDisplayEstateEntitled(
+  db: Queryable,
+  chainId: string,
+  action: string
+): Promise<void> {
+  const entitlement = await displayEntitlement(db, chainId);
+  if (!entitlement) {
+    // No chain at all: the tier sentence, for the same reason `estateGateRows` offers only
+    // that one — a missing registry row's `tierEntitled` is false, so the switch sentence,
+    // which would have to name a module nobody can find, stays unreachable.
+    throw tierRefusal(missingFeature(ROUTING_FEATURE, "gold", ""), action);
+  }
+  const gates = estateGateRows(entitlement);
+  if (gates.some((gate) => gate.entitled)) return;
+  // Neither is open, so the first gate is held by one of the two and its own sentence is the
+  // one to throw. `holding` is computed by `gateRow`, so the precedence is not restated here.
+  const held = gates[0];
+  const feature = entitlement.routing;
+  if (held?.holding === "switch") throw switchRefusal(feature, action);
+  throw tierRefusal(feature, action);
 }

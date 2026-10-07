@@ -117,6 +117,29 @@ export const ORDER_INTENTS = {
 } as const;
 
 /**
+ * **The booking read's own capability — the split S-B/2c makes** (DECISIONS.md, 30 Sept 2026:
+ * "the entitlement gate belongs in the domain", and the gap `~/domain/order` flagged in
+ * `readOutletOrder`: "§2.4 registers no read capability for the order side").
+ *
+ * Reading a booking no longer requires `order.book`. The reason is not tidiness: `order.book`
+ * is a **mutation** — taking a booking — and gating a read on it means anyone who may *look*
+ * at what a kitchen is cooking must also be able to *write* a booking, and vice versa. The
+ * kitchen reads the booking behind the tickets it is working; a site head reads the service
+ * running; neither act is taking a booking, and an account that exists to look must not carry
+ * a write to earn it.
+ *
+ * **The code is `order.view`, and the word is `view` on purpose.** Reads already have one word
+ * in this registry — `display.view`, `kds.route.view`, `kds.ticket.view`, `cds.display.view` —
+ * and `order.read` would be a second word for the same act, which is how a code vocabulary
+ * starts needing a translation table. The registry's own convention wins.
+ *
+ * `~/domain/order`'s `readOutletOrder` is the only caller, and the module-level constant lives
+ * here so the booking's read and write capabilities are declared in one file — the same reason
+ * `ORDER_TRANSITIONS` does.
+ */
+export const ORDER_READ_CAPABILITY = "order.view";
+
+/**
  * A ticket's states (§2.2, §2.3). The lifecycle's alphabet — **not** the state machine:
  * which transition may start from which state, and the capability each needs, is §2.3's
  * table and S-B/2b's code. Kept here, in the import-free module, because the station

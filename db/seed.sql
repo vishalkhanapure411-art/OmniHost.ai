@@ -795,6 +795,8 @@ with code (code, kind, site_scope, financial, name, description) as (values
    'Before fire. A charged line''s cancellation is the money layer''s, and re-enters with it.'),
   ('order.close',           'mutation', true,  true,  'Close a booking',
    'Addition to §2.4: §2.3 T11 names order.close and §2.4 registers nothing, so without this row T11 is a transition no role may make. Granted to the roles T11 names.'),
+  ('order.view',            'query',    true,  false, 'Read a booking',
+   'The booking read''s own capability (S-B/2c): reading what a booking contains does not require order.book, which is the act of taking one. Held by the roles that take bookings, by the Site Head who runs the service, and by the site culinary team that works the tickets behind a booking.'),
   ('cds.display.view',      'query',    true,  false, 'Render the guest display',
    'Guest-display device principals only. Shows the FSSAI fields of the version pinned at booking and no money at all (D14, D15).')
 )
@@ -812,12 +814,14 @@ select code.code,
        false,
        code.financial,
        -- S-A registered the display and kitchen codes; S-B/1 the booking side's; S-B/2b
-       -- implemented the five ticket mutations (§2.3 T2–T7, T9). Registration and
-       -- implementation are different claims and this column is where they differ:
-       -- migration 0015 makes the same correction in a live database, which cannot be
-       -- re-seeded. `kds.ticket.view` keeps `display-sA` on purpose — its read path is the
-       -- station screen's, which is S-C's, so the value is still the honest one.
+       -- implemented the five ticket mutations (§2.3 T2–T7, T9); S-B/2c the booking read.
+       -- Registration and implementation are different claims and this column is where they
+       -- differ: migration 0015 makes the same correction in a live database, which cannot be
+       -- re-seeded, and 0018 does it for `order.view`. `kds.ticket.view` keeps `display-sA` on
+       -- purpose — its read path is the station screen's, which is S-C's, so the value is
+       -- still the honest one.
        case
+         when code.code = 'order.view' then 'display-sB2c'
          when code.code like 'order.%' then 'display-sB1'
          when code.code in ('kds.ticket.advance', 'kds.ticket.serve', 'kds.ticket.recall',
                             'kds.ticket.reroute', 'kds.ticket.void') then 'display-sB2b'
@@ -877,7 +881,13 @@ with display_grant (permission_code, role_code) as (values
   ('order.cancel',       'SITE_HEAD'),
   -- T11's capability, whose roles are §2.3's rather than §2.4's (see the section header).
   ('order.close',        'SITE_OPERATIONS_TEAM'),
-  ('order.close',        'SITE_HEAD')
+  ('order.close',        'SITE_HEAD'),
+  -- The booking **read** (S-B/2c). The two roles that take bookings keep the read they
+  -- already had through `order.book`, and the site culinary team gains it without gaining a
+  -- write: the kitchen works a booking's tickets and reads the booking they belong to.
+  ('order.view',         'SITE_OPERATIONS_TEAM'),
+  ('order.view',         'SITE_HEAD'),
+  ('order.view',         'SITE_CULINARY_TEAM')
 )
 insert into role_permission (role_id, permission_id)
 select r.id, p.id
