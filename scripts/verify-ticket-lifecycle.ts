@@ -40,10 +40,13 @@
  *
  * **What it does not do.** It writes no scratch booking, creates no display and mints no
  * credential. The only rows it leaves are the lifecycle's own (the fixture booking's tickets,
- * their journal rows and their audit rows) and one `denied` row per capability refusal per
- * database — append-only, and a re-run quotes the earlier row instead of writing a second. A
- * re-run of a database where this lifecycle already ran reads every row back and repeats no
- * act. The removal SQL for the fixture's own rows is printed at the end.
+ * their journal rows and their audit rows) and **three** `denied` rows — one per capability
+ * refusal, written because each refusal **calls its act** (5 October ruling 1: a refusal is proven
+ * by calling the act and asserting the refusal *is* the capability refusal, never by finding an
+ * earlier build's row). Append-only, so a re-run adds three more: that is why the harness is
+ * fixed and run **once** from a reset fixture. The harness refuses to run a fixture that is not in
+ * its reset state — it fails and names `scripts/reset-ticket-lifecycle-fixture.ts` — and no SQL
+ * error inside it is swallowed (`block()` counts one as a failure).
  */
 import { writeFileSync } from "node:fs";
 
@@ -91,6 +94,16 @@ const REFUSED_ACT = "kds.ticket.advance";
 const TRANSCRIPT_PATH = "/home/team/shared/evidence/sb2b-ticket-lifecycle-readback.txt";
 const UTC_STAMP = 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"';
 
+/**
+ * The highest `audit_log.id` read **before this run writes anything**.
+ *
+ * It is what turns "this call wrote the denied row" from a reading of the counts into a
+ * measurement: a row the harness quotes must have an id above this marker, so a row written by an
+ * earlier build can never be mistaken for this run's evidence (ruling 4, "the harness may not
+ * quote a row it did not write"). Set in `main()` before the first act; 0 until then.
+ */
+let RUN_MARKER_AUDIT_ID = 0;
+
 async function block(label: string, sql: string, params: unknown[] = []): Promise<void> {
   out.push(`=== ${label} ===`);
   try {
@@ -98,7 +111,12 @@ async function block(label: string, sql: string, params: unknown[] = []): Promis
     if (rows.length === 0) out.push("(no rows)");
     for (const row of rows) out.push(row.line);
   } catch (error) {
+    // **A database error is never noise** (5 October ruling 2, and the harness audit that found
+    // this: a dead `group by 1, 2, 3` printed `ERROR aggregate functions are not allowed in
+    // GROUP BY`, read back zero rows, and the run still reported `failures: 0`). An SQL error in
+    // this harness may not be swallowed anywhere: it is printed AND counted.
     out.push(`ERROR ${errorMessage(error)}`);
+    t.failures.push(`SQL block "${label}" failed: ${errorMessage(error)}`);
   }
   out.push("");
 }
@@ -111,6 +129,8 @@ interface Counts {
   ticketLines: number;
   transitions: number;
   audits: number;
+  /** The highest `audit_log.id` right now — so a refusal's own row can be shown to be *new*. */
+  maxAuditId: number;
 }
 
 async function counts(): Promise<Counts> {
@@ -122,6 +142,7 @@ async function counts(): Promise<Counts> {
     ticket_lines: number;
     transitions: number;
     audits: number;
+    max_audit_id: string;
   }>(
     `select (select count(*) from "order")::int as orders,
             (select count(*) from outlet_order)::int as outlet_orders,
@@ -129,7 +150,8 @@ async function counts(): Promise<Counts> {
             (select count(*) from ticket)::int as tickets,
             (select count(*) from ticket_line)::int as ticket_lines,
             (select count(*) from ticket_transition)::int as transitions,
-            (select count(*) from audit_log)::int as audits`
+            (select count(*) from audit_log)::int as audits,
+            coalesce((select max(id::bigint) from audit_log), 0)::text as max_audit_id`
   );
   const row = rows[0];
   if (!row) throw new Error("counts query returned no row");
@@ -141,13 +163,15 @@ async function counts(): Promise<Counts> {
     ticketLines: row.ticket_lines,
     transitions: row.transitions,
     audits: row.audits,
+    maxAuditId: Number(row.max_audit_id),
   };
 }
 
 function countsLine(label: string, c: Counts): string {
   return (
     `${label}: order=${String(c.orders)} outlet_order=${String(c.outletOrders)} order_line=${String(c.orderLines)} ` +
-    `ticket=${String(c.tickets)} ticket_line=${String(c.ticketLines)} ticket_transition=${String(c.transitions)} audit_log=${String(c.audits)}`
+    `ticket=${String(c.tickets)} ticket_line=${String(c.ticketLines)} ticket_transition=${String(c.transitions)} ` +
+    `audit_log=${String(c.audits)} max_audit_id=${String(c.maxAuditId)}`
   );
 }
 
@@ -557,12 +581,39 @@ async function validationRefusal(args: {
   );
 }
 
-/** A capability refusal: one `denied` row naming the capability, and no data change. */
+/** What kind of error was caught — printed, so the assertion below is read against a fact. */
+function describeCaught(error: unknown): string {
+  if (isHttpError(error)) {
+    return (
+      `HttpError status=${String(error.status)} code=${error.code} ` +
+      `action=${String(error.details?.action ?? "MISSING")} message=${error.message}`
+    );
+  }
+  return `NOT an HttpError — ${error instanceof Error ? error.name : typeof error}: ${errorMessage(error)}`;
+}
+
+/** A message that reads like Postgres talking rather than like a catalogue sentence (ruling 2). */
+const SQL_ERROR_SHAPE =
+  /SQLSTATE|syntax error|could not determine data type|invalid input syntax|duplicate key value|cannot insert|permission denied for|parameter \$|relation "[^"]+" does not exist|column "[^"]+" does not exist/i;
+
+/**
+ * A capability refusal: **the act is CALLED**, the caught error is asserted to *be* the capability
+ * refusal, and exactly one **new** `denied` row is written while no data changes.
+ *
+ * **Ruling 1 (5 October 2026), and why the call is now unconditional.** A `denied` row written by
+ * an earlier build proves nothing about this one. The recorded 5 October run took the
+ * prior-denial branch on *both* step-4 refusals — it asserted against audit rows 193/194 from the
+ * 1 October build, its PASS line read "exactly one denied row was written (or was already there)
+ * — 219 -> 219", and so a count that never moved was read as a refusal being proven. The prior-row
+ * read survives **only as a printed diagnostic**; it is never a pass condition, and the wording of
+ * the assertion makes that impossible.
+ */
 async function capabilityRefusal(args: {
   label: string;
   actorDescription: string;
   /** The capability the actor does not hold — `kds.ticket.advance` unless an act says otherwise. */
   capability?: string;
+  /** Printed, never asserted: what an earlier run's denial of the same shape looks like. */
   priorDenialSql: string;
   priorDenialParams: unknown[];
   /** How to find the denial's own row: the generic path does not always name the ticket. */
@@ -580,28 +631,51 @@ async function capabilityRefusal(args: {
     args.priorDenialSql,
     args.priorDenialParams
   );
-  if (prior[0]) {
-    t.say(
-      `  already in the ledger from an earlier run (audit id ${prior[0].id}, ${prior[0].created_at}): ${prior[0].reason ?? "NULL"} — not repeated`
-    );
-  } else {
-    try {
-      await args.call();
-      t.say("  UNEXPECTED: the act was accepted");
-      t.failures.push(`${args.label}: the act was accepted`);
-      return;
-    } catch (error) {
-      t.say(`  refused with: ${errorMessage(error)}`);
-    }
+  t.say(
+    prior[0]
+      ? `  DIAGNOSTIC (never a pass condition): an earlier run's denial of this shape is already in the ledger — audit id ${prior[0].id}, ${prior[0].created_at}: ${prior[0].reason ?? "NULL"}. This run CALLS the act anyway.`
+      : "  DIAGNOSTIC (never a pass condition): no earlier denial of this shape is in the ledger. This run CALLS the act."
+  );
+
+  // **The call, unconditionally — ruling 1.** A refused act is a counted failure, never a crash.
+  let caught: unknown = null;
+  let accepted = false;
+  try {
+    await args.call();
+    accepted = true;
+  } catch (error) {
+    caught = error;
   }
+  if (accepted) {
+    t.say("  UNEXPECTED: the act was accepted");
+    t.failures.push(`${args.label}: the act was accepted`);
+    return;
+  }
+  t.say(`  refused with: ${errorMessage(caught)}`);
+  t.say(`  the caught error, in full: ${describeCaught(caught)}`);
+  t.check(
+    `${args.label}: the call really was made and the refusal IS the capability refusal — a permission_denied HttpError naming ${capability}, not a validation refusal and not a database error`,
+    isHttpError(caught) &&
+      caught.code === "permission_denied" &&
+      String(caught.details?.action ?? "") === capability &&
+      /^Not permitted:/.test(errorMessage(caught)) &&
+      !SQL_ERROR_SHAPE.test(errorMessage(caught)),
+    describeCaught(caught)
+  );
+
   const after = await counts();
   t.say(countsLine("  before the refusal", before));
   t.say(countsLine("  after the refusal ", after));
   t.check(`${args.label}: no data changed`, sameData(before, after));
   t.check(
-    `${args.label}: exactly one denied row was written (or was already there)`,
-    after.audits === before.audits + (prior[0] ? 0 : 1),
+    `${args.label}: THIS CALL wrote exactly one new denied row — the ledger went N -> N+1 (never "or was already there")`,
+    after.audits === before.audits + 1,
     `${String(before.audits)} -> ${String(after.audits)}`
+  );
+  t.check(
+    `${args.label}: and the run's own audit marker moved — the new id is above the highest audit id read at the run's start (${String(RUN_MARKER_AUDIT_ID)})`,
+    after.maxAuditId > RUN_MARKER_AUDIT_ID && after.maxAuditId > before.maxAuditId,
+    `run-start marker ${String(RUN_MARKER_AUDIT_ID)}, before ${String(before.maxAuditId)}, after ${String(after.maxAuditId)}`
   );
   const denied = await q.query<{
     id: string;
@@ -640,6 +714,11 @@ async function capabilityRefusal(args: {
     row?.action ?? "none"
   );
   t.check(
+    `${args.label}: and the row it reads back is one THIS RUN wrote — its id (${row?.id ?? "none"}) is above the run-start audit marker (${String(RUN_MARKER_AUDIT_ID)})`,
+    row !== undefined && Number(row.id) > RUN_MARKER_AUDIT_ID,
+    `row id ${row?.id ?? "none"} vs run-start marker ${String(RUN_MARKER_AUDIT_ID)}`
+  );
+  t.check(
     `${args.label}: and it records no before/after state — a capability refusal changes nothing`,
     row?.before_state === null && row?.after_state === null,
     `before=${row?.before_state ?? "NULL"} after=${row?.after_state ?? "NULL"}`
@@ -663,6 +742,17 @@ async function capabilityRefusal(args: {
 }
 
 async function main(): Promise<void> {
+  // ---------------------------------------------------------------------------------------
+  // 0. The run's own audit marker — read before this harness writes a single row.
+  // ---------------------------------------------------------------------------------------
+  const markerRows = await q.query<{ id: string }>(
+    `select coalesce((select max(id::bigint) from audit_log), 0)::text as id`
+  );
+  RUN_MARKER_AUDIT_ID = Number(markerRows[0]?.id ?? "0");
+  t.say(
+    `the run's audit marker, read before anything here writes: the highest audit_log.id is ${String(RUN_MARKER_AUDIT_ID)} — every denied row this run quotes must have an id above it`
+  );
+
   // ---------------------------------------------------------------------------------------
   // 1. The fixture, read from the tables.
   // ---------------------------------------------------------------------------------------
@@ -727,11 +817,19 @@ async function main(): Promise<void> {
   const rerouteTarget = targetRows[0];
   if (!rerouteTarget) throw new Error(`no station ${REROUTE_TARGET_CODE} at this outlet`);
   t.say(`T9's target station: ${rerouteTarget.code} (${rerouteTarget.name}, ${rerouteTarget.id})`);
-  const alreadyTerminal = tickets.every((row) => row.state === "served" || row.state === "voided");
+  // **Ruling 4: the harness may not quote a row it did not write.** The fire path leaves three
+  // `queued` tickets and a `fired` booking. If a ticket is already past `queued`, an earlier run
+  // reached that state and every act below would be read back from that run rather than restated
+  // by this one. That is a FAILURE naming the fix, never a softer note (WORKFLOW.md, "A skipped
+  // step proves nothing"; the 5 October audit found exactly this pass being read as evidence).
+  const notReset = tickets.filter((row) => row.state !== "queued");
   t.say(
-    alreadyTerminal
-      ? "every ticket is already terminal, so a previous run drove this lifecycle — this run reads it back and repeats no act"
-      : "the tickets are not all terminal yet, so this run drives the lifecycle"
+    "the reset states this run requires — the fire path's own values: ticket.state='queued' on all three, outlet_order.status='fired' (scripts/reset-ticket-lifecycle-fixture.ts restores exactly these)"
+  );
+  t.check(
+    "FIXTURE IS IN ITS RESET STATE: all three tickets are 'queued', so every act below is this run's own (else run `bun run scripts/reset-ticket-lifecycle-fixture.ts` first)",
+    notReset.length === 0,
+    tickets.map((row) => `${row.section_code}=${row.state}`).join(",")
   );
 
   // ---------------------------------------------------------------------------------------
@@ -941,9 +1039,16 @@ async function main(): Promise<void> {
   );
   await block(
     "every reason code any ticket row currently holds (the pre-check that the new checks reject no row)",
-    `select 'void_reason_code=' || coalesce(void_reason_code, 'NULL') || ' hold_reason_code=' || coalesce(hold_reason_code, 'NULL')
-            || ' state=' || state || ' rows=' || count(*)::text as line
-       from ticket group by 1, 2, 3 order by 1`
+    // `group by 1, 2, 3` grouped by an ordinal that names `count(*)` — "aggregate functions are not
+    // allowed in GROUP BY" — so this pre-check read back ZERO rows on the recorded 5 October run
+    // while the transcript still said `failures: 0`. The columns are named explicitly now.
+    `select 'void_reason_code=' || coalesce(void_reason_code, 'NULL')
+            || ' hold_reason_code=' || coalesce(hold_reason_code, 'NULL')
+            || ' state=' || state
+            || ' rows=' || count(*)::text as line
+       from ticket
+      group by void_reason_code, hold_reason_code, state
+      order by 1`
   );
 
   // Two demonstration writes that must be refused, each inside a transaction that is rolled
@@ -1343,7 +1448,14 @@ async function main(): Promise<void> {
   );
   const closeCountsBefore = await counts();
   if (servedBooking[0]?.outlet_order_status === "closed") {
-    t.say("a previous run already closed this booking — read back, not repeated");
+    // **Ruling 4 again, at the last act.** A booking already closed was closed by an earlier run,
+    // so this run cannot prove T11 wrote anything. It is a failure naming the fix — the harness
+    // may not quote a row it did not write.
+    t.say("  the booking is already closed — an earlier run's act, so T11 cannot be read back as this run's");
+    t.failures.push(
+      "T11 close the booking: SKIPPED — the booking is already closed, reached by an earlier run; " +
+        "reset the fixture first (bun run scripts/reset-ticket-lifecycle-fixture.ts), then run this harness once"
+    );
   } else {
     const closed = await closeOutletOrder(
       head,
@@ -1501,7 +1613,7 @@ async function main(): Promise<void> {
   for (const failure of t.failures) out.push(`  FAILED  ${failure}`);
   out.push(
     t.failures.length === 0
-      ? "VERDICT: S-B/2b ticket lifecycle verified — T2-T7, T9 and T11 driven through the domain, every state, timestamp, line state, journal row and ledger row read back from Postgres; two capability refusals each writing one denied row and changing nothing; three validation refusals writing nothing at all; migration 0016's replay key and reason vocabulary proven in the database; 0 failures."
+      ? "VERDICT: S-B/2b ticket lifecycle verified — T2-T7, T9 and T11 driven through the domain, every state, timestamp, line state, journal row and ledger row read back from Postgres; THREE capability refusals, each one CALLING its act and writing exactly one NEW denied row on this run, each changing nothing; three validation refusals writing nothing at all; migration 0016's replay key and reason vocabulary proven in the database; every SQL block in this harness ran without error; 0 failures."
       : `VERDICT: ${String(t.failures.length)} FAILURE(S) — see above.`
   );
   const report = [
@@ -1511,7 +1623,7 @@ async function main(): Promise<void> {
     "WHAT THIS RUN WROTE, AND WHAT IT LEFT BEHIND",
     "=".repeat(78),
     `* The fixture booking ${FIXTURE_ORDER_ID} (outlet_order ${FIXTURE_OUTLET_ORDER_ID}, service reference T-001): its three tickets are now terminal — the KOR-HOT and KOR-GRILL tickets served, the KOR-COLD ticket re-routed to KOR-DESSERT and voided — the booking is ${closedBooking[0]?.outlet_order_status ?? "unknown"}, and its journal carries one row per transition.`,
-    "* One `denied` audit_log row per capability refusal per database — two if this run was the first: the Site Head's T2 without `kds.ticket.advance`, and the KOR-HOT terminal's T2 on the KOR-GRILL ticket. Append-only, so they cannot be removed, and a re-run quotes them instead of adding more.",
+    "* THREE `denied` audit_log rows, one per capability refusal, each written by THIS RUN because each refusal actually called its act: the Site Head's T2 without `kds.ticket.advance`, the KOR-HOT terminal's T2 on the KOR-GRILL ticket, and the KOR-HOT terminal's T5 recall (a person's act no terminal holds). The ledger count and the highest audit id both move by one at each, and each row's id is above this run's own marker. Append-only, so they cannot be removed: a re-run calls the acts again and adds three more — which is why the harness is fixed before it is run.",
     "* NOTHING ELSE: no booking created, no display registered, no credential minted, no row edited. The two constraint demonstrations and every refusal wrote nothing at all.",
     "* The three device principals this run acts as (`verify-kds-hot`, `verify-kds-grill`, `verify-kds-cold`) exist only in this process — no `display` or `display_credential` row backs them (see HONEST LIMITS).",
     "",
