@@ -1,0 +1,254 @@
+OmniHost.ai — display S-B/2c part 2: the closed-gate acts, the ledger, and the counts.
+run at 2026-10-07T08:12:23.848Z
+database: postgresql://neondb_owner:***@ep-empty-water-b3p8hf5h-pooler.c-4.ap-southeast-1.aws.neon.tech/OmniHost?sslmode=require&channel_binding=require
+Every act below is CALLED and its refusal asserted; the rows are read back from Postgres.
+
+==============================================================================
+STEP 1. The fixture this run needs, and the values it will put back
+==============================================================================
+chain    saffron-table (89040dcc-01c9-4338-abec-7e4f5ce7db81) licence_tier=gold
+outlet   koramangala-restaurant (43ada954-9941-4918-a4a2-eb31c6d37ac5) site f748e5fc-bbbe-4569-9a61-8c2254f20ed4
+gate     cds=true kds_multi_station=true
+booking  620dd087-ff75-4926-a97d-3e3c1b7ed5f2 status=closed
+left over from an earlier run: display=0 section=0
+  PASS  the pilot chain's licence is `gold` — the value the run restores — read gold
+  PASS  the pilot chain's gate is OPEN before the run (both features enabled), so the run closes and restores it — cds=true kds_multi_station=true
+  PASS  the fixture booking is not in the state the fire path may fire from, so the validation step cannot fire it (status closed ≠ accepted)
+  PASS  no CHECK-SB2C-* fixture is left behind — this run starts from a clean state, not a previous run's
+
+audit marker: rows written by this run have id > 335
+baseline    : audit_log=335 display=1 display_credential=1 outlet_section=10 chain=2 chain_feature=36 ticket=3 ticket_transition=16 ticket_line=3 outlet_order=1 orders=1 order_line=3
+  PASS  the account this run acts as is a real holder of display.manage and order.fire, read from the registry — display.manage: site.head@saffron.example | order.fire: site.head@saffron.example
+acting as: site.head@saffron.example (SITE_HEAD)
+
+==============================================================================
+STEP 2. The terminal this run provisions, and the section kind read from the ROW
+==============================================================================
+created a CHECK station CHECK-SB2C-STATION (399280d2-5dbe-46cc-8334-668b64464014), kind kitchen, sort_order 95
+  PASS  the fixture did not displace the outlet's pass — resolveLineRoute still lands on KOR-PASS — read KOR-PASS
+paired CHECK-SB2C-PASS: pairing code issued, redeemed for a token, digest stored
+  PASS  the token resolves to a device principal — the credential path, not an in-process stand-in — display CHECK-SB2C-PASS
+  PASS  the principal's section is the CHECK station's row — expected "399280d2-5dbe-46cc-8334-668b64464014", read "399280d2-5dbe-46cc-8334-668b64464014"
+  PASS  its section kind is read from that row (kitchen) — expected "kitchen", read "kitchen"
+  PASS  a kds on a kitchen station holds the four acts and NOT serve — read ["kds.ticket.advance","kds.ticket.recall","kds.ticket.view","kds.ticket.void"]
+  PASS  with the SAME token and the station's row now `expedite`, the pass holds the four plus serve — read ["kds.ticket.advance","kds.ticket.recall","kds.ticket.serve","kds.ticket.view","kds.ticket.void"]
+  PASS  and back to `kitchen`: serve is gone again — the grant follows the row, not the caller — read ["kds.ticket.advance","kds.ticket.recall","kds.ticket.view","kds.ticket.void"]
+  PASS  re-route is in NO set a resolved terminal holds
+
+==============================================================================
+STEP 3. The TIER refusal: register, pair and fire, each CALLED with the licence below the module
+==============================================================================
+tier-phase audit marker: id > 338 are the rows these refusals write
+the pilot chain's licence is now "silver" (was gold; restored below)
+
+CALLED: registerDisplay on a chain whose licence does not cover the module
+  PASS  registerDisplay on a chain whose licence does not cover the module → refused with a 403 capability refusal — status 403
+  PASS  registerDisplay on a chain whose licence does not cover the module → the refusal's capability — expected "display.manage", read "display.manage"
+  PASS  registerDisplay on a chain whose licence does not cover the module → the catalogue key — expected "permission.licence.tierBelow", read "permission.licence.tierBelow"
+  sentence (en-IN): kds_multi_station needs the gold licence tier, and this chain is on silver. Nothing has changed; the licence is what has to move, not the configuration.
+  sentence (hi-IN): (no catalogue entry for permission.licence.tierBelow)
+  PASS  registerDisplay on a chain whose licence does not cover the module → the sentence names the minimum tier and the tier the chain is on
+  DEFERRED: permission.licence.tierBelow has no Hindi entry, so the screen shows the English sentence (declared debt, PREP §G).
+  PASS  registerDisplay on a chain whose licence does not cover the module (counts) → only audit_log moved, and by 1 denied row(s) — audit_log=338 display=2 display_credential=2 outlet_section=11 chain=2 chain_feature=36 ticket=3 ticket_transition=16 ticket_line=3 outlet_order=1 orders=1 order_line=3
+        -> audit_log=339 display=2 display_credential=2 outlet_section=11 chain=2 chain_feature=36 ticket=3 ticket_transition=16 ticket_line=3 outlet_order=1 orders=1 order_line=3
+  PASS  registerDisplay on a chain whose licence does not cover the module → exactly one new `denied` row for display (no id) — found 1 of ["display.manage|display|NULL"]
+  PASS  registerDisplay on a chain whose licence does not cover the module → the row is a denial of this refusal (row action display.manage, refusal named display.manage) — row action display.manage
+  PASS  register display (display, no id yet) → actor_user_id — read "38344488-a5d6-4f39-afb9-4673bfd6444d"
+  PASS  register display (display, no id yet) → actor_role_code — read SITE_HEAD
+  PASS  register display (display, no id yet) → actor_scope — read site
+  PASS  register display (display, no id yet) → outcome — read denied
+  PASS  register display (display, no id yet) → session_id is the principal's nil uuid — read "00000000-0000-0000-0000-000000000000"
+  PASS  register display (display, no id yet) → chain_id / site_id — read ["89040dcc-01c9-4338-abec-7e4f5ce7db81","f748e5fc-bbbe-4569-9a61-8c2254f20ed4"]
+  PASS  register display (display, no id yet) → reason starts with "Not permitted:" — read "Not permitted: display.manage is not entitled on this chain"
+  PASS  register display (display, no id yet) → intent — read "verification"
+
+CALLED: pairDisplay for that chain's display
+  PASS  pairDisplay for that chain's display → refused with a 403 capability refusal — status 403
+  PASS  pairDisplay for that chain's display → the refusal's capability — expected "display.manage", read "display.manage"
+  PASS  pairDisplay for that chain's display → the catalogue key — expected "permission.licence.tierBelow", read "permission.licence.tierBelow"
+  sentence (en-IN): kds_multi_station needs the gold licence tier, and this chain is on silver. Nothing has changed; the licence is what has to move, not the configuration.
+  sentence (hi-IN): (no catalogue entry for permission.licence.tierBelow)
+  PASS  pairDisplay for that chain's display → the sentence names the minimum tier and the tier the chain is on
+  DEFERRED: permission.licence.tierBelow has no Hindi entry, so the screen shows the English sentence (declared debt, PREP §G).
+  PASS  pairDisplay for that chain's display (counts) → only audit_log moved, and by 1 denied row(s) — audit_log=339 display=2 display_credential=2 outlet_section=11 chain=2 chain_feature=36 ticket=3 ticket_transition=16 ticket_line=3 outlet_order=1 orders=1 order_line=3
+        -> audit_log=340 display=2 display_credential=2 outlet_section=11 chain=2 chain_feature=36 ticket=3 ticket_transition=16 ticket_line=3 outlet_order=1 orders=1 order_line=3
+  PASS  pairDisplay for that chain's display → exactly one new `denied` row for display_credential 9a62ee35-b89b-4cce-b705-f04758fb4754 — found 1 of ["display.manage|display|NULL","display.manage|display_credential|9a62ee35-b89b-4cce-b705-f04758fb4754"]
+  PASS  pairDisplay for that chain's display → the row is a denial of this refusal (row action display.manage, refusal named display.manage) — row action display.manage
+  PASS  pair display (credential for the display) → actor_user_id — read "38344488-a5d6-4f39-afb9-4673bfd6444d"
+  PASS  pair display (credential for the display) → actor_role_code — read SITE_HEAD
+  PASS  pair display (credential for the display) → actor_scope — read site
+  PASS  pair display (credential for the display) → outcome — read denied
+  PASS  pair display (credential for the display) → session_id is the principal's nil uuid — read "00000000-0000-0000-0000-000000000000"
+  PASS  pair display (credential for the display) → chain_id / site_id — read ["89040dcc-01c9-4338-abec-7e4f5ce7db81","f748e5fc-bbbe-4569-9a61-8c2254f20ed4"]
+  PASS  pair display (credential for the display) → reason starts with "Not permitted:" — read "Not permitted: display.manage is not entitled on this chain"
+  PASS  pair display (credential for the display) → intent — read "verification"
+
+CALLED: fireOutletOrder on that chain's booking
+  PASS  fireOutletOrder on that chain's booking → refused with a 403 capability refusal — status 403
+  PASS  fireOutletOrder on that chain's booking → the catalogue key — expected "permission.licence.tierBelow", read "permission.licence.tierBelow"
+  sentence (en-IN): kds_multi_station needs the gold licence tier, and this chain is on silver. Nothing has changed; the licence is what has to move, not the configuration.
+  sentence (hi-IN): (no catalogue entry for permission.licence.tierBelow)
+  PASS  fireOutletOrder on that chain's booking → the sentence names the minimum tier and the tier the chain is on
+  DEFERRED: permission.licence.tierBelow has no Hindi entry, so the screen shows the English sentence (declared debt, PREP §G).
+  PASS  fireOutletOrder on that chain's booking (counts) → only audit_log moved, and by 1 denied row(s) — audit_log=340 display=2 display_credential=2 outlet_section=11 chain=2 chain_feature=36 ticket=3 ticket_transition=16 ticket_line=3 outlet_order=1 orders=1 order_line=3
+        -> audit_log=341 display=2 display_credential=2 outlet_section=11 chain=2 chain_feature=36 ticket=3 ticket_transition=16 ticket_line=3 outlet_order=1 orders=1 order_line=3
+  PASS  fireOutletOrder on that chain's booking → exactly one new `denied` row for outlet_order 620dd087-ff75-4926-a97d-3e3c1b7ed5f2 — found 1 of ["display.manage|display|NULL","display.manage|display_credential|9a62ee35-b89b-4cce-b705-f04758fb4754","order.fire|outlet_order|620dd087-ff75-4926-a97d-3e3c1b7ed5f2"]
+  PASS  fireOutletOrder on that chain's booking → the row is a denial of this refusal (row action order.fire, refusal named kds.route.view) — row action order.fire
+  PASS  fire booking (the booking) → actor_user_id — read "38344488-a5d6-4f39-afb9-4673bfd6444d"
+  PASS  fire booking (the booking) → actor_role_code — read SITE_HEAD
+  PASS  fire booking (the booking) → actor_scope — read site
+  PASS  fire booking (the booking) → outcome — read denied
+  PASS  fire booking (the booking) → session_id is the principal's nil uuid — read "00000000-0000-0000-0000-000000000000"
+  PASS  fire booking (the booking) → chain_id / site_id — read ["89040dcc-01c9-4338-abec-7e4f5ce7db81","f748e5fc-bbbe-4569-9a61-8c2254f20ed4"]
+  PASS  fire booking (the booking) → reason starts with "Not permitted:" — read "Not permitted: kds.route.view is not entitled on this chain"
+  PASS  fire booking (the booking) → intent — read "verification"
+
+=== every `denied` row this run has written so far, read back from Postgres ===
+  id=339 | display.manage | display | entity_id=null | actor_user_id="38344488-a5d6-4f39-afb9-4673bfd6444d" role=SITE_HEAD scope=site session="00000000-0000-0000-0000-000000000000" | source=api intent="verification" | "Not permitted: display.manage is not entitled on this chain"
+  id=340 | display.manage | display_credential | entity_id="9a62ee35-b89b-4cce-b705-f04758fb4754" | actor_user_id="38344488-a5d6-4f39-afb9-4673bfd6444d" role=SITE_HEAD scope=site session="00000000-0000-0000-0000-000000000000" | source=api intent="verification" | "Not permitted: display.manage is not entitled on this chain"
+  id=341 | order.fire | outlet_order | entity_id="620dd087-ff75-4926-a97d-3e3c1b7ed5f2" | actor_user_id="38344488-a5d6-4f39-afb9-4673bfd6444d" role=SITE_HEAD scope=site session="00000000-0000-0000-0000-000000000000" | source=api intent="verification" | "Not permitted: kds.route.view is not entitled on this chain"
+  PASS  the three tier refusals, by RECORD (entity_type | entity_id) — a named set, never a count — read ["display_credential|9a62ee35-b89b-4cce-b705-f04758fb4754","display|NULL","outlet_order|620dd087-ff75-4926-a97d-3e3c1b7ed5f2"]
+  PASS  and every row the three refusals wrote is a denial — no success row rides along — denied, denied, denied
+
+==============================================================================
+STEP 4. The MODULE-SWITCH refusal: the same three acts, the licence restored and the switch off
+==============================================================================
+the licence is gold again and the switches read cds=false kds_multi_station=false
+  PASS  the tier now covers the module and the switch is what is holding — the second, different gate
+
+CALLED: registerDisplay on a chain whose licence does not cover the module  (switch off, licence gold)
+  PASS  registerDisplay on a chain whose licence does not cover the module → refused with a 403 capability refusal — status 403
+  PASS  registerDisplay on a chain whose licence does not cover the module → the refusal's capability — expected "display.manage", read "display.manage"
+  PASS  registerDisplay on a chain whose licence does not cover the module → the catalogue key — the SWITCH's own sentence, not the tier's — expected "permission.licence.moduleOff", read "permission.licence.moduleOff"
+  sentence (en-IN): KDS multi-station routing is switched off for this chain, so nothing was routed. The licence covers it; the module switch is the chain's own setting.
+  sentence (hi-IN): (no catalogue entry for permission.licence.moduleOff)
+  PASS  registerDisplay on a chain whose licence does not cover the module → the sentence names the module in WORDS, never its code
+  DEFERRED: permission.licence.moduleOff has no Hindi entry, so the screen shows the English sentence (declared debt, PREP §G).
+  PASS  registerDisplay on a chain whose licence does not cover the module (counts) → only audit_log moved, and by 1 denied row(s) — audit_log=341 display=2 display_credential=2 outlet_section=11 chain=2 chain_feature=36 ticket=3 ticket_transition=16 ticket_line=3 outlet_order=1 orders=1 order_line=3
+        -> audit_log=342 display=2 display_credential=2 outlet_section=11 chain=2 chain_feature=36 ticket=3 ticket_transition=16 ticket_line=3 outlet_order=1 orders=1 order_line=3
+  PASS  registerDisplay on a chain whose licence does not cover the module → exactly one new `denied` row for display (no id) — found 1 of ["display.manage|display|NULL"]
+  PASS  registerDisplay on a chain whose licence does not cover the module → the row is a denial of this refusal (row action display.manage) — row action display.manage, refusal named display.manage
+  PASS  register display (display, no id yet) → actor_user_id — read "38344488-a5d6-4f39-afb9-4673bfd6444d"
+  PASS  register display (display, no id yet) → actor_role_code — read SITE_HEAD
+  PASS  register display (display, no id yet) → actor_scope — read site
+  PASS  register display (display, no id yet) → outcome — read denied
+  PASS  register display (display, no id yet) → session_id is the principal's nil uuid — read "00000000-0000-0000-0000-000000000000"
+  PASS  register display (display, no id yet) → chain_id / site_id — read ["89040dcc-01c9-4338-abec-7e4f5ce7db81","f748e5fc-bbbe-4569-9a61-8c2254f20ed4"]
+  PASS  register display (display, no id yet) → reason starts with "Not permitted: KDS multi-station routing is switched off for this chain" — read "Not permitted: KDS multi-station routing is switched off for this chain"
+  PASS  register display (display, no id yet) → intent — read "verification"
+
+CALLED: pairDisplay for that chain's display  (switch off, licence gold)
+  PASS  pairDisplay for that chain's display → refused with a 403 capability refusal — status 403
+  PASS  pairDisplay for that chain's display → the refusal's capability — expected "display.manage", read "display.manage"
+  PASS  pairDisplay for that chain's display → the catalogue key — the SWITCH's own sentence, not the tier's — expected "permission.licence.moduleOff", read "permission.licence.moduleOff"
+  sentence (en-IN): KDS multi-station routing is switched off for this chain, so nothing was routed. The licence covers it; the module switch is the chain's own setting.
+  sentence (hi-IN): (no catalogue entry for permission.licence.moduleOff)
+  PASS  pairDisplay for that chain's display → the sentence names the module in WORDS, never its code
+  DEFERRED: permission.licence.moduleOff has no Hindi entry, so the screen shows the English sentence (declared debt, PREP §G).
+  PASS  pairDisplay for that chain's display (counts) → only audit_log moved, and by 1 denied row(s) — audit_log=342 display=2 display_credential=2 outlet_section=11 chain=2 chain_feature=36 ticket=3 ticket_transition=16 ticket_line=3 outlet_order=1 orders=1 order_line=3
+        -> audit_log=343 display=2 display_credential=2 outlet_section=11 chain=2 chain_feature=36 ticket=3 ticket_transition=16 ticket_line=3 outlet_order=1 orders=1 order_line=3
+  PASS  pairDisplay for that chain's display → exactly one new `denied` row for display_credential 9a62ee35-b89b-4cce-b705-f04758fb4754 — found 1 of ["display.manage|display|NULL","display.manage|display_credential|9a62ee35-b89b-4cce-b705-f04758fb4754"]
+  PASS  pairDisplay for that chain's display → the row is a denial of this refusal (row action display.manage) — row action display.manage, refusal named display.manage
+  PASS  pair display (credential for the display) → actor_user_id — read "38344488-a5d6-4f39-afb9-4673bfd6444d"
+  PASS  pair display (credential for the display) → actor_role_code — read SITE_HEAD
+  PASS  pair display (credential for the display) → actor_scope — read site
+  PASS  pair display (credential for the display) → outcome — read denied
+  PASS  pair display (credential for the display) → session_id is the principal's nil uuid — read "00000000-0000-0000-0000-000000000000"
+  PASS  pair display (credential for the display) → chain_id / site_id — read ["89040dcc-01c9-4338-abec-7e4f5ce7db81","f748e5fc-bbbe-4569-9a61-8c2254f20ed4"]
+  PASS  pair display (credential for the display) → reason starts with "Not permitted: KDS multi-station routing is switched off for this chain" — read "Not permitted: KDS multi-station routing is switched off for this chain"
+  PASS  pair display (credential for the display) → intent — read "verification"
+
+CALLED: fireOutletOrder on that chain's booking  (switch off, licence gold)
+  PASS  fireOutletOrder on that chain's booking → refused with a 403 capability refusal — status 403
+  PASS  fireOutletOrder on that chain's booking → the catalogue key — the SWITCH's own sentence, not the tier's — expected "permission.licence.moduleOff", read "permission.licence.moduleOff"
+  sentence (en-IN): KDS multi-station routing is switched off for this chain, so nothing was routed. The licence covers it; the module switch is the chain's own setting.
+  sentence (hi-IN): (no catalogue entry for permission.licence.moduleOff)
+  PASS  fireOutletOrder on that chain's booking → the sentence names the module in WORDS, never its code
+  DEFERRED: permission.licence.moduleOff has no Hindi entry, so the screen shows the English sentence (declared debt, PREP §G).
+  PASS  fireOutletOrder on that chain's booking (counts) → only audit_log moved, and by 1 denied row(s) — audit_log=343 display=2 display_credential=2 outlet_section=11 chain=2 chain_feature=36 ticket=3 ticket_transition=16 ticket_line=3 outlet_order=1 orders=1 order_line=3
+        -> audit_log=344 display=2 display_credential=2 outlet_section=11 chain=2 chain_feature=36 ticket=3 ticket_transition=16 ticket_line=3 outlet_order=1 orders=1 order_line=3
+  PASS  fireOutletOrder on that chain's booking → exactly one new `denied` row for outlet_order 620dd087-ff75-4926-a97d-3e3c1b7ed5f2 — found 1 of ["display.manage|display|NULL","display.manage|display_credential|9a62ee35-b89b-4cce-b705-f04758fb4754","order.fire|outlet_order|620dd087-ff75-4926-a97d-3e3c1b7ed5f2"]
+  PASS  fireOutletOrder on that chain's booking → the row is a denial of this refusal (row action order.fire) — row action order.fire, refusal named kds.route.view
+  PASS  fire booking (the booking) → actor_user_id — read "38344488-a5d6-4f39-afb9-4673bfd6444d"
+  PASS  fire booking (the booking) → actor_role_code — read SITE_HEAD
+  PASS  fire booking (the booking) → actor_scope — read site
+  PASS  fire booking (the booking) → outcome — read denied
+  PASS  fire booking (the booking) → session_id is the principal's nil uuid — read "00000000-0000-0000-0000-000000000000"
+  PASS  fire booking (the booking) → chain_id / site_id — read ["89040dcc-01c9-4338-abec-7e4f5ce7db81","f748e5fc-bbbe-4569-9a61-8c2254f20ed4"]
+  PASS  fire booking (the booking) → reason starts with "Not permitted: KDS multi-station routing is switched off for this chain" — read "Not permitted: KDS multi-station routing is switched off for this chain"
+  PASS  fire booking (the booking) → intent — read "verification"
+  PASS  the three switch refusals, by RECORD — the same three records, a different gate — read ["display_credential|9a62ee35-b89b-4cce-b705-f04758fb4754","display|NULL","outlet_order|620dd087-ff75-4926-a97d-3e3c1b7ed5f2"]
+  PASS  and every one of those is a denial too — denied, denied, denied
+
+==============================================================================
+STEP 5. The same refusal with a SILENT caller: the act's own intent is the fallback
+==============================================================================
+
+CALLED: fireOutletOrder with NO stated intent (the caller is silent; the act's default applies)
+  PASS  the same closed gate refuses it with the same sentence — status 403 code permission.licence.moduleOff
+  PASS  the silent caller's refusal (counts) → only audit_log moved, and by 1 denied row(s) — audit_log=344 display=2 display_credential=2 outlet_section=11 chain=2 chain_feature=36 ticket=3 ticket_transition=16 ticket_line=3 outlet_order=1 orders=1 order_line=3
+        -> audit_log=345 display=2 display_credential=2 outlet_section=11 chain=2 chain_feature=36 ticket=3 ticket_transition=16 ticket_line=3 outlet_order=1 orders=1 order_line=3
+  PASS  one `denied` row for the same record, written by the silent caller — read ["order.fire|outlet_order|620dd087-ff75-4926-a97d-3e3c1b7ed5f2"]
+  PASS  a caller that states no intent records the act's OWN default `order.fire` — so `meta.intent ?? ORDER_INTENTS.fire` is asserted on both of its branches, not one — read "order.fire"
+
+==============================================================================
+STEP 6. The VALIDATION refusal: the gate open, the act called, and NOTHING written
+==============================================================================
+  PASS  the chain's gate is open again
+CALLED: fireOutletOrder on a booking whose status is closed
+  PASS  the refusal is a 400 validation refusal of the fire path's own state check — not a licence sentence — status 400 code order.validation.fireWrongState
+  PASS  a validation refusal writes NOTHING: no new audit row at all, and no table moved — audit_log=345 display=2 display_credential=2 outlet_section=11 chain=2 chain_feature=36 ticket=3 ticket_transition=16 ticket_line=3 outlet_order=1 orders=1 order_line=3
+        -> audit_log=345 display=2 display_credential=2 outlet_section=11 chain=2 chain_feature=36 ticket=3 ticket_transition=16 ticket_line=3 outlet_order=1 orders=1 order_line=3 | audit rows since the marker: 0
+
+==============================================================================
+STEP 7. The DEVICE path: one `denied` row with no user, and the ticket id on it
+==============================================================================
+CALLED: advanceTicket as CHECK-SB2C-PASS (station CHECK-SB2C-STATION) on the ticket at KOR-HOT
+  PASS  refused with the capability refusal S-B/2c added, never a database error — status 403 code kds.refusal.notYourStation
+  PASS  and the refused capability is the act's own — the check is the act's, not a proxy for it — expected "kds.ticket.advance", read "kds.ticket.advance"
+  PASS  advanceTicket by a terminal (counts) → only audit_log moved, and by 1 denied row(s) — audit_log=345 display=2 display_credential=2 outlet_section=11 chain=2 chain_feature=36 ticket=3 ticket_transition=16 ticket_line=3 outlet_order=1 orders=1 order_line=3
+        -> audit_log=346 display=2 display_credential=2 outlet_section=11 chain=2 chain_feature=36 ticket=3 ticket_transition=16 ticket_line=3 outlet_order=1 orders=1 order_line=3
+  PASS  the terminal's refusal, by name — read ["kds.ticket.advance|ticket|93c46548-7d38-44c2-bc33-07f9a486d002"]
+  PASS  advance ticket (terminal)|ticket|93c46548-7d38-44c2-bc33-07f9a486d002 → actor_user_id — read null
+  PASS  advance ticket (terminal)|ticket|93c46548-7d38-44c2-bc33-07f9a486d002 → actor_role_code — read SITE_CULINARY_TEAM
+  PASS  advance ticket (terminal)|ticket|93c46548-7d38-44c2-bc33-07f9a486d002 → actor_scope — read site
+  PASS  advance ticket (terminal)|ticket|93c46548-7d38-44c2-bc33-07f9a486d002 → outcome — read denied
+  PASS  advance ticket (terminal)|ticket|93c46548-7d38-44c2-bc33-07f9a486d002 → session_id is null (a terminal, no session) — read null
+  PASS  advance ticket (terminal)|ticket|93c46548-7d38-44c2-bc33-07f9a486d002 → chain_id / site_id — read ["89040dcc-01c9-4338-abec-7e4f5ce7db81","f748e5fc-bbbe-4569-9a61-8c2254f20ed4"]
+  PASS  advance ticket (terminal)|ticket|93c46548-7d38-44c2-bc33-07f9a486d002 → reason starts with "display:CHECK-SB2C-PASS" — read "display:CHECK-SB2C-PASS kds.ticket.advance targets another station"
+  PASS  advance ticket (terminal)|ticket|93c46548-7d38-44c2-bc33-07f9a486d002 → intent — read null
+  PASS  the terminal's row carries the ticket id, so 'which tickets were refused here' is answerable by id — entity_id "93c46548-7d38-44c2-bc33-07f9a486d002"
+
+==============================================================================
+STEP 8. Restore and teardown
+==============================================================================
+  PASS  the pilot chain's licence is back to the value this run read — read gold
+  PASS  both switches are back to the values this run read — cds=true kds_multi_station=true
+  PASS  every CHECK-SB2C-* row this run created is gone — left: 0
+
+final    : audit_log=346 display=1 display_credential=1 outlet_section=10 chain=2 chain_feature=36 ticket=3 ticket_transition=16 ticket_line=3 outlet_order=1 orders=1 order_line=3
+the ledger moved by 11 row(s): 3 tier refusals + 3 switch refusals + 1 silent-caller refusal + 1 terminal refusal + 3 successes
+(registerDisplay, pairDisplay and redeemPairingCode write a success row each — those are acts, not refusals.)
+audit_log is append-only by trigger: the `denied` rows this run wrote are the evidence and stay.
+
+==============================================================================
+HONEST LIMITS — what this run does NOT prove
+==============================================================================
+1. It does not prove the terminal half of the ticket lifecycle (T5/T6/T7/T9 driven from a
+   paired terminal). The terminal here performs ONE refused act, to measure the device-actor
+   row; a permitted transition by a terminal is still deferred by name.
+2. `registerDisplay`'s denial row carries entity_id = the CODE the caller asked for, because
+   the display it would have created has no id yet — so 'which display' is answerable by code,
+   not by row id. The other two closed-gate rows carry the real id. The case where a denial
+   row carries entity_id NULL is `guard()`'s own capability refusal (an account without
+   `display.manage`), which this run does not produce: it acts as a real holder.
+3. The two gates were closed by writing the chain's own licence/switch rows for the duration
+   of the calls and putting them back; this run measures the domain's refusal on those values,
+   not the commercial process that would set them.
+4. Hindi coverage is asserted only for the two sentences this run reads. The catalogue's
+   wider English/Hindi gap is a separate, already-declared debt.
+
+==============================================================================
+steps: 8
+failures: 0
+VERDICT: the closed gate refuses by calling the act, writes exactly one `denied` row per refusal, changes no data, and the terminal's serve grant follows its station's row.
