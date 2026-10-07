@@ -38,6 +38,12 @@
  *      `resolveDevicePrincipal` — which takes the token and nothing else — three times: with the
  *      station's own row carrying `kitchen`, then `expedite`, then `kitchen` again. The serve code
  *      comes and goes with the **row**, and re-route is in no set at any point.
+ *   6. **The audit `intent` belongs to the CALL, not to the act's own guess at it.** One refused
+ *      `fireOutletOrder` that states `verification` records `verification` under both gates, and the
+ *      same refused act called with no intent stated records the act's default `order.fire` — so
+ *      `meta.intent ?? ORDER_INTENTS.fire` is asserted on **both** branches, at the refusal that
+ *      measured it. (An earlier revision of this run expected `order.fire` for the stated-intent
+ *      case under the switch gate alone, which is why the ledger below states the decision.)
  *
  * **Where it writes, and what it leaves.** `DATABASE_URL` is the owner's demo database, so this
  * run is deliberately small and reversible:
@@ -46,7 +52,9 @@
  *   * it closes the pilot chain's gate for a few seconds (once for the tier case, once for the
  *     switch case) and restores the exact values it read, asserting the restore;
  *   * the `denied` rows it writes are `audit_log` rows, which is **append-only by trigger**: they
- *     are the evidence and cannot be removed. Seven of them, each printed with its id.
+ *     are the evidence and cannot be removed. Eight of them — three under the tier gate, four
+ *     under the switch (three stated-intent calls plus one silent caller), one from the terminal —
+ *     each printed with its id.
  * It refuses to run against a fixture that is not in the state it needs (gate open, no
  * `CHECK-SB2C-*` left behind, a booking that cannot actually be fired), so a second run cannot
  * quietly inherit the first run's state.
@@ -510,8 +518,14 @@ async function main(): Promise<void> {
         `row action ${mine[0].action}`
       );
       // The intent every one of these calls was made with. For the fire path `meta.intent` wins
-      // over the act's own default, so the row reads `verification` — the caller's stated intent,
-      // not the code's guess at it.
+      // over the act's own default (`~/domain/ticket:298` — `meta.intent ?? ORDER_INTENTS.fire`),
+      // so the row reads `verification`: the caller's stated intent, not the act's guess at it.
+      // The same precedence holds on the ticket transitions (`meta.intent ?? rule.intent`, `:1064`)
+      // and the booking transitions (`~/domain/order:877`), and migration 0003 says what the column
+      // is for — "`intent` carries the chatbot's raw intent". These three calls are made with an
+      // identical `{ source: "api", intent: "verification" }` at both gates, so the same row
+      // semantic is expected at both; the switch phase below used to expect `order.fire` for the
+      // fire act alone, and that self-contradiction is the one assertion that failed.
       checkRow(
         mine[0],
         {
@@ -622,7 +636,18 @@ async function main(): Promise<void> {
           actorUserId: principal.userId,
           actorRoleCode: "SITE_HEAD",
           reasonStartsWith: "Not permitted: KDS multi-station routing is switched off for this chain",
-          intent: expected.action === "order.fire" ? "order.fire" : "verification",
+          // **The caller's stated intent wins** — the decision this run's first attempt forced.
+          // These three calls state `verification`, exactly as they do under the tier gate, and the
+          // fire path reads `meta.intent ?? ORDER_INTENTS.fire` (`~/domain/ticket:298`), so the row
+          // reads `verification` here too: one act, one call, one intent, whichever gate refused it.
+          // The gate is a property of the refusal; the intent is a property of the CALL.
+          //
+          // The failed run expected `order.fire` here and only here, which made the harness
+          // disagree with itself about a call it makes identically twice. The fix is the
+          // expectation, not the code — and NOT a relaxation: the block after this loop calls the
+          // same refused act with NO stated intent and asserts the row reads the act's own default
+          // `order.fire`, so the precedence is now measured in both directions rather than assumed.
+          intent: "verification",
         },
         chain.id,
         outlet.site_id
@@ -639,6 +664,44 @@ async function main(): Promise<void> {
     "and every one of those is a denial too",
     switchRowsAll.every((row) => row.outcome === "denied"),
     switchRowsAll.map((row) => row.outcome).join(", ")
+  );
+
+  // -------------------------------------------------------------------------
+  t.heading("The same refusal with a SILENT caller: the act's own intent is the fallback");
+  // -------------------------------------------------------------------------
+  // The other half of the precedence, asserted rather than argued. This is what makes the fix
+  // above a statement about *which* intent wins instead of a relaxation of an assertion to
+  // whatever the run printed: the same act, at the same gate, called with NO `meta.intent` at
+  // all, records `order.fire` — the act's own default from `ORDER_INTENTS.fire`. So
+  // `meta.intent ?? ORDER_INTENTS.fire` is measured on both branches, and a future change that
+  // dropped the caller's intent, or dropped the default, fails a named assertion here.
+  const silentMarker = (
+    await q.query<{ id: string }>(`select coalesce(max(id), 0)::text as id from audit_log`)
+  )[0]?.id as string;
+  const beforeSilent = await counts();
+  const silentRefusal = await callAct(() =>
+    // No third argument: the caller states nothing, which is the fallback's branch.
+    fireOutletOrder(principal, { outletOrderId: FIXTURE_OUTLET_ORDER_ID })
+  );
+  const afterSilent = await counts();
+  t.say("");
+  t.say("CALLED: fireOutletOrder with NO stated intent (the caller is silent; the act's default applies)");
+  t.check(
+    "the same closed gate refuses it with the same sentence",
+    silentRefusal !== null && silentRefusal.status === 403 && silentRefusal.code === "permission.licence.moduleOff",
+    silentRefusal ? `status ${String(silentRefusal.status)} code ${silentRefusal.code}` : "the act was ALLOWED — the gate is not enforced"
+  );
+  expectOnlyAudit("the silent caller's refusal (counts)", beforeSilent, afterSilent, 1);
+  const silentRows = await deniedSince(silentMarker);
+  expectSet(
+    "one `denied` row for the same record, written by the silent caller",
+    silentRows.map(rowName),
+    [`order.fire|outlet_order|${FIXTURE_OUTLET_ORDER_ID}`]
+  );
+  t.check(
+    "a caller that states no intent records the act's OWN default `order.fire` — so `meta.intent ?? ORDER_INTENTS.fire` is asserted on both of its branches, not one",
+    silentRows[0]?.intent === "order.fire",
+    `read ${JSON.stringify(silentRows[0]?.intent ?? null)}`
   );
 
   // -------------------------------------------------------------------------
@@ -741,6 +804,11 @@ async function main(): Promise<void> {
   // -------------------------------------------------------------------------
   await restore(chain.id, chain.licence_tier, gateRows);
   await q.query(`update outlet_section set kind = 'kitchen', updated_at = now() where id = $1`, [sectionId]);
+  // From here the run has put the chain's gate back itself, so the failure path below must not
+  // claim otherwise — its first version said "the run failed before its own restore" on a run
+  // whose STEP 7 had passed every restore assertion, which reads as a run that had to be repaired
+  // by hand. It had not been.
+  ownRestoreDone = true;
   await q.query(`delete from display_credential where display_id = $1 or display_id in (select id from display where code like 'CHECK-SB2C%')`, [registered.id]);
   await q.query(`delete from display where id = $1 or code like 'CHECK-SB2C%'`, [registered.id]);
   await q.query(`delete from outlet_section where id = $1`, [sectionId]);
@@ -767,7 +835,7 @@ async function main(): Promise<void> {
   const finalCounts = await counts();
   t.say("");
   t.say(`final    : ${countsLine(finalCounts)}`);
-  t.say(`the ledger moved by ${String(finalCounts.audit_log - baseline.audit_log)} row(s): 3 tier refusals + 3 switch refusals + 1 terminal refusal + 3 successes`);
+  t.say(`the ledger moved by ${String(finalCounts.audit_log - baseline.audit_log)} row(s): 3 tier refusals + 3 switch refusals + 1 silent-caller refusal + 1 terminal refusal + 3 successes`);
   t.say("(registerDisplay, pairDisplay and redeemPairingCode write a success row each — those are acts, not refusals.)");
   t.say("audit_log is append-only by trigger: the `denied` rows this run wrote are the evidence and stay.");
 
@@ -806,6 +874,12 @@ async function restore(
 }
 
 let restored = false;
+/**
+ * Whether the run reached its own restore and teardown (STEP 7). The failure path below runs on
+ * **every** non-zero exit — including a plain assertion failure, which does not throw and leaves
+ * this true — so it must say which of the two situations it is in rather than assume.
+ */
+let ownRestoreDone = false;
 const restoreOnce = async (): Promise<void> => {
   if (restored) return;
   restored = true;
@@ -827,7 +901,11 @@ try {
 } finally {
   if (t.failures.length > 0) {
     t.say("");
-    t.say("putting the pilot chain's gate back (the run failed before its own restore):");
+    t.say(
+      ownRestoreDone
+        ? "re-asserting the pilot chain's gate (idempotent — this run reached its own restore above, and STEP 7's assertions read it back):"
+        : "putting the pilot chain's gate back (the run did not reach its own restore):"
+    );
     try {
       await restoreOnce();
       t.say("  restored: licence gold, both switches on, the CHECK station back to `kitchen`.");
