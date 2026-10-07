@@ -1,0 +1,107 @@
+OmniHost.ai — four eyes in the SILVER baseline: the tier gate, proved by calling it.
+database under test: postgresql://neondb_owner:***@ep-empty-water-b3p8hf5h-pooler.c-4.ap-southeast-1.aws.neon.tech/omnihost_check?sslmode=require&channel_binding=require
+No owner row is touched: this is the scratch database only.
+
+The claim under test: `mdm_approval_gated` is entitled at Silver, the per-chain switch is
+what turns it on, and the four-eyes path is alive on a Silver chain once it is on.
+  PASS  the chain under test is the SILVER one — expected "silver", read "silver"
+chain coastal-catch = a78b2f13-7792-4d76-b294-2fc7e355ee09 (silver)
+
+==============================================================================
+STEP 1. The registry row IS Silver — the change, read back from the database
+==============================================================================
+feature row (mdm_approval_gated): {"min_tier":"silver","description":"Silver baseline: four eyes on every master-data change. The chain switch turns the approval queue on.","toggleable":true}
+  PASS  the registry's minimum tier is silver — expected "silver", read "silver"
+  PASS  the feature is still toggleable — Silver is an entitlement, not a forced switch — expected true, read true
+  PASS  the description no longer tells a Silver chain it needs Gold — description: "Silver baseline: four eyes on every master-data change. The chain switch turns the approval queue on."
+  PASS  the description names the switch, which is what actually turns four eyes on — description: "Silver baseline: four eyes on every master-data change. The chain switch turns the approval queue on."
+  PASS  tierSatisfies(silver, <the registry's own value>) holds — expected true, read true
+  PASS  tierSatisfies(silver, gold) does not hold — the comparison is real — expected false, read false
+
+==============================================================================
+STEP 2. The fixture this run writes, and the SQL that reverses it
+==============================================================================
+The scratch database's seeded MDM accounts are scoped to the GOLD pilot chain, and the
+point of this run is a SILVER chain, so the fixture is two identities on it — one who
+authors and one who approves. Both hold the same role: four eyes is two people.
+
+found the fixture identity silver.author.scratch@coastal.example
+  user row: {"id":"657fd49c-b3a1-49f2-bc9d-47b786d7c9f8","email":"silver.author.scratch@coastal.example","display_name":"Silver Author (omnihost_check)","auth_provider":"sso","status":"active","locale":"en-IN"}
+  role_assignment row: {"id":"2283d23d-7a80-4107-b332-7fecbac4cc40","user_id":"657fd49c-b3a1-49f2-bc9d-47b786d7c9f8","role_id":"66b5212e-8dff-4cc6-9359-aa3b62e59d4a","role":"CENTRAL_MDM_HEAD","chain_id":"a78b2f13-7792-4d76-b294-2fc7e355ee09","scope_key":"657fd49c-b3a1-49f2-bc9d-47b786d7c9f8|66b5212e-8dff-4cc6-9359-aa3b62e59d4a|a78b2f13-7792-4d76-b294-2fc7e355ee09|-"}
+  FIXTURE SQL (idempotent — the `user` insert only when absent):
+    insert into "user" (email, display_name, auth_provider, status, locale) values ('silver.author.scratch@coastal.example', 'Silver Author (omnihost_check)', 'sso', 'active', 'en-IN');
+    insert into role_assignment (user_id, role_id, chain_id, scope_key) values ('657fd49c-b3a1-49f2-bc9d-47b786d7c9f8', '66b5212e-8dff-4cc6-9359-aa3b62e59d4a', 'a78b2f13-7792-4d76-b294-2fc7e355ee09', '657fd49c-b3a1-49f2-bc9d-47b786d7c9f8|66b5212e-8dff-4cc6-9359-aa3b62e59d4a|a78b2f13-7792-4d76-b294-2fc7e355ee09|-');
+  FIXTURE SQL (the reverse — the two rows this fixture owns, and nothing else):
+    delete from role_assignment where scope_key = '657fd49c-b3a1-49f2-bc9d-47b786d7c9f8|66b5212e-8dff-4cc6-9359-aa3b62e59d4a|a78b2f13-7792-4d76-b294-2fc7e355ee09|-';
+    delete from "user" where id = '657fd49c-b3a1-49f2-bc9d-47b786d7c9f8';
+FIXTURE (scratch database): fixture identity silver.author.scratch@coastal.example (657fd49c-b3a1-49f2-bc9d-47b786d7c9f8) holding CENTRAL_MDM_HEAD on coastal-catch
+
+found the fixture identity silver.approver.scratch@coastal.example
+  user row: {"id":"aec0555a-7091-41d5-8fd6-3e13ef6db4b6","email":"silver.approver.scratch@coastal.example","display_name":"Silver Second Approver (omnihost_check)","auth_provider":"sso","status":"active","locale":"en-IN"}
+  role_assignment row: {"id":"e6577a5a-f58d-46d9-9de1-ddefeae34f30","user_id":"aec0555a-7091-41d5-8fd6-3e13ef6db4b6","role_id":"66b5212e-8dff-4cc6-9359-aa3b62e59d4a","role":"CENTRAL_MDM_HEAD","chain_id":"a78b2f13-7792-4d76-b294-2fc7e355ee09","scope_key":"aec0555a-7091-41d5-8fd6-3e13ef6db4b6|66b5212e-8dff-4cc6-9359-aa3b62e59d4a|a78b2f13-7792-4d76-b294-2fc7e355ee09|-"}
+  FIXTURE SQL (idempotent — the `user` insert only when absent):
+    insert into "user" (email, display_name, auth_provider, status, locale) values ('silver.approver.scratch@coastal.example', 'Silver Second Approver (omnihost_check)', 'sso', 'active', 'en-IN');
+    insert into role_assignment (user_id, role_id, chain_id, scope_key) values ('aec0555a-7091-41d5-8fd6-3e13ef6db4b6', '66b5212e-8dff-4cc6-9359-aa3b62e59d4a', 'a78b2f13-7792-4d76-b294-2fc7e355ee09', 'aec0555a-7091-41d5-8fd6-3e13ef6db4b6|66b5212e-8dff-4cc6-9359-aa3b62e59d4a|a78b2f13-7792-4d76-b294-2fc7e355ee09|-');
+  FIXTURE SQL (the reverse — the two rows this fixture owns, and nothing else):
+    delete from role_assignment where scope_key = 'aec0555a-7091-41d5-8fd6-3e13ef6db4b6|66b5212e-8dff-4cc6-9359-aa3b62e59d4a|a78b2f13-7792-4d76-b294-2fc7e355ee09|-';
+    delete from "user" where id = 'aec0555a-7091-41d5-8fd6-3e13ef6db4b6';
+FIXTURE (scratch database): fixture identity silver.approver.scratch@coastal.example (aec0555a-7091-41d5-8fd6-3e13ef6db4b6) holding CENTRAL_MDM_HEAD on coastal-catch
+
+author   silver.author.scratch@coastal.example (CENTRAL_MDM_HEAD) user 657fd49c-b3a1-49f2-bc9d-47b786d7c9f8
+approver silver.approver.scratch@coastal.example (CENTRAL_MDM_HEAD) user aec0555a-7091-41d5-8fd6-3e13ef6db4b6
+  PASS  it is a different person from the author, so four eyes are two people — 657fd49c-b3a1-49f2-bc9d-47b786d7c9f8 vs aec0555a-7091-41d5-8fd6-3e13ef6db4b6
+  PASS  the author may create a record on this chain — expected true, read true
+  PASS  the author also holds the approve act — so nothing but four eyes stops a self-approval — expected true, read true
+  PASS  the second person may approve — expected true, read true
+  PASS  the admin holding chain.feature.update is entitled to switch a feature on — expected true, read true
+
+  gate as found for coastal-catch: {"enabled":true,"updated_by_user_id":"1b93f5ca-1396-41b2-8334-2d6a495407b6","updated_at":"2026-10-07T08:56:59.265Z"}
+FIXTURE (scratch database): coastal-catch's mdm_approval_gated switch was true; this script switches it ON through setChainFeature and back to true at the end
+reference data: category CC-BEVERAGES, base UoM BAG, allergen celery, tax class GST5-REST, outlet bandra-restaurant (INR)
+
+==============================================================================
+STEP 3. CONTROL — with the registry row put back to Gold, the same call is refused
+==============================================================================
+This step exists so that 'the call succeeded' means something. The registry value is
+moved to `gold` for one moment (one statement, in the scratch database), the same
+`setChainFeature` call is made, and the refusal a Silver chain met before 7 Oct comes
+back — the generic sentence `chains.detail.features.blocked` renders beside it. Then the
+value is restored and the read back confirms it.
+FIXTURE (scratch database): feature.mdm_approval_gated.min_tier set to 'gold' for the control, then restored to 'silver'
+  PASS  the control state is in place — expected "gold", read "gold"
+chain detail while the registry says gold: {"minTier":"gold","enabled":true,"blockedByTier":true}
+  PASS  the screen reports the feature as blocked by the tier — expected true, read true
+the badge the screen would pick: {"key":"chains.detail.features.blocked","sentence":"Needs the gold tier; this chain is on silver."}
+  PASS  the badge is the blocked sentence — expected "chains.detail.features.blocked", read "chains.detail.features.blocked"
+        rendered: "Needs the gold tier; this chain is on silver."
+  PASS  the call refused while the registry row says gold — "mdm_approval_gated needs the gold tier; this chain is on silver"
+  PASS  the refusal is the domain's own validation refusal, not a database error — instanceof ValidationError: true
+  PASS  the sentence names the minimum tier and the chain's tier — expected "mdm_approval_gated needs the gold tier; this chain is on silver", read "mdm_approval_gated needs the gold tier; this chain is on silver"
+  PASS  the refused call changed no switch row — expected true, read true
+  PASS  the refused call wrote no success row in the ledger — expected 0, read 0
+  PASS  the control is restored: the registry row is silver again — expected "silver", read "silver"
+
+==============================================================================
+STEP 4. SILVER — the same call is accepted, and the screen stops refusing
+==============================================================================
+
+setChainFeature(mdm_approval_gated, true) -> {"featureCode":"mdm_approval_gated","before":true,"after":true}
+chain_feature row, read back: {"enabled":true,"updated_by_user_id":"1b93f5ca-1396-41b2-8334-2d6a495407b6","updated_at":"2026-10-07T08:57:10.730Z"}
+  PASS  the switch row is enabled — expected true, read true
+  PASS  the switch records the admin who made it — expected "1b93f5ca-1396-41b2-8334-2d6a495407b6", read "1b93f5ca-1396-41b2-8334-2d6a495407b6"
+
+ABORTED: operator does not exist: bigint = uuid
+error: operator does not exist: bigint = uuid
+    at <anonymous> (/home/team/shared/site/node_modules/pg-pool/index.js:45:11)
+    at processTicksAndRejections (native:7:39)
+
+==============================================================================
+steps: 4
+fixture writes: 4
+  FIXTURE  fixture identity silver.author.scratch@coastal.example (657fd49c-b3a1-49f2-bc9d-47b786d7c9f8) holding CENTRAL_MDM_HEAD on coastal-catch
+  FIXTURE  fixture identity silver.approver.scratch@coastal.example (aec0555a-7091-41d5-8fd6-3e13ef6db4b6) holding CENTRAL_MDM_HEAD on coastal-catch
+  FIXTURE  coastal-catch's mdm_approval_gated switch was true; this script switches it ON through setChainFeature and back to true at the end
+  FIXTURE  feature.mdm_approval_gated.min_tier set to 'gold' for the control, then restored to 'silver'
+failures: 1
+  FAILED  aborted: operator does not exist: bigint = uuid
+VERDICT: SEE FAILURES ABOVE.

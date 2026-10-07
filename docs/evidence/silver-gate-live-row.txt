@@ -1,0 +1,61 @@
+FOUR-EYES IN THE SILVER BASELINE — the live database's registry row, before and after
+=====================================================================================
+
+Session: engineer, 7 Oct 2026. Database: the owner's Neon `OmniHost` (Singapore) —
+the same database the working preview and the published site read.
+
+WHAT WAS CHANGED, AND WHY IT IS ONE ROW
+`feature` is platform reference data, seeded once and upserted by code on every re-seed
+(`db/seed.sql:426-428` — `on conflict (code) do update set ... min_tier = excluded.min_tier ...`).
+The seed is the durable copy and was edited first; this is the same change applied to the row
+that already existed in the live database, in one statement. It is exactly what the next
+re-seed would have written, and it is reversible by writing the BEFORE values back.
+
+BEFORE (read 7 Oct 2026, before the update)
+  code         mdm_approval_gated
+  min_tier     gold
+  description  "Gold and up: full approval-gated golden record (Silver gets basic master lists)."
+  toggleable   true
+
+THE STATEMENT
+  update feature
+     set min_tier = 'silver',
+         description = 'Silver baseline: four eyes on every master-data change. The chain switch turns the approval queue on.'
+   where code = 'mdm_approval_gated';
+  -- rows updated: 1
+
+AFTER (read back in the same run)
+  code         mdm_approval_gated
+  min_tier     silver
+  description  "Silver baseline: four eyes on every master-data change. The chain switch turns the approval queue on."
+  toggleable   true
+
+THE REVERSE, should it ever be needed
+  update feature
+     set min_tier = 'gold',
+         description = 'Gold and up: full approval-gated golden record (Silver gets basic master lists).'
+   where code = 'mdm_approval_gated';
+
+WHAT WAS *NOT* WRITTEN IN THE LIVE DATABASE
+  * `chain_feature` was not touched. The pilot chain (`saffron-table`) already carried
+    `mdm_approval_gated = true`, switched by hand on 22 Sept 2026 — that hand-switch is what
+    `src/domain/demo-data.ts` now seeds, so a fresh environment reaches the same state without
+    a manual step. The Silver chain (`coastal-catch`) is deliberately LEFT OFF in the demo
+    database: it is the fixture the Silver proof switches on by *calling* `setChainFeature`,
+    which is the only assertion that can catch a regression of the tier change.
+  * no other `feature` row, and no tenant row at all.
+
+RAW RUN (the script's own output, `scripts/tmp-apply-gate.ts`, deleted after the run)
+  database: OmniHost
+  BEFORE: {"code":"mdm_approval_gated","min_tier":"gold","description":"Gold and up: full approval-gated golden record (Silver gets basic master lists).","toggleable":true}
+  rows updated: 1
+  AFTER:  {"code":"mdm_approval_gated","min_tier":"silver","description":"Silver baseline: four eyes on every master-data change. The chain switch turns the approval queue on.","toggleable":true}
+  rc=0
+
+THE OTHER TWO APPLICATIONS OF THE SAME CHANGE
+  * `db/seed.sql:410-411` — the registry row itself (min_tier `gold` -> `silver`, description rewritten).
+  * `src/domain/demo-data.ts:58-73` — the pilot chain's feature map gains `mdm_approval_gated: true`,
+    so a seeded environment shows four eyes rather than merely being entitled to them.
+  * the scratch database `omnihost_check` was brought to the same state through the product's own
+    paths: `bun run db:migrate` (7 migrations, 0012-0018) and `bun run db:seed:reference`
+    (the same `db/seed.sql` upsert the full seed starts with — reference data only).
