@@ -64,6 +64,8 @@ interface CredentialRow {
   site_id: string;
   outlet_id: string;
   section_id: string | null;
+  /** The station's own kind (`outlet_section.kind`) — the fact ruling 2 keys serve on. */
+  section_kind: string | null;
   code: string;
   name: string;
   kind: string;
@@ -96,12 +98,14 @@ export async function resolveDevicePrincipal(
            d.site_id,
            d.outlet_id,
            d.section_id,
+           s.kind            as section_kind,
            d.code,
            d.name,
            d.kind,
            d.status
       from display_credential c
       join display d on d.id = c.display_id
+      left join outlet_section s on s.id = d.section_id
      where c.token_hash = ${sha256(rawToken)}
      limit 1
   `;
@@ -126,9 +130,13 @@ export async function resolveDevicePrincipal(
       siteId: row.site_id,
       outletId: row.outlet_id,
       sectionId: row.section_id,
+      sectionKind: row.section_kind,
       operatingRoleCode: row.operating_role_code,
-      // Fixed by kind, and empty for a kind the registry does not know.
-      capabilities: displayCapabilities(kind),
+      // Fixed by kind — plus, for a `kds`, the one fact its station carries: a screen on the
+      // outlet's `expedite` section holds serve, a screen on any other station does not
+      // (ruling 2, 1 Oct 2026). Read from the joined `outlet_section` row, never from a
+      // request parameter: a caller can no more claim to be the pass than claim a chain.
+      capabilities: displayCapabilities(kind, row.section_kind),
     },
   };
 }

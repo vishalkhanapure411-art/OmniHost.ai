@@ -907,7 +907,7 @@ async function main(): Promise<void> {
    * out of this slice. See HONEST LIMITS at the end.
    */
   const NIL_UUID = "00000000-0000-0000-0000-000000000000";
-  const deviceFor = (section: { id: string; code: string }): DevicePrincipal => ({
+  const deviceFor = (section: { id: string; code: string; kind?: string }): DevicePrincipal => ({
     credentialId: NIL_UUID,
     displayId: NIL_UUID,
     code: `verify-kds-${section.code.toLowerCase()}`,
@@ -917,8 +917,14 @@ async function main(): Promise<void> {
     siteId: outlet.site_id,
     outletId: outlet.id,
     sectionId: section.id,
+    // S-B/2c gave `DevicePrincipal` the section's kind, because the pass's serve grant hangs on
+    // it (`displayCapabilities(kind, sectionKind)`). These in-process terminals are station
+    // screens — none is the pass, so none holds serve — and the kind is carried where the
+    // caller has it and is null where it does not. **The terminal half of this harness is
+    // still deferred by name** (S-B/2c's brief): no credential row backs these principals.
+    sectionKind: section.kind ?? null,
     operatingRoleCode: "SITE_CULINARY_TEAM",
-    capabilities: displayCapabilities("kds"),
+    capabilities: displayCapabilities("kds", section.kind ?? null),
   });
   const advancePerson = advanceHolders[0] ? await principalFor(q, advanceHolders[0], outlet.chain_id) : null;
   const advanceActor = (ticket: Ticket): TicketActor =>

@@ -71,23 +71,58 @@ export const DISPLAY_REFUSAL_KEY = {
 export type DisplayRefusalKey = (typeof DISPLAY_REFUSAL_KEY)[keyof typeof DISPLAY_REFUSAL_KEY];
 
 /**
+ * The one section kind that means "the pass" (§1.4's expedite fallback, D27). Named here
+ * rather than spelled `'expedite'` in two modules: the serve grant below and the routing
+ * fallback ask the same question about the same column.
+ */
+export const EXPEDITE_SECTION_KIND = "expedite";
+
+/**
  * The fixed, enumerated capability set of a device principal (D26, §2.4 item 2).
  *
  * A fixed terminal has no person logged in, so it is *not* given a person's roles: it gets
- * exactly what its kind needs and nothing else. A station display advances its own
- * station's tickets; a pass/expedite screen serves, and is awarded the serve code without
- * the advance code so "advance another station's work from the wrong screen" (D27) is
- * refused by the capability set itself. A printer acts on nothing — it receives print jobs
- * (S-E) — and a CDS reads only its own guest surface.
+ * exactly what its kind needs and nothing else. A printer acts on nothing — it receives print
+ * jobs (S-E) — and a CDS reads only its own guest surface.
+ *
+ * **A `kds` display holds the five ticket acts the kitchen actually performs** (lead ruling,
+ * 1 Oct 2026 — DECISIONS.md §"The display layer's capability set, reason codes and replay
+ * key", rulings 1 and 2): view, advance (T2/T3/T4), **recall** (T5, R on the keyboard map) and
+ * **void** (T7, V) — with a reason. Until this slice the kds set was view + advance only, so a
+ * kitchen that marked a ticket ready by mistake could neither recall nor void it, and the
+ * design's own keyboard map had two dead keys.
+ *
+ * **Re-route (T9) is deliberately absent from every device set.** It is a configuration act —
+ * §2.3 names Site Head for it — so a terminal is refused it with `actionNotOnTerminal`, which
+ * is a statement about the device rather than a lie about the ticket.
+ *
+ * **`serve` (T6) hangs on the station's section kind, not on the display kind.** The pass is a
+ * `kds` display whose *section* is the outlet's `expedite` section (D27; the same section
+ * `~/domain/display-routing` falls an unrouted line to), so the second argument is the section
+ * kind the resolver read from `outlet_section.kind`. That is why this signature takes it: the
+ * ruling keeps the four display kinds and needs one fact the display row does not carry.
+ * Without an `expedite` section a kds display holds no serve code — fail closed, like
+ * everything else here.
  *
  * **This function fails closed.** An unrecognised kind gets an empty set, never a generous
  * default: the alternative is that a mistyped `kind` silently receives the station's
  * rights (the same failure shape as the tier coercion `parseTier` removed).
  */
-export function displayCapabilities(kind: string): readonly string[] {
+export function displayCapabilities(kind: string, sectionKind?: string | null): readonly string[] {
   switch (kind) {
-    case "kds":
-      return ["kds.ticket.view", "kds.ticket.advance"];
+    case "kds": {
+      const acts: string[] = [
+        "kds.ticket.view",
+        "kds.ticket.advance",
+        "kds.ticket.recall",
+        "kds.ticket.void",
+      ];
+      // Ruling 2: only the pass serves, and the pass is known by its station's kind. A
+      // station-attached screen serving *another* station is refused by the scope check in
+      // `assertDeviceMayActOn`, not by this set — a `kds` screen on the grill holds no serve
+      // code at all, which is the first of the two refusals.
+      if (sectionKind === EXPEDITE_SECTION_KIND) acts.push("kds.ticket.serve");
+      return acts;
+    }
     case "cds":
       return ["cds.display.view"];
     // SPEC-GAP, decided here: the status board reads tickets outlet-wide and acts on
@@ -129,6 +164,13 @@ export interface DevicePrincipal {
   outletId: string;
   /** Null for an outlet-scope display: a pass screen, a guest display, a status board. */
   sectionId: string | null;
+  /**
+   * The *kind* of that section (`outlet_section.kind`), read from the row with it: `kitchen`,
+   * `grill`, `expedite` … It is carried because it decides one capability — the pass's serve
+   * grant (ruling 2, 1 Oct 2026) — and because a screen that says "this is the pass" should be
+   * reading the database rather than inferring it. Null exactly when `sectionId` is null.
+   */
+  sectionKind: string | null;
   /** The role code this device's audit rows carry (§2.4 item 2). Never a person. */
   operatingRoleCode: string;
   /** Fixed by kind — see `displayCapabilities`. */

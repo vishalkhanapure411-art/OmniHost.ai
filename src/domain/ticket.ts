@@ -240,8 +240,12 @@ export async function resolvePrepSlaMinutes(
   const raw = row.value ?? row.default_value;
   const value = raw === null ? Number.NaN : Number(raw);
   if (!Number.isFinite(value)) {
+    // The value is reported **as it is stored** — `null` reads as `null`, never as an invented
+    // word. (1 Oct 2026 audit, item 6: `${raw ?? "nothing"}` put a word the platform never
+    // agreed to into an operator's log line.) The sentence an operator reads is the catalogue
+    // key with `{value}`, which words an empty value in the operator's own language.
     throw validation(
-      `The prep time for this site is set to ${raw ?? "nothing"}, which is not a number of minutes, so no deadline can be captured.`,
+      `The prep time for this site is ${String(raw)}, which is not a number of minutes, so no deadline can be captured.`,
       FIRE_VALIDATION_KEY.slaNotANumber,
       { value: raw ?? "" }
     );

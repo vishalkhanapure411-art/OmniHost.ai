@@ -1,9 +1,9 @@
 import "@tanstack/react-start/server-only";
 
 import { poolQueryable, withTransaction, type Queryable } from "~/db";
-import { auditedMutation, guard, writeAudit } from "~/server/audit";
+import { auditedMutation, guard, recordAudit, writeAudit } from "~/server/audit";
 import { newPairingCode, newSessionToken, sha256 } from "~/server/crypto";
-import { NotFound, ValidationError } from "~/server/errors";
+import { NotFound, PermissionDenied, ValidationError } from "~/server/errors";
 import type { Principal } from "~/server/session";
 import {
   DISPLAY_KINDS,
@@ -11,7 +11,7 @@ import {
   type DisplayKind,
   type DisplayTransport,
 } from "~/domain/display";
-import { displayEntitlement, estateGateRows, type DisplayEntitlement, type DisplayGateRow } from "~/domain/display-entitlement";
+import { displayEntitlement, estateGateRows, assertDisplayEstateEntitled, type DisplayEntitlement, type DisplayGateRow } from "~/domain/display-entitlement";
 
 /**
  * The display estate (S4's server half): registering a device, pairing it, withdrawing its
@@ -111,6 +111,58 @@ interface OutletContext {
   name: string;
   chainId: string;
   siteId: string;
+}
+
+/**
+ * **The estate's entitlement gate, asked in the domain and recorded in the ledger** (lead
+ * ruling, 30 Sept 2026; S-B/2c).
+ *
+ * The screen withholds its register/pair/revoke buttons when neither gated feature is open,
+ * and a hidden button is a convenience rather than a control: this is the half a curl, a
+ * script or the chatbot gateway cannot skip. It is asked **after** `guard()`, so a caller who
+ * holds no `display.manage` is told that first — the capability is about the person, the
+ * licence about the chain — and **before** the transaction opens, so the refusal records one
+ * `denied` row and changes nothing (which is what the check counts).
+ *
+ * `assertDisplayEstateEntitled` keeps the two refusals apart: `permission.licence.tierBelow`
+ * when the licence does not cover the module, `permission.licence.moduleOff` when the operator
+ * has switched it off. This function only records which one it was.
+ */
+async function assertEstateGateOpenFor(
+  db: Queryable,
+  principal: Principal,
+  args: {
+    action: string;
+    entityType: string;
+    entityId?: string | null;
+    chainId: string;
+    siteId: string | null;
+    source?: "screen" | "chatbot" | "api" | "system";
+    intent?: string | null;
+  }
+): Promise<void> {
+  try {
+    await assertDisplayEstateEntitled(db, args.chainId, args.action);
+  } catch (error) {
+    if (error instanceof PermissionDenied) {
+      // A capability refusal writes exactly one `denied` row and changes no data, the same
+      // shape the fire path and every transition use. The row's reason carries the licence
+      // sentence's own words, so the ledger says which of the two gates was holding.
+      await recordAudit({
+        principal,
+        action: args.action,
+        entityType: args.entityType,
+        entityId: args.entityId ?? null,
+        chainId: args.chainId,
+        siteId: args.siteId,
+        outcome: "denied",
+        reason: error.message,
+        intent: args.intent ?? null,
+        source: args.source ?? "api",
+      });
+    }
+    throw error;
+  }
 }
 
 /** The outlet's own tenant context, read from the row. Never taken from a request. */
@@ -301,6 +353,17 @@ export async function registerDisplay(
     source: meta.source,
     intent: meta.intent ?? null,
   });
+  // The licence and the module switch, in the domain (S-B/2c). Asked before the transaction
+  // and before any validation, so a caller on a chain with no entitlement is refused with one
+  // `denied` row rather than a 500 from a missing row or an admitted write.
+  await assertEstateGateOpenFor(db, principal, {
+    action: "display.manage",
+    entityType: "display",
+    chainId: outlet.chainId,
+    siteId: outlet.siteId,
+    source: meta.source,
+    intent: meta.intent ?? null,
+  });
 
   const code = input.code.trim();
   const name = input.name.trim();
@@ -471,6 +534,19 @@ export async function pairDisplay(
     chainId: display.chainId,
     siteId: display.siteId,
     target: `display ${display.code}`,
+    source: meta.source,
+    intent: meta.intent ?? null,
+  });
+
+  // Pairing is provisioning, and provisioning is gated (S-B/2c): no licence, no pairing code.
+  // A terminal is the thing that acts on a chain's work, so a chain that has not bought the
+  // module must not be able to mint one through an API call the screen never offered.
+  await assertEstateGateOpenFor(db, principal, {
+    action: "display.manage",
+    entityType: "display_credential",
+    entityId: display.id,
+    chainId: display.chainId,
+    siteId: display.siteId,
     source: meta.source,
     intent: meta.intent ?? null,
   });
