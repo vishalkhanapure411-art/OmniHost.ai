@@ -52,6 +52,14 @@ export type OutletOrderStatus = (typeof OUTLET_ORDER_STATUSES)[number];
 export const ORDER_LINE_STATES = [
   "placed",
   "fired",
+  // The two the *ticket's* line holds while the booking's own line is still `fired`: the fire
+  // path writes `ticket_line.state = 'queued'` (S-B/2a) and the lifecycle moves it on without
+  // moving the booking's line (§2.3). This array is also the label space every line state is
+  // worded in, so a screen reading a ticket's line state through the wrong map must not get
+  // null. `order_line.line_state`'s own check constraint (`db/migrations/0012_order_core.sql`)
+  // does not carry them — they are the one pair a stored booking line never holds.
+  "queued",
+  "acknowledged",
   "in_prep",
   "ready",
   "served",
@@ -437,6 +445,8 @@ export const ORDER_STATUS_LABEL_KEY: Record<OutletOrderStatus, string> = {
 export const ORDER_LINE_STATE_LABEL_KEY: Record<OrderLineState, string> = {
   placed: "order.line.state.placed",
   fired: "order.line.state.fired",
+  queued: "order.line.state.queued",
+  acknowledged: "order.line.state.acknowledged",
   in_prep: "order.line.state.in_prep",
   ready: "order.line.state.ready",
   served: "order.line.state.served",

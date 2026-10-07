@@ -39,6 +39,8 @@ import {
 } from "~/components/status";
 import { MoneyCell, MoneyValue, QuantityValue, TimestampValue } from "~/components/values";
 import { AlertTriangle, Chat, Check, Globe, InfoCircle, Layers, Lock, Store, XCircle } from "~/components/icons";
+import { FIRE_VALIDATION_KEY, orderLineStateLabelKey } from "~/domain/order-rules";
+import type { MessageKey } from "~/i18n/catalog-en";
 import { LOCALES, catalogCoverage } from "~/i18n/locales";
 import { channelLabel } from "~/i18n/domain-labels";
 import { codedMessage, tierLabel } from "~/i18n/labels";
@@ -80,6 +82,7 @@ function DesignGallery() {
         <MoneySection />
         <ChatSection />
         <DisplaysGateSection />
+        <OrderRefusalsSection />
         <PatternSection />
       </div>
     </>
@@ -859,6 +862,93 @@ function DisplaysGateSection() {
           <div className="p-4 text-sm text-fg-muted">
             {t("display.manage.readOnly", { permission: "display.manage" })}
           </div>
+        </Card>
+      </div>
+    </Section>
+  );
+}
+
+// ── The fire path's refusals and the line states it writes (S-B/2b) ────────────
+
+/**
+ * The nine `order.validation.fire*` sentences and the words for the line states the fire
+ * path writes, rendered here because **nothing else can render them yet**: `fireOutletOrder`
+ * has a caller in the S-B/2b harness and nowhere else until S-B/3 builds the booking screen
+ * that offers "send to the kitchen". Rendering them through `codedMessage` is not a mock of
+ * the refusal path — it *is* the refusal path: `DisplayEstate` and the import report word a
+ * server refusal with the same helper, and a code neither catalog carries is the one thing
+ * it renders as `Not recognised: {code}`. So this section shows the operator-visible defect
+ * while it is open and the sentence once it is closed, which is the only reason it is here.
+ *
+ * The `{articles}`, `{value}`, `{min}` and `{max}` values are hand-written samples, like
+ * every other row in this gallery. The real ones come from the refusal's own params.
+ */
+const FIRE_REFUSAL_SAMPLES: { code: string; params?: Record<string, string | number> }[] = [
+  { code: FIRE_VALIDATION_KEY.wrongState },
+  { code: FIRE_VALIDATION_KEY.articleUnavailable, params: { articles: "Malai kofta" } },
+  { code: FIRE_VALIDATION_KEY.unroutedNoStation, params: { articles: "Malai kofta" } },
+  { code: FIRE_VALIDATION_KEY.noStations },
+  { code: FIRE_VALIDATION_KEY.slaMissing },
+  { code: FIRE_VALIDATION_KEY.slaNotANumber },
+  { code: FIRE_VALIDATION_KEY.slaOutOfRange, params: { value: "120", min: "5", max: "90" } },
+  { code: FIRE_VALIDATION_KEY.ticketNumberTaken },
+  { code: FIRE_VALIDATION_KEY.linesMissing },
+];
+
+/**
+ * The ticket's alphabet (§2.3, and the check constraint in `0014_ticket_fire.sql`), written
+ * out rather than imported because `~/domain/ticket` is server-only and a state list is not
+ * worth dragging `pg` into the client bundle for. Each state is worded through the line-state
+ * map, so a state that map does not carry renders as its own code — visibly our gap, never a
+ * neighbouring state's word.
+ */
+const TICKET_LINE_STATES = [
+  "queued",
+  "acknowledged",
+  "in_prep",
+  "ready",
+  "served",
+  "voided",
+  "held_unavailable",
+] as const;
+
+function OrderRefusalsSection() {
+  const { t } = useI18n();
+  return (
+    <Section
+      title={t("design.orderRefusals.title")}
+      body={t("design.orderRefusals.body")}
+      id="order-refusals"
+    >
+      <div className="flex flex-col gap-3">
+        <Card>
+          <CardHeader title={t("design.orderRefusals.fire")} />
+          <ul className="flex flex-col gap-2 p-4">
+            {FIRE_REFUSAL_SAMPLES.map((sample) => (
+              <li key={sample.code} className="flex flex-col gap-0.5 border-b border-border pb-2 last:border-0 last:pb-0">
+                <code className="font-mono text-xs text-fg-subtle">{sample.code}</code>
+                <span className="text-sm text-fg-muted">{codedMessage(t, sample.code, sample.params)}</span>
+              </li>
+            ))}
+          </ul>
+        </Card>
+        <Card>
+          <CardHeader title={t("design.orderRefusals.lineState")} />
+          <dl className="flex flex-col gap-1.5 p-4">
+            {TICKET_LINE_STATES.map((state) => {
+              const labelKey = orderLineStateLabelKey(state);
+              return (
+                <div key={state} className="flex items-baseline gap-3">
+                  <dt className="font-mono text-xs text-fg-subtle">{state}</dt>
+                  <dd className="text-sm text-fg-muted">
+                    {labelKey
+                      ? t(labelKey as MessageKey)
+                      : t("labels.unrecognised.named", { code: state })}
+                  </dd>
+                </div>
+              );
+            })}
+          </dl>
         </Card>
       </div>
     </Section>

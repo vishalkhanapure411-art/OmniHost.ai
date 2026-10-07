@@ -2400,6 +2400,10 @@ export const enIN = {
   "order.line.state.served": "Served",
   "order.line.state.voided": "Voided",
   "order.line.state.held_unavailable": "Held — not available",
+  // The two the *ticket's* line holds while the booking's own line is still `fired`. One state
+  // has one word wherever a line is read, ticket side or booking side.
+  "order.line.state.queued": "Queued",
+  "order.line.state.acknowledged": "Acknowledged",
 
   // Where a booking came from: a channel, not a device (§2.2). The three a booking shares
   // with an article's selling channels read as the article's do (`mdm.article.channel.*`),
@@ -2459,6 +2463,27 @@ export const enIN = {
     "A booking is closed once it has been served, and this one has not been served yet. Reload it to see where it has got to.",
   "order.validation.reasonRequired":
     "This needs a reason. Enter why it is being done, then continue.",
+  // The fire path's own refusals (§1.4, §2.2, §2.5, §2.6 case 1) — the nine codes
+  // `FIRE_VALIDATION_KEY` names. Worded from the display layer's copy contract §B, so a refused
+  // "send to the kitchen" reads as a sentence instead of `Not recognised: <code>`.
+  "order.validation.fireWrongState":
+    "This booking has already moved on, so there is nothing left to send to the kitchen. Reload it to see where it has got to.",
+  "order.validation.fireArticleUnavailable":
+    "{articles} is not available at this outlet, so this booking cannot be sent to the kitchen as it stands. Take the dish off the booking, or bring it back into service.",
+  "order.validation.fireUnroutedNoStation":
+    "{articles} has no station at this outlet and this outlet has no pass to fall back to, so there is nowhere to send it. Route the dish, or add a pass station to the outlet.",
+  "order.validation.fireNoStations":
+    "No line of this booking resolves to a station at this outlet, so there is nowhere to send it.",
+  "order.validation.fireSlaMissing":
+    "This site has no prep-time setting, so a deadline cannot be set on the tickets and the booking is not sent. Set the prep time for this site, then send it.",
+  "order.validation.fireSlaNotANumber":
+    "The prep-time setting for this site is not a number, so no deadline can be worked out. Correct it for this site, then send the booking.",
+  "order.validation.fireSlaOutOfRange":
+    "The prep time for this site is set to {value} minutes, outside the {min} to {max} the platform allows. Correct it for this site, then send the booking.",
+  "order.validation.fireTicketNumberTaken":
+    "Two tickets were raised for the same station at the same moment, so nothing was sent. Send it again.",
+  "order.validation.fireLinesMissing":
+    "This booking has no items, so there is no work to raise at any station. Add an item, then send it.",
 
   // The design gallery's preview of this screen's gate states. The pilot chain holds Gold
   // with both switches on, so neither refusal is reachable from its data; the gallery shows
@@ -2469,6 +2494,15 @@ export const enIN = {
   "design.displays.tier": "The licence tier is holding",
   "design.displays.switch": "The chain's own switch is holding",
   "design.displays.readOnly": "A reader without the write capability",
+  // §B of the display layer's copy contract. `fireOutletOrder` has no screen caller until
+  // S-B/3, so these sentences exist only here — and the sentences they caption are the ones
+  // the refusal path renders through `codedMessage`, which is why showing them is honest
+  // where reading the catalog file back would not be.
+  "design.orderRefusals.title": "Sending a booking to the kitchen — the refusals, and the line's words",
+  "design.orderRefusals.body":
+    "The nine refusals the fire path raises, and the words for the states a line it writes is in. No screen sends a booking to the kitchen yet — S-B/3 builds it — so nothing else can render these: they are shown through the same `codedMessage` helper a screen words a server refusal with, and a code neither catalog carries is the one thing that helper renders as `Not recognised: {code}`. A missing entry is therefore visible here as the defect it is on a screen.",
+  "design.orderRefusals.fire": "A booking that cannot be sent to the kitchen",
+  "design.orderRefusals.lineState": "A line's state, in words",
   // ——— S-B/2b: the ticket lifecycle (§2.3 T2–T7, T9, §2.4, §6.3–§6.4) ——————————————
   //
   // The states a ticket is in, in words (one key per state, an explicit map in
