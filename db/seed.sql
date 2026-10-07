@@ -408,7 +408,7 @@ insert into feature (code, name, module, description, min_tier, toggleable) valu
   ('predictive_stockout', 'Predictive stock-out alerts', 'store',
    'Platinum: raised on top of the basic receiving/transfer/waste workflow.', 'platinum', true),
   ('mdm_approval_gated', 'Approval-gated MDM golden record', 'mdm',
-   'Gold and up: full approval-gated golden record (Silver gets basic master lists).', 'gold', true),
+   'Silver baseline: four eyes on every master-data change. The chain switch turns the approval queue on.', 'silver', true),
   ('operations_dashboards', 'Operations (cross-site) dashboards', 'analytics',
    'Gold and up: cross-site comparison on the same metrics.', 'gold', true),
   ('executive_dashboards', 'Executive dashboards + predictive analytics', 'analytics',

@@ -62,6 +62,13 @@ export const DEMO_CHAINS: {
       recipe_full_bom: true,
       operations_dashboards: true,
       site_content_authoring: true,
+      // The approval gate sits in the *Silver* baseline (owner, 7 Oct 2026 — DECISIONS.md),
+      // so the tier no longer blocks it on this chain; but an entitlement is not an
+      // activation, and `onboardChain` still inserts every toggleable feature OFF. The
+      // pilot chain seeds it ON so the demo shows four eyes rather than merely being
+      // entitled to it. The Silver chain (`coastal-catch`) stays OFF on purpose: it is the
+      // fixture the Silver proof switches on by *calling* `setChainFeature`.
+      mdm_approval_gated: true,
     },
   },
   {
