@@ -7,7 +7,10 @@
  * What it proves, in the spec's own read-back order (§11.3.5):
  *   1. migration 0011's objects exist — the four new tables, `outlet_section`'s new columns,
  *      the named constraints and indexes;
- *   2. §2.4's **fourteen** display-layer capabilities are registered, with their grants
+ *   2. §2.4's display-layer capabilities are registered — the set is **named** and compared
+ *      as a set (fifteen codes: §2.4's table plus its one documented addition, `order.close`),
+ *      never as a count over a prefix-wide read, so a code that arrives later is reported as
+ *      unexpected by name instead of moving a number — with their grants
  *      counted per role, and `cds.display.view` is held by **no role** — proved not just as a
  *      state but as a *re-run*: the reference seed is run again over this database, twice,
  *      and the grant is read back both times. That is the defect this step exists for: the
@@ -177,20 +180,58 @@ try {
   // -------------------------------------------------------------------------
   t.heading("§2.4 — the capabilities, their grants, and the over-granted `.view`");
   // -------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
+  // The display layer's vocabulary, **named** and compared as a set.
+  //
+  // This check used to count what a prefix-wide read returned and compare it to a literal
+  // (14, then 13 before that). A count is not a definition: it broke on 7 October when
+  // `order.fire` arrived with S-B/2a's fire path and pushed the read from 14 to 15, and it
+  // would break again at S-B/3 — and bumping the literal would prove nothing about which
+  // codes are there. The set below is named, so an addition is either expected here or
+  // reported as *unexpected*, and a removal is reported as *missing*.
+  //
+  // Where the names come from, code by code:
+  //   * `design/kds-and-ticket-routing.md` §2.4's own table — the ten `display.*` / `kds.*`
+  //     codes and its three order verbs (`order.book`, `order.fire`, `order.cancel`) — plus
+  //     `cds.display.view`, the table's last row (registered, held by no role: step 3 below);
+  //   * `order.close`, §2.4's **one deliberate addition**, in `db/seed.sql` section 8's own
+  //     words: "§2.3 T11 names order.close and §2.4 registers nothing, so without this row
+  //     T11 is a transition no role may make."
+  const DISPLAY_LAYER_CAPABILITIES = [
+    "display.view",
+    "display.manage",
+    "kds.route.view",
+    "kds.route.manage",
+    "kds.ticket.view",
+    "kds.ticket.advance",
+    "kds.ticket.serve",
+    "kds.ticket.recall",
+    "kds.ticket.reroute",
+    "kds.ticket.void",
+    "order.book",
+    "order.fire",
+    "order.cancel",
+    "order.close",
+    "cds.display.view",
+  ] as const;
+
   const perms = await qq<{ code: string; action_kind: string }>(
     `select code, action_kind from permission
       where code like 'display.%' or code like 'kds.%' or code like 'order.%' or code = 'cds.display.view'
       order by code`
   );
-  // Fourteen, not thirteen: `cds.display.view` does not share a prefix with the others, so
-  // the earlier count of 13 was a miscount and the check that followed it looked for a code
-  // it had itself excluded.
-  t.equal(
-    "the fourteen display-layer capabilities are registered",
-    perms.length,
-    14
+  // The prefix-wide read stays, but only as the **printed inventory** — it is what shows a
+  // code the named set above does not know about instead of hiding it behind a count.
+  t.say(`  registered (prefix-wide inventory): ${perms.map((row) => row.code).join(",")}`);
+  const registered = new Set(perms.map((row) => row.code));
+  const expected = new Set<string>(DISPLAY_LAYER_CAPABILITIES);
+  const missing = [...expected].filter((code) => !registered.has(code)).sort();
+  const unexpected = [...registered].filter((code) => !expected.has(code)).sort();
+  t.check(
+    `the display-layer capabilities §2.4 defines are registered and no others — set equality over ${String(expected.size)} named codes`,
+    missing.length === 0 && unexpected.length === 0,
+    `missing: ${missing.length === 0 ? "none" : missing.join(",")} | unexpected: ${unexpected.length === 0 ? "none" : unexpected.join(",")}`
   );
-  t.say(`  registered: ${perms.map((row) => row.code).join(",")}`);
   const grants = await qq<{ code: string; roles: string; holders: string }>(
     `select p.code, count(distinct r.code)::text as roles, count(rp.role_id)::text as holders
        from permission p
