@@ -459,3 +459,5 @@ for (const r of rows.filter((x) => x.offViewportCount > 0)) {
 console.log(`elements past the viewport / clipped by a scrolling ancestor (distinct elements): ${offscreenSignatures.size}`);
 for (const [el, where] of offscreenSignatures) console.log(`  ${where}: ${el}`);
 ws.close();
+
+export {};
