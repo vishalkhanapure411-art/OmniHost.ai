@@ -218,6 +218,7 @@ function SupportQueueScreen() {
     },
     {
       key: "status",
+      hideBelow: "48rem",
       header: t("support.column.status"),
       sortValue: (row) => row.status,
       render: (row) => (
@@ -231,6 +232,7 @@ function SupportQueueScreen() {
     },
     {
       key: "assigned",
+      hideBelow: "32rem",
       header: t("support.column.assigned"),
       sortValue: (row) => row.assignedTo ?? "",
       render: (row) => (
@@ -241,6 +243,7 @@ function SupportQueueScreen() {
     },
     {
       key: "due",
+      hideBelow: "64rem",
       header: t("support.column.due"),
       sortValue: (row) => row.responseDueAt ?? "",
       render: (row) => <TimestampValue value={row.responseDueAt} mode="dateTime" className="text-xs" />,

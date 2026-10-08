@@ -88,6 +88,7 @@ function AuditScreen() {
     },
     {
       key: "actor",
+      hideBelow: "56rem",
       header: t("audit.column.actor"),
       sortValue: (entry) => entry.actorName ?? "",
       render: (entry) => (
@@ -116,6 +117,7 @@ function AuditScreen() {
     },
     {
       key: "entity",
+      hideBelow: "80rem",
       header: t("audit.column.entity"),
       sortValue: (entry) => entry.entityType,
       render: (entry) => (
@@ -129,18 +131,21 @@ function AuditScreen() {
     },
     {
       key: "chain",
+      hideBelow: "24rem",
       header: t("chains.column.chain"),
       sortValue: (entry) => entry.chainName ?? "",
       render: (entry) => <span className="text-fg-muted">{entry.chainName ?? t("audit.platform")}</span>,
     },
     {
       key: "outcome",
+      hideBelow: "40rem",
       header: t("audit.column.outcome"),
       sortValue: (entry) => entry.outcome,
       render: (entry) => <OutcomeBadge outcome={entry.outcome} />,
     },
     {
       key: "source",
+      hideBelow: "64rem",
       header: t("audit.column.source"),
       sortValue: (entry) => entry.source,
       render: (entry) => (

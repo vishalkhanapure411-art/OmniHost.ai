@@ -44,6 +44,7 @@ export function ChainList({
     },
     {
       key: "jurisdiction",
+      hideBelow: "40rem",
       header: t("chains.column.jurisdiction"),
       sortValue: (chain) => chain.taxJurisdiction ?? "",
       render: (chain) => (
@@ -52,12 +53,14 @@ export function ChainList({
     },
     {
       key: "status",
+      hideBelow: "48rem",
       header: t("chains.column.status"),
       sortValue: (chain) => chain.status,
       render: (chain) => <ChainStatusBadge status={chain.status} />,
     },
     {
       key: "sites",
+      hideBelow: "24rem",
       header: t("chains.column.sites"),
       numeric: true,
       sortValue: (chain) => chain.siteCount,
@@ -65,6 +68,7 @@ export function ChainList({
     },
     {
       key: "features",
+      hideBelow: "56rem",
       header: t("chains.column.features"),
       numeric: true,
       headerTitle: t("chains.detail.features.title"),
@@ -77,6 +81,7 @@ export function ChainList({
     },
     {
       key: "onboarded",
+      hideBelow: "64rem",
       header: t("chains.column.onboarded"),
       sortValue: (chain) => chain.onboardedAt,
       render: (chain) => <TimestampValue value={chain.onboardedAt} mode="date" className="text-fg-muted" />,
