@@ -538,6 +538,59 @@
     box-shadow: inset -3px 0 0 0 var(--color-accent);
   }
 
+  /* ── A table narrower than its columns ────────────────────────────────────────
+     A dense table inside a master pane is narrower than its columns want to be, and a
+     table that overflows its pane is a table whose right-hand columns nobody can read:
+     the pane grows a permanent horizontal scrollbar and every column past the third is
+     cut off. Measured on the owner's own build, 7 Oct 2026 — `/chains` had a 755px table
+     in a 363px pane, `/audit` 1110px in 419px, the `/support` queue 772px in 363px.
+     So the table's scroll box is a query container and a column can declare the pane
+     width below which it must go (`hideBelow` in `DataTable`). The widths are a closed
+     set declared here rather than a free-form number: these rules have to be static CSS,
+     and a value invented at the call site would compile to nothing and read as if it
+     worked. A column with no `hideBelow` is always shown — that is what the column that
+     identifies the row should be.
+     The thresholds are the widths at which the surviving column set was measured to fit,
+     at all three densities, with the widest seeded content. */
+  .table-scroll {
+    container-type: inline-size;
+  }
+  @container (max-width: 24rem) {
+    [data-hide-below="24rem"] {
+      display: none;
+    }
+  }
+  @container (max-width: 32rem) {
+    [data-hide-below="32rem"] {
+      display: none;
+    }
+  }
+  @container (max-width: 40rem) {
+    [data-hide-below="40rem"] {
+      display: none;
+    }
+  }
+  @container (max-width: 48rem) {
+    [data-hide-below="48rem"] {
+      display: none;
+    }
+  }
+  @container (max-width: 56rem) {
+    [data-hide-below="56rem"] {
+      display: none;
+    }
+  }
+  @container (max-width: 64rem) {
+    [data-hide-below="64rem"] {
+      display: none;
+    }
+  }
+  @container (max-width: 80rem) {
+    [data-hide-below="80rem"] {
+      display: none;
+    }
+  }
+
   /* Numeric columns: right in LTR, left in RTL, decimal aligned either way. */
   .numeric {
     text-align: end;

@@ -23,6 +23,13 @@ import { useI18n } from "~/i18n";
  *     every module gets the same honest one.
  */
 
+/**
+ * The pane widths a column may be dropped below. The set is declared in `tokens.css`
+ * (one `@container` rule each) because the rules have to be static CSS — a width invented
+ * here would compile to nothing and read as if it worked.
+ */
+export type HideBelowWidth = "24rem" | "32rem" | "40rem" | "48rem" | "56rem" | "64rem" | "80rem";
+
 export interface Column<Row> {
   key: string;
   header: ReactNode;
@@ -33,6 +40,13 @@ export interface Column<Row> {
   render: (row: Row) => ReactNode;
   /** Fixed width — use sparingly, and never on a column holding a translated label. */
   width?: string;
+  /**
+   * The pane width below which this column must go. A master pane is a third of the window
+   * and a seven-column list can never fit it: without this the table forces a sideways
+   * scrollbar and cuts every column past the third. Omit it on the column that identifies
+   * the row — that one is always shown.
+   */
+  hideBelow?: HideBelowWidth;
   headerTitle?: string;
   /** Where a column header would otherwise have to hold a translated label. */
   srOnlyHeader?: boolean;
@@ -99,7 +113,7 @@ export function DataTable<Row>({
   }
 
   return (
-    <div className={stickyHeader ? "max-h-full overflow-auto" : "overflow-x-auto"}>
+    <div className={stickyHeader ? "table-scroll max-h-full overflow-auto" : "table-scroll overflow-x-auto"}>
       <table className="data-table">
         <caption className="sr-only">{caption}</caption>
         <thead>
@@ -114,6 +128,7 @@ export function DataTable<Row>({
                   aria-sort={ariaSort}
                   title={column.headerTitle}
                   style={column.width ? { width: column.width } : undefined}
+                  data-hide-below={column.hideBelow}
                   className={column.numeric ? "numeric" : undefined}
                 >
                   {column.sortValue ? (
@@ -166,7 +181,7 @@ export function DataTable<Row>({
                 }
               >
                 {columns.map((column) => (
-                  <td key={column.key} className={column.numeric ? "numeric" : undefined}>
+                  <td key={column.key} data-hide-below={column.hideBelow} className={column.numeric ? "numeric" : undefined}>
                     {column.render(row)}
                   </td>
                 ))}
