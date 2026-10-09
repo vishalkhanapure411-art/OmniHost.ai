@@ -24,7 +24,7 @@ export interface PrincipalRole {
   code: string;
   name: string;
   layer: OrgLayer;
-  seniority: "head" | "team" | "site_head" | "operator";
+  seniority: "head" | "team" | "site_head" | "operator" | "approver";
   functionCode: string | null;
   chainId: string | null;
   siteId: string | null;

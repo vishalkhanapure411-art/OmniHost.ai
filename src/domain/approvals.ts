@@ -14,13 +14,17 @@
 export type MdmReviewDecision = "approve" | "sendBack";
 
 /**
- * The role a master-data review is routed to: the Central MDM Head.
+ * The role a master-data review is routed to: the Central MDM Approver.
  *
  * A constant rather than a literal in the insert, because the *same* code decides the
  * queue's scope (`listApprovals` filters on the caller's role codes) and the task's
  * routing: two copies of a role code that must agree is one copy too many.
+ *
+ * The approver split (owner, 7 Oct 2026) moved this off `CENTRAL_MDM_HEAD`: the approver
+ * is now its own role, holding the approve act and no raise act, while the head keeps
+ * policy plus above-threshold.
  */
-export const ARTICLE_APPROVER_ROLE = "CENTRAL_MDM_HEAD";
+export const ARTICLE_APPROVER_ROLE = "CENTRAL_MDM_APPROVER";
 
 /**
  * What an `approval_task` points at for this path — the article *version*, not the article.

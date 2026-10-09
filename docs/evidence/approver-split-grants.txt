@@ -1,0 +1,191 @@
+approver split — session 1 grant read-back (scratch database omnihost_check)
+run at 2026-10-09T07:51:51.182Z
+asserts the grant facts; does NOT call the acts (that is session 2)
+
+==============================================================================
+STEP 1. the approver role exists with seniority 'approver'
+==============================================================================
+  PASS  CENTRAL_MDM_APPROVER exists
+  PASS  its seniority — expected "approver", read "approver"
+
+==============================================================================
+STEP 2. resolve the two principals (approver and head)
+==============================================================================
+  PASS  approver holds exactly the approver role — CENTRAL_MDM_APPROVER
+  PASS  head holds the MDM head role
+
+==============================================================================
+STEP 3. the capability facts, asserted through can()
+==============================================================================
+  PASS  can(approver, 'mdm.article.approve') — expected true, read true
+  PASS  can(approver, 'mdm.article.create') — expected false, read false
+  PASS  can(approver, 'mdm.article.update') — expected false, read false
+  PASS  can(approver, 'mdm.article.propose') — expected false, read false
+  PASS  can(approver, 'mdm.article.price.update') — expected false, read false
+  PASS  can(approver, 'mdm.article.view') — expected true, read true
+  PASS  can(head, 'mdm.article.approve') — expected false, read false
+  PASS  can(head, 'mdm.article.create') — expected false, read false
+  PASS  can(head, 'mdm.article.view') — expected true, read true
+  PASS  can(head, 'mdm.article.search') — expected true, read true
+  PASS  can(head, 'mdm.approve.threshold') — expected true, read true
+  PASS  can(head, 'mdm.policy.configure') — expected true, read true
+
+==============================================================================
+STEP 4. the four approve acts and the four entity reads, from the grant rows
+==============================================================================
+  PASS  approver holds mdm.article.approve
+  PASS  approver holds mdm.raw_material.approve
+  PASS  approver holds mdm.vendor.approve
+  PASS  approver holds mdm.tax_class.approve
+  PASS  approver holds mdm.article.view
+  PASS  approver holds mdm.raw_material.view
+  PASS  approver holds mdm.vendor.view
+  PASS  approver holds mdm.tax_class.view
+  PASS  approver does NOT hold mdm.vendor.bank.view
+
+==============================================================================
+STEP 5. the raise acts the head alone held, now on the team (and the two deactivates)
+==============================================================================
+  PASS  team holds mdm.article.reactivate
+  PASS  team holds mdm.raw_material.reactivate
+  PASS  team holds mdm.vendor.reactivate
+  PASS  team holds mdm.raw_material.cost.update
+  PASS  team holds mdm.vendor.bank.update
+  PASS  team holds mdm.vendor.terms.update
+  PASS  team holds mdm.uom.conversion.update
+  PASS  team holds mdm.tax_class.rate.update
+  PASS  team holds mdm.tax_class.deactivate
+  PASS  team holds mdm.site.deactivate
+
+==============================================================================
+STEP 6. the outlet's own team can raise
+==============================================================================
+  PASS  site_culinary holds mdm.article.create
+  PASS  site_culinary holds mdm.article.update
+  PASS  site_culinary holds mdm.article.price.update
+
+==============================================================================
+STEP 7. the head's read set is intact
+==============================================================================
+  PASS  head holds mdm.article.view
+  PASS  head holds mdm.article.search
+  PASS  head holds mdm.raw_material.view
+  PASS  head holds mdm.vendor.view
+  PASS  head holds mdm.vendor.bank.view
+  PASS  head holds mdm.uom.view
+  PASS  head does NOT hold mdm.article.approve
+  PASS  head does NOT hold mdm.article.create
+
+==============================================================================
+STEP 8. the grant rows, read back
+==============================================================================
+  CENTRAL_MDM_APPROVER  <-  mdm.article.approve
+  CENTRAL_MDM_APPROVER  <-  mdm.article.view
+  CENTRAL_MDM_APPROVER  <-  mdm.raw_material.approve
+  CENTRAL_MDM_APPROVER  <-  mdm.raw_material.view
+  CENTRAL_MDM_APPROVER  <-  mdm.tax_class.approve
+  CENTRAL_MDM_APPROVER  <-  mdm.tax_class.view
+  CENTRAL_MDM_APPROVER  <-  mdm.vendor.approve
+  CENTRAL_MDM_APPROVER  <-  mdm.vendor.view
+  CENTRAL_MDM_HEAD  <-  chain.setting.update
+  CENTRAL_MDM_HEAD  <-  mdm.allergen.view
+  CENTRAL_MDM_HEAD  <-  mdm.approve.threshold
+  CENTRAL_MDM_HEAD  <-  mdm.article.search
+  CENTRAL_MDM_HEAD  <-  mdm.article.view
+  CENTRAL_MDM_HEAD  <-  mdm.nutrient.view
+  CENTRAL_MDM_HEAD  <-  mdm.outlet.view
+  CENTRAL_MDM_HEAD  <-  mdm.policy.configure
+  CENTRAL_MDM_HEAD  <-  mdm.propose
+  CENTRAL_MDM_HEAD  <-  mdm.raw_material.search
+  CENTRAL_MDM_HEAD  <-  mdm.raw_material.view
+  CENTRAL_MDM_HEAD  <-  mdm.site.view
+  CENTRAL_MDM_HEAD  <-  mdm.tax_class.view
+  CENTRAL_MDM_HEAD  <-  mdm.uom.search
+  CENTRAL_MDM_HEAD  <-  mdm.uom.view
+  CENTRAL_MDM_HEAD  <-  mdm.vendor.bank.view
+  CENTRAL_MDM_HEAD  <-  mdm.vendor.search
+  CENTRAL_MDM_HEAD  <-  mdm.vendor.view
+  CENTRAL_MDM_HEAD  <-  mdm.view
+  CENTRAL_MDM_HEAD  <-  site.locale.update
+  CENTRAL_MDM_TEAM  <-  mdm.allergen.chain.update
+  CENTRAL_MDM_TEAM  <-  mdm.allergen.view
+  CENTRAL_MDM_TEAM  <-  mdm.article.create
+  CENTRAL_MDM_TEAM  <-  mdm.article.deactivate
+  CENTRAL_MDM_TEAM  <-  mdm.article.import
+  CENTRAL_MDM_TEAM  <-  mdm.article.price.update
+  CENTRAL_MDM_TEAM  <-  mdm.article.propose
+  CENTRAL_MDM_TEAM  <-  mdm.article.reactivate
+  CENTRAL_MDM_TEAM  <-  mdm.article.search
+  CENTRAL_MDM_TEAM  <-  mdm.article.update
+  CENTRAL_MDM_TEAM  <-  mdm.article.view
+  CENTRAL_MDM_TEAM  <-  mdm.execute
+  CENTRAL_MDM_TEAM  <-  mdm.nutrient.chain.update
+  CENTRAL_MDM_TEAM  <-  mdm.nutrient.view
+  CENTRAL_MDM_TEAM  <-  mdm.outlet.create
+  CENTRAL_MDM_TEAM  <-  mdm.outlet.update
+  CENTRAL_MDM_TEAM  <-  mdm.outlet.view
+  CENTRAL_MDM_TEAM  <-  mdm.propose
+  CENTRAL_MDM_TEAM  <-  mdm.raw_material.cost.update
+  CENTRAL_MDM_TEAM  <-  mdm.raw_material.create
+  CENTRAL_MDM_TEAM  <-  mdm.raw_material.deactivate
+  CENTRAL_MDM_TEAM  <-  mdm.raw_material.import
+  CENTRAL_MDM_TEAM  <-  mdm.raw_material.reactivate
+  CENTRAL_MDM_TEAM  <-  mdm.raw_material.search
+  CENTRAL_MDM_TEAM  <-  mdm.raw_material.update
+  CENTRAL_MDM_TEAM  <-  mdm.raw_material.view
+  CENTRAL_MDM_TEAM  <-  mdm.site.create
+  CENTRAL_MDM_TEAM  <-  mdm.site.deactivate
+  CENTRAL_MDM_TEAM  <-  mdm.site.import
+  CENTRAL_MDM_TEAM  <-  mdm.site.update
+  CENTRAL_MDM_TEAM  <-  mdm.site.view
+  CENTRAL_MDM_TEAM  <-  mdm.tax_class.create
+  CENTRAL_MDM_TEAM  <-  mdm.tax_class.deactivate
+  CENTRAL_MDM_TEAM  <-  mdm.tax_class.rate.update
+  CENTRAL_MDM_TEAM  <-  mdm.tax_class.update
+  CENTRAL_MDM_TEAM  <-  mdm.tax_class.view
+  CENTRAL_MDM_TEAM  <-  mdm.uom.conversion.update
+  CENTRAL_MDM_TEAM  <-  mdm.uom.create
+  CENTRAL_MDM_TEAM  <-  mdm.uom.import
+  CENTRAL_MDM_TEAM  <-  mdm.uom.search
+  CENTRAL_MDM_TEAM  <-  mdm.uom.update
+  CENTRAL_MDM_TEAM  <-  mdm.uom.view
+  CENTRAL_MDM_TEAM  <-  mdm.vendor.bank.update
+  CENTRAL_MDM_TEAM  <-  mdm.vendor.bank.view
+  CENTRAL_MDM_TEAM  <-  mdm.vendor.create
+  CENTRAL_MDM_TEAM  <-  mdm.vendor.deactivate
+  CENTRAL_MDM_TEAM  <-  mdm.vendor.import
+  CENTRAL_MDM_TEAM  <-  mdm.vendor.reactivate
+  CENTRAL_MDM_TEAM  <-  mdm.vendor.search
+  CENTRAL_MDM_TEAM  <-  mdm.vendor.suspend
+  CENTRAL_MDM_TEAM  <-  mdm.vendor.terms.update
+  CENTRAL_MDM_TEAM  <-  mdm.vendor.update
+  CENTRAL_MDM_TEAM  <-  mdm.vendor.view
+  CENTRAL_MDM_TEAM  <-  mdm.view
+  SITE_CULINARY_TEAM  <-  culinary.execute
+  SITE_CULINARY_TEAM  <-  culinary.propose
+  SITE_CULINARY_TEAM  <-  culinary.stockout.mark
+  SITE_CULINARY_TEAM  <-  culinary.view
+  SITE_CULINARY_TEAM  <-  culinary.waste.writeoff
+  SITE_CULINARY_TEAM  <-  kds.route.view
+  SITE_CULINARY_TEAM  <-  kds.ticket.advance
+  SITE_CULINARY_TEAM  <-  kds.ticket.recall
+  SITE_CULINARY_TEAM  <-  kds.ticket.reroute
+  SITE_CULINARY_TEAM  <-  kds.ticket.view
+  SITE_CULINARY_TEAM  <-  kds.ticket.void
+  SITE_CULINARY_TEAM  <-  mdm.allergen.view
+  SITE_CULINARY_TEAM  <-  mdm.article.create
+  SITE_CULINARY_TEAM  <-  mdm.article.price.update
+  SITE_CULINARY_TEAM  <-  mdm.article.propose
+  SITE_CULINARY_TEAM  <-  mdm.article.search
+  SITE_CULINARY_TEAM  <-  mdm.article.update
+  SITE_CULINARY_TEAM  <-  mdm.article.view
+  SITE_CULINARY_TEAM  <-  mdm.nutrient.view
+  SITE_CULINARY_TEAM  <-  mdm.raw_material.propose
+  SITE_CULINARY_TEAM  <-  mdm.raw_material.search
+  SITE_CULINARY_TEAM  <-  mdm.raw_material.view
+  SITE_CULINARY_TEAM  <-  mdm.uom.view
+  SITE_CULINARY_TEAM  <-  order.view
+
+------------------------------------------------------------------------------
+steps: 8 / failures: 0
+VERDICT: PASS

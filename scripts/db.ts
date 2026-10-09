@@ -271,6 +271,27 @@ async function seedUsersAndScopes(tx: Queryable): Promise<void> {
       );
     }
 
+    // Re-seed trap fix (the approver split, 7 Oct 2026): the upsert above keys on
+    // [user, role, chain, site], so changing an account's role code would INSERT a second
+    // active assignment and leave the old one active — the approver would then hold BOTH
+    // roles (and every capability the split meant to remove) while the demo looked right.
+    // Revoke any active assignment whose role is no longer in this account's list, so a
+    // re-seed is idempotent and a removed role is revoked on the next run. The
+    // `on conflict (scope_key) do update` above re-activating a revoked row for the same
+    // user|role|chain|site triple is correct and must stay.
+    const wantedRoleIds = account.assignments
+      .map((a) => roleId.get(a.roleCode))
+      .filter((rid): rid is string => Boolean(rid));
+    await tx.query(
+      `update role_assignment ra
+          set status = 'revoked', revoked_at = now(), revoked_by_user_id = $1,
+              revoke_reason = 're-seed: role no longer in the account''s assignments', updated_at = now()
+        where ra.user_id = $2
+          and ra.status = 'active'
+          and ra.role_id <> all($3::uuid[])`,
+      [adminId, uid, wantedRoleIds]
+    );
+
     for (const grant of account.grants) {
       const cid = grant.chainCode ? (chainId.get(grant.chainCode) ?? null) : null;
       if (grant.chainCode && !cid) throw new Error(`unknown chain ${grant.chainCode}`);
