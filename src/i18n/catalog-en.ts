@@ -1166,7 +1166,7 @@ export const enIN = {
   "mdm.article.detail.titleFallback": "Article",
   "mdm.article.detail.back": "Back to the list",
   "mdm.article.action.submitForReview": "Submit for review",
-  "mdm.article.action.submitForReviewHint": "Sends the draft to the Central MDM Head. You cannot approve your own submission.",
+  "mdm.article.action.submitForReviewHint": "Sends the draft to the Central MDM Approver. You cannot approve your own submission.",
   "mdm.article.review.capabilityHint": "Submitting a draft for review needs {permission}.",
   "mdm.article.review.readOnly":
     "Read-only: sending this draft to an approver needs {permission}, which this account does not hold.",

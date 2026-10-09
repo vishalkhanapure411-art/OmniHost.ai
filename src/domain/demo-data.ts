@@ -299,7 +299,7 @@ export const DEMO_ACCOUNTS: DemoAccount[] = [
     password: "Saffron!MdmHead#2026",
     locale: "en-IN",
     blurb:
-      "Central MDM Head — maintains the master data for one chain and approves what the function proposes. The positive case for the Phase 1 master-data API.",
+      "Central MDM Head — configures MDM policy and approves above the threshold, and reads the whole master-data record for one chain. After the approver split it no longer holds the everyday approve act: that is the MDM Approver's.",
     assignments: [{ roleCode: "CENTRAL_MDM_HEAD", chainCode: "saffron-table" }],
     grants: [],
   },
@@ -309,8 +309,30 @@ export const DEMO_ACCOUNTS: DemoAccount[] = [
     password: "Saffron!MdmApprover#2026",
     locale: "en-IN",
     blurb:
-      "Second Central MDM Head — a second signer for the maker-checker walk-through. The four-eyes rule refuses a self-approval, so the article review path cannot be walked end to end by one person: this account is the same role as the MDM Head, held by a different person, and exists so the approve branch is reachable by two real logins.",
-    assignments: [{ roleCode: "CENTRAL_MDM_HEAD", chainCode: "saffron-table" }],
+      "Central MDM Approver — decides master-data changes raised by the central and site teams. Holds the approve act and no create/update/propose act, so the four-eyes rule (you cannot approve your own submission) and the capability split agree.",
+    assignments: [{ roleCode: "CENTRAL_MDM_APPROVER", chainCode: "saffron-table" }],
+    grants: [],
+  },
+  {
+    email: "mdm.team@saffron.example",
+    displayName: "Rohan Iyer",
+    password: "Saffron!MdmTeam#2026",
+    locale: "en-IN",
+    blurb:
+      "Central MDM Team — the head-office raiser: creates, edits and proposes one chain's master-data changes (including re-pricing) for the MDM Approver to decide. Holds no approve act.",
+    assignments: [{ roleCode: "CENTRAL_MDM_TEAM", chainCode: "saffron-table" }],
+    grants: [],
+  },
+  {
+    email: "site.culinary@saffron.example",
+    displayName: "Devika Rao",
+    password: "Saffron!SiteCulinary#2026",
+    locale: "en-IN",
+    blurb:
+      "Site Culinary Team — the outlet's own raiser: creates and re-prices article drafts at Koramangala, which route to the central MDM Approver. The demo's outlet-raises → central-approves path.",
+    assignments: [
+      { roleCode: "SITE_CULINARY_TEAM", chainCode: "saffron-table", siteCode: "saffron-koramangala" },
+    ],
     grants: [],
   },
   {

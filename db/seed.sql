@@ -51,6 +51,14 @@ select 'SITE_' || upper(fn_code) || '_TEAM', 'Site ' || fn_name || ' Team', 'sit
        'Executes and proposes ' || lower(fn_name) || ' work at one outlet, reporting to the Site Head with a dotted line to the Central ' || fn_name || ' Head.'
   from fn
  where has_site
+union all
+-- The approver split (owner, 7 Oct 2026): approval authority is its own chain-central role,
+-- holding the function's approve acts and NO create/update/propose act. Seniority `approver`
+-- (migration 0019) deliberately sits outside the `head`/`team` blocks below, so it inherits
+-- neither the head's propose/threshold grants nor the team's view/propose/execute sweep.
+select 'CENTRAL_' || upper(fn_code) || '_APPROVER', fn_name || ' Approver', 'central', fn_code, 'approver',
+       'Approves ' || lower(fn_name) || ' work raised by the central and site teams; holds no create, update or propose act.'
+  from fn
 on conflict (code) do update set
   name = excluded.name, layer = excluded.layer, function_code = excluded.function_code,
   seniority = excluded.seniority, description = excluded.description;
@@ -496,7 +504,7 @@ with code (code, kind, site_scope, financial, name) as (
     ('mdm.article.create',           'mutation', false, false, 'Create an article directly (MDM Team)'),
     ('mdm.article.update',           'mutation', false, false, 'Edit an article draft (non-financial fields)'),
     ('mdm.article.price.update',     'mutation', false, true,  'Change a per-outlet price — financial, so confirm-before-commit and threshold approval'),
-    ('mdm.article.approve',          'mutation', false, false, 'Approve a version to active (MDM Head)'),
+    ('mdm.article.approve',          'mutation', false, false, 'Approve a version to active (MDM Approver)'),
     ('mdm.article.deactivate',       'mutation', false, false, 'Deactivate an article with a reason'),
     ('mdm.article.reactivate',       'mutation', false, false, 'Reactivate an article, separately audited'),
     ('mdm.article.import',           'mutation', false, false, 'Bulk import articles'),
@@ -507,7 +515,7 @@ with code (code, kind, site_scope, financial, name) as (
     ('mdm.raw_material.create',      'mutation', false, false, 'Create a raw material directly (MDM Team)'),
     ('mdm.raw_material.update',      'mutation', false, false, 'Maintain a raw material record'),
     ('mdm.raw_material.cost.update', 'mutation', false, true,  'Standard cost — financial, effective-dated, threshold approval'),
-    ('mdm.raw_material.approve',     'mutation', false, false, 'Approve a raw material (MDM Head)'),
+    ('mdm.raw_material.approve',     'mutation', false, false, 'Approve a raw material (MDM Approver)'),
     ('mdm.raw_material.deactivate',  'mutation', false, false, 'Deactivate a raw material with a reason'),
     ('mdm.raw_material.reactivate',  'mutation', false, false, 'Reactivate a raw material'),
     ('mdm.raw_material.import',      'mutation', false, false, 'Bulk import raw materials'),
@@ -520,7 +528,7 @@ with code (code, kind, site_scope, financial, name) as (
     ('mdm.vendor.bank.view',         'query',    false, true,  'Reveal remittance details — a separate, audited read'),
     ('mdm.vendor.bank.update',       'mutation', false, true,  'Change remittance details — never merged into a general update'),
     ('mdm.vendor.terms.update',      'mutation', false, true,  'Change payment terms or billing currency'),
-    ('mdm.vendor.approve',           'mutation', false, false, 'Approve a vendor as usable on POs (MDM Head)'),
+    ('mdm.vendor.approve',           'mutation', false, false, 'Approve a vendor as usable on POs (MDM Approver)'),
     ('mdm.vendor.suspend',           'mutation', false, false, 'Suspend a vendor — no new POs, open POs flagged'),
     ('mdm.vendor.reactivate',        'mutation', false, false, 'Reinstate a suspended vendor'),
     ('mdm.vendor.deactivate',        'mutation', false, false, 'Deactivate a vendor with a reason'),
@@ -537,7 +545,7 @@ with code (code, kind, site_scope, financial, name) as (
     ('mdm.tax_class.create',         'mutation', false, true,  'Create a tax class'),
     ('mdm.tax_class.update',         'mutation', false, true,  'Edit a tax class (never a rate in place)'),
     ('mdm.tax_class.rate.update',    'mutation', false, true,  'Open a new effective-dated rate row'),
-    ('mdm.tax_class.approve',        'mutation', false, false, 'Approve a rate change (MDM Head)'),
+    ('mdm.tax_class.approve',        'mutation', false, false, 'Approve a rate change (MDM Approver)'),
     ('mdm.tax_class.deactivate',     'mutation', false, false, 'Deactivate a tax class, blocked while referenced'),
     -- site and outlet
     ('mdm.site.view',                'query',    false, false, 'View the site master (a chain-level golden record)'),
@@ -599,12 +607,16 @@ on conflict (code) do update set
 
 -- ---------------------------------------------------------------------------
 -- 7. role → permission for the MDM codes (§3's own statement of how the coarse and
---    fine codes combine, turned into grants).
---    * MDM Head: every server-side entity code, because a Head approves what the
---      function produces.
+--    fine codes combine, turned into grants) — re-cut by the approver split
+--    (owner, 7 Oct 2026; migration 0019):
+--    * MDM Head: reads every entity (`.view`/`.search`) and keeps the coarse
+--      `view`/`propose` plus above-threshold + policy (the head block above). It no
+--      longer holds the create/update/approve acts.
+--    * MDM Approver (`CENTRAL_MDM_APPROVER`): the four approve acts and the matching
+--      entity reads — no create/update/propose, and no `mdm.vendor.bank.view`.
 --    * MDM Team: maintains records — create, update, propose, import, view, search,
---      plus the two codes that are a deliberate separate act (a conversion factor and
---      a cost) and the vendor bank reveal.
+--      deactivate, reactivate, plus the codes that are a deliberate separate act (a
+--      conversion factor, a cost, a rate, a bank/terms change) and the vendor bank reveal.
 --    * Culinary: reads articles and raw materials and proposes them; it does not
 --      approve, and it never touches a vendor's bank details.
 --    * Purchase: proposes a vendor and reads what it orders against.
@@ -615,7 +627,19 @@ on conflict (code) do update set
 -- ---------------------------------------------------------------------------
 with mdm_grant (role_code, permission_like) as (
   values
-    ('CENTRAL_MDM_HEAD', 'mdm.%'),
+    ('CENTRAL_MDM_HEAD', 'mdm.%.view'),
+    ('CENTRAL_MDM_HEAD', 'mdm.%.search'),
+    -- The approver split: the head no longer holds the blanket `mdm.%`; the approver role
+    -- holds the four approve acts and the matching entity reads, and the head keeps only its
+    -- reads plus the coarse above-threshold/policy codes granted in the head block above.
+    ('CENTRAL_MDM_APPROVER', 'mdm.article.approve'),
+    ('CENTRAL_MDM_APPROVER', 'mdm.raw_material.approve'),
+    ('CENTRAL_MDM_APPROVER', 'mdm.vendor.approve'),
+    ('CENTRAL_MDM_APPROVER', 'mdm.tax_class.approve'),
+    ('CENTRAL_MDM_APPROVER', 'mdm.article.view'),
+    ('CENTRAL_MDM_APPROVER', 'mdm.raw_material.view'),
+    ('CENTRAL_MDM_APPROVER', 'mdm.vendor.view'),
+    ('CENTRAL_MDM_APPROVER', 'mdm.tax_class.view'),
     ('CENTRAL_MDM_TEAM', 'mdm.%.view'),
     ('CENTRAL_MDM_TEAM', 'mdm.%.search'),
     -- Spec §3: "CENTRAL_MDM_TEAM | every mdm.*.view/.search, create, update, propose, import,
@@ -649,6 +673,20 @@ with mdm_grant (role_code, permission_like) as (
     ('CENTRAL_MDM_TEAM', 'mdm.outlet.update'),
     ('CENTRAL_MDM_TEAM', 'mdm.allergen.chain.update'),
     ('CENTRAL_MDM_TEAM', 'mdm.nutrient.chain.update'),
+    -- The raise acts the head alone held before the split, moved here so the capability
+    -- does not disappear: three `.reactivate`, the five financial/maintenance `.update`
+    -- codes, and the two deactivates the spec's Team row lists (`tax_class.deactivate`,
+    -- `site.deactivate`).
+    ('CENTRAL_MDM_TEAM', 'mdm.article.reactivate'),
+    ('CENTRAL_MDM_TEAM', 'mdm.raw_material.reactivate'),
+    ('CENTRAL_MDM_TEAM', 'mdm.vendor.reactivate'),
+    ('CENTRAL_MDM_TEAM', 'mdm.raw_material.cost.update'),
+    ('CENTRAL_MDM_TEAM', 'mdm.vendor.bank.update'),
+    ('CENTRAL_MDM_TEAM', 'mdm.vendor.terms.update'),
+    ('CENTRAL_MDM_TEAM', 'mdm.uom.conversion.update'),
+    ('CENTRAL_MDM_TEAM', 'mdm.tax_class.rate.update'),
+    ('CENTRAL_MDM_TEAM', 'mdm.tax_class.deactivate'),
+    ('CENTRAL_MDM_TEAM', 'mdm.site.deactivate'),
     ('CENTRAL_CULINARY_TEAM', 'mdm.article.view'),
     ('CENTRAL_CULINARY_TEAM', 'mdm.article.search'),
     ('CENTRAL_CULINARY_TEAM', 'mdm.article.propose'),
@@ -663,6 +701,12 @@ with mdm_grant (role_code, permission_like) as (
     ('SITE_CULINARY_TEAM', 'mdm.article.view'),
     ('SITE_CULINARY_TEAM', 'mdm.article.search'),
     ('SITE_CULINARY_TEAM', 'mdm.article.propose'),
+    -- The approver split (owner, 7 Oct 2026): the outlet's own team genuinely raises — it
+    -- creates, edits and re-prices the draft, and the central approver decides. All three
+    -- are `requires_site_scope = false`, so a site-scoped principal can hold and exercise them.
+    ('SITE_CULINARY_TEAM', 'mdm.article.create'),
+    ('SITE_CULINARY_TEAM', 'mdm.article.update'),
+    ('SITE_CULINARY_TEAM', 'mdm.article.price.update'),
     ('SITE_CULINARY_TEAM', 'mdm.raw_material.view'),
     ('SITE_CULINARY_TEAM', 'mdm.raw_material.search'),
     ('SITE_CULINARY_TEAM', 'mdm.raw_material.propose'),
