@@ -1,7 +1,7 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useState } from "react";
+import { Tabs } from "~/components/tabs";
 
-import { TierBadge } from "~/components/status";
 import {
   Badge,
   Banner,
@@ -12,7 +12,6 @@ import {
   Dialog,
   ErrorState,
   Field,
-  PageHeader,
   PermissionDenied,
   SegmentedControl,
   Select,
@@ -57,7 +56,7 @@ import {
  * is on screen is what the database holds. Each write is audited by the domain function
  * in the same transaction as the change.
  */
-export const Route = createFileRoute("/_shell/chains/$chainId_/settings")({
+export const Route = createFileRoute("/_shell/chains/$chainId/settings")({
   staticData: { titleKey: "chains.settings.titleFallback" },
   loader: async ({ params }) => getChainConfigFn({ data: { chainId: params.chainId } }),
   component: ChainConfigScreen,
@@ -108,6 +107,8 @@ const DELEGATION_LABEL: Record<string, MessageKey> = {
   site_head: "config.settings.delegation.site_head",
 };
 
+type SettingsPane = "signin" | "settings" | "locale";
+
 function ChainConfigScreen() {
   const result = Route.useLoaderData();
   const { principal } = Route.useRouteContext();
@@ -116,6 +117,11 @@ function ChainConfigScreen() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // The three configuration panes are nested tabs inside the record's Settings tab. They
+  // are three genuinely different tasks — sign-in, what a chain head may move, and the
+  // site-language hop — and the code has always had three sections; the older design note
+  // listed two, which is the one place this screen deliberately diverges from it.
+  const [pane, setPane] = useState<SettingsPane>("signin");
 
   if (!result.ok) {
     // A refusal is a state like any other: translated, naming the capability, with a way
@@ -210,113 +216,106 @@ function ChainConfigScreen() {
   const appLayerCount = settings.settings.length - delegatedCount;
 
   return (
-    <>
-      <PageHeader
-        eyebrow={t("chains.settings.eyebrow")}
-        title={settings.chainName}
-        description={t("chains.settings.description")}
-        meta={
-          <>
-            <TierBadge tier={settings.licenceTier} />
-            <Badge tone={result.auth?.configured ? "accent" : "neutral"}>
-              {result.auth?.configured
-                ? t("chains.settings.status.configured")
-                : t("chains.settings.status.platformDefaults")}
-            </Badge>
-          </>
-        }
-        actions={
-          <Button
-            variant="secondary"
-            onClick={() => {
-              void router.navigate({
-                to: "/chains/$chainId",
-                params: { chainId: settings.chainId },
-              });
-            }}
-          >
-            {t("action.back")}
-          </Button>
-        }
+    <div className="flex flex-col gap-4 p-4">
+      {error ? (
+        <Banner tone="danger" title={t("error.title")}>
+          {error}
+        </Banner>
+      ) : null}
+      {notice ? (
+        <Banner tone="ok" title={t("action.confirm")}>
+          {notice}
+        </Banner>
+      ) : null}
+      {!mayMoveSomething ? <Banner tone="info">{t("config.readOnly")}</Banner> : null}
+
+      <Tabs
+        idBase={`chain-settings-${settings.chainId}`}
+        ariaLabel="chains.settings.tabs.aria"
+        value={pane}
+        items={[
+          { value: "signin", label: "chains.settings.tab.signin" },
+          { value: "settings", label: "chains.settings.tab.settings", badge: delegatedCount },
+          { value: "locale", label: "chains.settings.tab.locale" },
+        ]}
+        onChange={(next) => {
+          setPane(next as SettingsPane);
+        }}
       />
-      <div className="flex flex-col gap-4 p-4">
-        {error ? (
-          <Banner tone="danger" title={t("error.title")}>
-            {error}
-          </Banner>
-        ) : null}
-        {notice ? (
-          <Banner tone="ok" title={t("action.confirm")}>
-            {notice}
-          </Banner>
-        ) : null}
-        {!mayMoveSomething ? <Banner tone="info">{t("config.readOnly")}</Banner> : null}
 
-        <Card>
-          <CardHeader
-            title={t("chains.settings.boundary.title")}
-            subtitle={t("chains.settings.boundary.body")}
-            actions={
-              <div className="flex items-center gap-2">
-                <Badge tone="accent">
-                  {t("chains.settings.boundary.delegated")} · {delegatedCount}
-                </Badge>
-                <Badge tone="neutral">
-                  {t("chains.settings.boundary.appLayer")} · {appLayerCount}
-                </Badge>
-              </div>
-            }
+      <div role="tabpanel" aria-labelledby={`chain-settings-${settings.chainId}-tab-${pane}`}>
+        {pane === "signin" ? (
+          <AuthSection
+            key={result.auth?.updatedAt ?? "unconfigured"}
+            chainName={settings.chainName}
+            auth={result.auth}
+            authDenied={result.authDenied}
+            canWrite={canWriteAuth}
+            busy={busy}
+            onWrite={async (input) => {
+              setBusy(true);
+              const response = await updateChainAuthConfigFn({
+                data: { chainId: settings.chainId, config: input },
+              });
+              await afterWrite(response, t("chains.settings.auth.saved"));
+            }}
           />
-        </Card>
+        ) : null}
 
-        <AuthSection
-          key={result.auth?.updatedAt ?? "unconfigured"}
-          chainName={settings.chainName}
-          auth={result.auth}
-          authDenied={result.authDenied}
-          canWrite={canWriteAuth}
-          busy={busy}
-          onWrite={async (input) => {
-            setBusy(true);
-            const response = await updateChainAuthConfigFn({
-              data: { chainId: settings.chainId, config: input },
-            });
-            await afterWrite(response, t("chains.settings.auth.saved"));
-          }}
-        />
+        {pane === "settings" ? (
+          <div className="flex flex-col gap-4">
+            <Card>
+              <CardHeader
+                title={t("chains.settings.boundary.title")}
+                subtitle={t("chains.settings.boundary.body")}
+                actions={
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge tone="accent">
+                      {t("chains.settings.boundary.delegated")} · {delegatedCount}
+                    </Badge>
+                    <Badge tone="neutral">
+                      {t("chains.settings.boundary.appLayer")} · {appLayerCount}
+                    </Badge>
+                  </div>
+                }
+              />
+            </Card>
+            <SettingsSection
+              settings={settings}
+              chainName={settings.chainName}
+              busy={busy}
+              onWrite={async (key, value, siteId, success) => {
+                setBusy(true);
+                const response = await updateChainSettingFn({
+                  data: { chainId: settings.chainId, key, value, siteId },
+                });
+                await afterWrite(response, success);
+              }}
+            />
+          </div>
+        ) : null}
 
-        <SettingsSection
-          settings={settings}
-          chainName={settings.chainName}
-          busy={busy}
-          onWrite={async (key, value, siteId, success) => {
-            setBusy(true);
-            const response = await updateChainSettingFn({
-              data: { chainId: settings.chainId, key, value, siteId },
-            });
-            await afterWrite(response, success);
-          }}
-        />
-
-        <LocaleSection
-          settings={settings}
-          busy={busy}
-          onWrite={async (siteId, siteName, locale) => {
-            setBusy(true);
-            const response = await updateSiteLocaleFn({
-              data: { chainId: settings.chainId, siteId, locale },
-            });
-            await afterWrite(
-              response,
-              t("config.locale.saved", {
-                site: siteName,
-                locale: locale ?? t("config.locale.unset"),
-              })
-            );
-          }}
-        />
+        {pane === "locale" ? (
+          <LocaleSection
+            settings={settings}
+            busy={busy}
+            onWrite={async (siteId, siteName, locale) => {
+              setBusy(true);
+              const response = await updateSiteLocaleFn({
+                data: { chainId: settings.chainId, siteId, locale },
+              });
+              await afterWrite(
+                response,
+                t("config.locale.saved", {
+                  site: siteName,
+                  locale: locale ?? t("config.locale.unset"),
+                })
+              );
+            }}
+          />
+        ) : null}
       </div>
-    </>
+    </div>
   );
 }
 
