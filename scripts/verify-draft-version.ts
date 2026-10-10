@@ -23,13 +23,14 @@
  * `planArticleWrite`, `dryRunImport`, `commitImport` — under sessions minted for real users,
  * so capability checks and the four-eyes rule run exactly as they do in the app.
  *
- * **What is hand-written, and why.** Two fixture rows and one construction:
+ * **What is hand-written, and why.** Two constructions, no scratch identity:
  *
- *   1. a second approver identity (`mdm.approver.scratch@saffron.example`), because the
- *      four-eyes rule refuses a self-approval and the scratch database holds only one MDM
- *      Head. The owner's demo database holds `mdm.approver@saffron.example` for the same
- *      reason; this one is created here under a name that cannot be mistaken for a demo
- *      account, and both the rows and the SQL that reverses them are printed;
+ *   1. the three principals are the SEEDED accounts the approver split created — the raiser
+ *      `mdm.team@saffron.example` (CENTRAL_MDM_TEAM), the approver
+ *      `mdm.approver@saffron.example` (CENTRAL_MDM_APPROVER) and the head
+ *      `mdm.head@saffron.example` (policy + above-threshold + reads). No second-approver
+ *      identity is minted in the scratch database: the split made the approver its own role,
+ *      so four eyes is two *roles* as well as two people;
  *   2. the approval gate (`mdm_approval_gated`), which the seed leaves off on both scratch
  *      chains and the script turns on for the gated half of the walk and off again for the
  *      non-gated half — it is left exactly as it was found;
@@ -78,9 +79,7 @@ process.env.DATABASE_URL = swapped;
 // opens a connection, and a static import would run before this line.
 const { poolQueryable, withTransaction } = await import("~/db");
 const { createArticle, planArticleWrite, updateArticle, updateArticlePrice } = await import("~/domain/mdm");
-const { decideArticleReview, submitArticleForReview, SELF_APPROVAL_REFUSAL_CODE } = await import(
-  "~/domain/mdm-approvals"
-);
+const { decideArticleReview, submitArticleForReview } = await import("~/domain/mdm-approvals");
 const { commitImport, dryRunImport } = await import("~/domain/import");
 const { can } = await import("~/server/permissions");
 const { createSession, findUserByEmail, resolvePrincipal } = await import("~/server/session");
@@ -90,17 +89,21 @@ const CHAIN_CODE = "saffron-table";
 const OUTLET_CODE = "koramangala-restaurant";
 const ARTICLE_CODE = "CHK-DRAFT-VERIFY";
 const ARTICLE_NAME = "Draft-Rule Verification Mocktail";
-const AUTHOR_EMAIL = "mdm.head@saffron.example";
-const APPROVER_ROLE = "CENTRAL_MDM_HEAD";
-// The scratch database's own second approver. The owner's demo database holds
-// `mdm.approver@saffron.example` for the same purpose; this one is created here, in-scratch,
-// because that account does not exist in `omnihost_check`.
-const SCRATCH_APPROVER_EMAIL = "mdm.approver.scratch@saffron.example";
-const SCRATCH_APPROVER_NAME = "Scratch Second Approver (omnihost_check)";
+// The approver split (owner, 7 Oct 2026): the author is the head-office RAISER, the
+// approver is the separate CENTRAL_MDM_APPROVER, and the head is the policy/above-threshold
+// reader. All three are seeded accounts in `omnihost_check`; no scratch identity is minted.
+const AUTHOR_EMAIL = "mdm.team@saffron.example";
+const APPROVER_EMAIL = "mdm.approver@saffron.example";
+const HEAD_EMAIL = "mdm.head@saffron.example";
+const APPROVER_ROLE = "CENTRAL_MDM_APPROVER";
 const IMPORT_FILE_PREFIX = "verify-draft-version";
 const BASE_PRICE = 250;
 const NEW_PRICE = 310;
 const THIRD_PRICE = 325;
+// The non-gated landing's fixture: a scratch, time-boxed scope grant that gives the author
+// `mdm.article.approve` on the one chain for the one call, then revoked. The approver split
+// moved approve off every role that can reprice, so §6's third branch is otherwise unreachable.
+const NON_GATED_GRANT_SCOPE_KEY = "verify-draft-version-non-gated-approve";
 
 // ---------------------------------------------------------------------------
 // The transcript
@@ -141,6 +144,12 @@ function errorCode(error: unknown): string | null {
   const details = (error as { details?: { code?: string } } | null)?.details;
   return typeof details?.code === "string" ? details.code : null;
 }
+/** The `action` a `PermissionDenied` was refused for — a capability refusal carries no
+ * `code`, so `errorCode` returns null and the missing act is read from `details.action`. */
+function errorAction(error: unknown): string | null {
+  const details = (error as { details?: { action?: string } } | null)?.details;
+  return typeof details?.action === "string" ? details.action : null;
+}
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -162,74 +171,6 @@ function codes(issues: { code: string }[]): string[] {
 // The scratch database, the fixture it needs, and the reads used at each step
 // ---------------------------------------------------------------------------
 const q = poolQueryable();
-
-// ---------------------------------------------------------------------------
-// Fixture 1 — the second approver identity
-// ---------------------------------------------------------------------------
-interface ScratchApprover {
-  id: string;
-  email: string;
-  displayName: string;
-  roleId: string;
-  assignmentId: string;
-  scopeKey: string;
-  createdUser: boolean;
-  createdAssignment: boolean;
-}
-
-async function ensureSecondApprover(): Promise<ScratchApprover> {
-  const roleRows = await q.query<{ id: string }>(`select id from role where code = $1`, [APPROVER_ROLE]);
-  const roleId = roleRows[0]?.id;
-  if (!roleId) throw new Error(`no role ${APPROVER_ROLE} in the scratch database`);
-
-  const existing = await q.query<{ id: string; display_name: string }>(
-    `select id, display_name from "user" where lower(email) = lower($1)`,
-    [SCRATCH_APPROVER_EMAIL]
-  );
-  let id = existing[0]?.id ?? null;
-  let createdUser = false;
-  if (!id) {
-    const inserted = await q.query<{ id: string }>(
-      `insert into "user" (email, display_name, auth_provider, status, locale)
-       values ($1, $2, 'sso', 'active', 'en-IN')
-       returning id`,
-      [SCRATCH_APPROVER_EMAIL, SCRATCH_APPROVER_NAME]
-    );
-    id = inserted[0]?.id ?? null;
-    createdUser = true;
-    if (!id) throw new Error("the fixture user insert returned no id");
-  }
-
-  const scopeKey = `${id}|${roleId}|${chainId}|-`;
-  const assignments = await q.query<{ id: string }>(
-    `select id from role_assignment where scope_key = $1`,
-    [scopeKey]
-  );
-  let assignmentId = assignments[0]?.id ?? null;
-  let createdAssignment = false;
-  if (!assignmentId) {
-    const inserted = await q.query<{ id: string }>(
-      `insert into role_assignment (user_id, role_id, chain_id, scope_key)
-       values ($1, $2, $3, $4)
-       returning id`,
-      [id, roleId, chainId, scopeKey]
-    );
-    assignmentId = inserted[0]?.id ?? null;
-    createdAssignment = true;
-    if (!assignmentId) throw new Error("the fixture role_assignment insert returned no id");
-  }
-
-  return {
-    id,
-    email: SCRATCH_APPROVER_EMAIL,
-    displayName: SCRATCH_APPROVER_NAME,
-    roleId,
-    assignmentId,
-    scopeKey,
-    createdUser,
-    createdAssignment,
-  };
-}
 
 // Reads ---------------------------------------------------------------------
 interface VersionRow {
@@ -352,6 +293,8 @@ async function principalFor(email: string): Promise<Principal> {
 }
 
 const author = await principalFor(AUTHOR_EMAIL);
+const approverPrincipal = await principalFor(APPROVER_EMAIL);
+const headPrincipal = await principalFor(HEAD_EMAIL);
 
 const gateRows = await q.query<{ enabled: boolean }>(
   `select cf.enabled from chain_feature cf join feature f on f.code = cf.feature_code
@@ -371,56 +314,28 @@ async function setGate(enabled: boolean): Promise<void> {
 /** Runs after the fixtures are in place, so a failure still writes the transcript. */
 async function main(): Promise<void> {
   // -------------------------------------------------------------------------
-  heading("The two fixtures this script writes, and the SQL that reverses each");
-  say("Both are rows in the scratch database. Everything after this point goes through the");
-  say("product's own domain API — no other statement in this script writes a row.");
+  heading("Three seeded principals: the raiser, the approver and the head");
+  say("The approver split made approval its own role. The raiser (CENTRAL_MDM_TEAM) creates,");
+  say("the approver (CENTRAL_MDM_APPROVER) decides, and the head keeps policy, above-threshold");
+  say("and reads. Four eyes is now two roles as well as two people.");
   // -------------------------------------------------------------------------
-  const approver = await ensureSecondApprover();
   say("");
-  say(approver.createdUser ? "  created the user row" : "  the user row already existed (a re-run)");
-  say(approver.createdAssignment ? "  created the role assignment" : "  the role assignment already existed");
-  rows("  user row", {
-    id: approver.id,
-    email: approver.email,
-    display_name: approver.displayName,
-    auth_provider: "sso",
-    status: "active",
-    locale: "en-IN",
-  });
-  rows("  role_assignment row", {
-    id: approver.assignmentId,
-    user_id: approver.id,
-    role_id: approver.roleId,
-    role: APPROVER_ROLE,
-    chain_id: chainId,
-    scope_key: approver.scopeKey,
-  });
-  say("");
-  say("  FIXTURE SQL (what this script ran, idempotent — the `user` insert only when absent):");
-  say(
-    `    insert into "user" (email, display_name, auth_provider, status, locale) values ('${approver.email}', '${approver.displayName}', 'sso', 'active', 'en-IN');`
-  );
-  say(
-    `    insert into role_assignment (user_id, role_id, chain_id, scope_key) values ('${approver.id}', '${approver.roleId}', '${chainId}', '${approver.scopeKey}');`
-  );
-  say("  FIXTURE SQL (the reverse — the two rows this fixture owns, and nothing else):");
-  say(`    delete from role_assignment where scope_key = '${approver.scopeKey}';`);
-  say(`    delete from "user" where id = '${approver.id}';`);
-  say("  (any session this script mints for that identity is deleted at the end of the run)");
-  fixture(`second approver identity ${approver.email} (${approver.id}), role ${APPROVER_ROLE}`);
-
-  const approverPrincipal = await principalFor(approver.email);
-  say("");
-  say(`author   ${author.email} (${author.roles.map((role) => role.code).join(",")}) user ${author.userId}`);
-  say(`  holds mdm.article.approve      ${await can(author, "mdm.article.approve", { chainId })}`);
+  say(`raiser   ${author.email} (${author.roles.map((role) => role.code).join(",")}) user ${author.userId}`);
   say(`approver ${approverPrincipal.email} (${approverPrincipal.roles.map((role) => role.code).join(",")}) user ${approverPrincipal.userId}`);
-  equal(
-    "the fixture identity holds mdm.article.approve on this chain",
-    await can(approverPrincipal, "mdm.article.approve", { chainId }),
-    true
-  );
+  say(`head     ${headPrincipal.email} (${headPrincipal.roles.map((role) => role.code).join(",")}) user ${headPrincipal.userId}`);
+  equal("the raiser may create", await can(author, "mdm.article.create", { chainId }), true);
+  equal("the raiser may NOT approve", await can(author, "mdm.article.approve", { chainId }), false);
+  equal("the approver may approve", await can(approverPrincipal, "mdm.article.approve", { chainId }), true);
+  equal("the approver may NOT create", await can(approverPrincipal, "mdm.article.create", { chainId }), false);
+  equal("the approver may NOT update", await can(approverPrincipal, "mdm.article.update", { chainId }), false);
+  equal("the approver may NOT re-price", await can(approverPrincipal, "mdm.article.price.update", { chainId }), false);
+  equal("the approver may NOT propose", await can(approverPrincipal, "mdm.article.propose", { chainId }), false);
+  equal("the head may NOT approve", await can(headPrincipal, "mdm.article.approve", { chainId }), false);
+  equal("the head may NOT create", await can(headPrincipal, "mdm.article.create", { chainId }), false);
+  equal("the head may view", await can(headPrincipal, "mdm.article.view", { chainId }), true);
+  equal("the head may search", await can(headPrincipal, "mdm.article.search", { chainId }), true);
   check(
-    "it is a different person from the author, so four eyes are two people",
+    "the approver is a different person from the raiser, so four eyes are two people",
     approverPrincipal.userId !== author.userId,
     `${author.userId} vs ${approverPrincipal.userId}`
   );
@@ -467,6 +382,11 @@ async function main(): Promise<void> {
       ])
     );
   }
+  // A previous aborted run may have left the non-gated landing's scope grant active; drop it
+  // so the author starts every run holding only their seeded role's capabilities.
+  await withTransaction((tx) =>
+    tx.query(`delete from scope_grant where scope_key = $1`, [NON_GATED_GRANT_SCOPE_KEY])
+  );
 
   // Reference data the create needs: a category, a base UoM, an allergen (India requires a
   // declared set) and a tax class in a jurisdiction the chain actually trades in.
@@ -967,27 +887,45 @@ async function main(): Promise<void> {
 
   // -------------------------------------------------------------------------
   heading("Four eyes: the author cannot approve their own proposal");
-  say("One attempt by the author is made here, deliberately, and it is recorded as a `denied`");
-  say("audit row — the refusal the maker-checker walk-through already proves on screen. The");
-  say("counts below read success rows only, so this row never inflates them.");
+  say("After the approver split the raiser no longer holds the approve act at all, so the");
+  say("attempt is refused by the capability check (guard) — a `denied` audit row with");
+  say("`entity_id` NULL, no data change, proven by calling it. The four-eyes rule is now");
+  say("structural: the raiser's roles simply do not contain `mdm.article.approve`.");
   // -------------------------------------------------------------------------
-  await expectRefusal(
-    "the author's own approval is refused",
-    SELF_APPROVAL_REFUSAL_CODE,
-    () =>
-      decideArticleReview(author, { taskId: String(reviewTask.id), decision: "approve" }, {
-        source: "api",
-        intent: "slab 3c-2 verification: self-approval attempt",
-      })
+  const denialBefore = await q.query<{ n: string }>(
+    `select count(*)::text as n from audit_log
+      where action = 'mdm.article.approve' and outcome = 'denied' and entity_id is null
+        and actor_user_id = $1 and reason like '%do not hold mdm.article.approve%'`,
+    [author.userId]
+  );
+  let capabilityRefusal = false;
+  try {
+    await decideArticleReview(author, { taskId: String(reviewTask.id), decision: "approve" }, {
+      source: "api",
+      intent: "slab 3c-2 verification: self-approval attempt",
+    });
+  } catch (error) {
+    capabilityRefusal = errorAction(error) === "mdm.article.approve" && errorCode(error) === null;
+    if (!capabilityRefusal) say(`        message: ${errorMessage(error)}`);
+  }
+  check(
+    "the author's own approval is refused as a capability refusal",
+    capabilityRefusal,
+    "action mdm.article.approve, no code"
   );
   equal("the self-approval changed nothing", (await versions()).find((row) => row.id === np1.id)?.status, "pending_review");
   equal("the task is still open", (await tasks()).filter((row) => row.status === "open").length, 1);
-  const denied = await q.query<{ n: string }>(
+  const denialAfter = await q.query<{ n: string }>(
     `select count(*)::text as n from audit_log
-      where action = 'mdm.article.approve' and entity_id = $1 and outcome = 'denied' and reason = 'mdm.approve.self'`,
-    [reviewTask.id]
+      where action = 'mdm.article.approve' and outcome = 'denied' and entity_id is null
+        and actor_user_id = $1 and reason like '%do not hold mdm.article.approve%'`,
+    [author.userId]
   );
-  equal("the attempt is in the ledger as a denial", denied[0]?.n, "1");
+  equal(
+    "the attempt is in the ledger as a denial",
+    Number(denialAfter[0]?.n) - Number(denialBefore[0]?.n),
+    1
+  );
 
   // -------------------------------------------------------------------------
   heading("The second person's approval supersedes N in ONE transaction");
@@ -1066,13 +1004,51 @@ async function main(): Promise<void> {
 
   // -------------------------------------------------------------------------
   heading("NON-GATED LANDING — the gate off, the caller may approve: one transaction, no queue");
-  say("The other landing of the same call, and the reason a one-person Silver chain can reprice");
-  say("at all: with `mdm_approval_gated` off and `mdm.article.approve` held, the opener creates");
-  say("N+1 and approves it in the same transaction — §6's third branch, applied to a version.");
+  say("The other landing of the same call: with `mdm_approval_gated` off and `mdm.article.approve`");
+  say("held, the opener creates N+1 and approves it in the same transaction — §6's third branch,");
+  say("applied to a version.");
+  say("");
+  say("The approver split moved `mdm.article.approve` off every role that can reprice, so this");
+  say("branch is unreachable through the seeded roles — that separation IS the four-eyes rule.");
+  say("To exercise the branch without faking it, this step grants the author the one act on the");
+  say("one scratch chain for the one call, then revokes it. The call, the transaction and the");
+  say("ledger are the real ones.");
   // -------------------------------------------------------------------------
   await setGate(false);
   say(`  gate set: mdm_approval_gated = false for ${CHAIN_CODE}`);
   fixture(`set mdm_approval_gated = false for chain ${chainId} (non-gated landing)`);
+
+  // Grant the author the approve act on this chain, so §6's third branch is reachable; the
+  // split's separation is what removed it from the raiser's roles in the first place.
+  const approvePerm = (
+    await q.query<{ id: string }>(
+      `select id from permission where code = 'mdm.article.approve' and layer = 'tenant'`
+    )
+  )[0];
+  if (!approvePerm) throw new Error("no mdm.article.approve permission row");
+  await withTransaction(async (tx) => {
+    const grant = (
+      await tx.query<{ id: string }>(
+        `insert into scope_grant (granted_to_user_id, granted_by_user_id, chain_id, reason, status, expires_at, scope_key)
+         values ($1, $1, $2, $3, 'active', now() + interval '1 day', $4)
+         on conflict (scope_key) do update
+           set status = 'active', revoked_at = null, expires_at = now() + interval '1 day', updated_at = now()
+         returning id`,
+        [author.userId, chainId, "verify-draft-version: non-gated landing fixture", NON_GATED_GRANT_SCOPE_KEY]
+      )
+    )[0];
+    await tx.query(
+      `insert into scope_grant_permission (scope_grant_id, permission_id) values ($1, $2) on conflict do nothing`,
+      [grant!.id, approvePerm.id]
+    );
+  });
+  fixture(`granted the author mdm.article.approve on ${CHAIN_CODE} for one call (scope key '${NON_GATED_GRANT_SCOPE_KEY}')`);
+  const authorWithApprove = await principalFor(AUTHOR_EMAIL);
+  equal(
+    "the grant gives the author the approve act on this chain",
+    await can(authorWithApprove, "mdm.article.approve", { chainId }),
+    true
+  );
 
   const nonGatedBefore = await versions();
   const n1 = nonGatedBefore.find((row) => row.id === np1.id)!;
@@ -1085,10 +1061,16 @@ async function main(): Promise<void> {
   // that was on sale as long as the count happened to land on the expected number.
   const n1OpenBefore = (await openWindows(n1.id)).map((row) => row.id);
   const secondReprice = await updateArticlePrice(
-    author,
+    authorWithApprove,
     { code: ARTICLE_CODE, outletCode: OUTLET_CODE, amount: THIRD_PRICE, currencyCode: outlet.currency },
     { source: "api", intent: "slab 3c-2 verification: reprice on a non-gated chain" }
   );
+  // Revoke the grant as soon as the call has run, so nothing after it sees the author with
+  // approve — the author is back to their seeded role's capabilities for the rest of the walk.
+  await withTransaction((tx) =>
+    tx.query(`delete from scope_grant where scope_key = $1`, [NON_GATED_GRANT_SCOPE_KEY])
+  );
+  fixture(`revoked the scratch scope grant '${NON_GATED_GRANT_SCOPE_KEY}'`);
   say("");
   say(`updateArticlePrice(${NEW_PRICE} -> ${THIRD_PRICE}) -> ${JSON.stringify(secondReprice)}`);
 
