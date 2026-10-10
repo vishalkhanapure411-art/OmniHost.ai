@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { Fragment, useMemo, useState, type ReactNode } from "react";
 
 import { ArrowDown, ArrowUp, ChevronDown } from "~/components/icons";
 import { useI18n } from "~/i18n";
@@ -50,6 +50,12 @@ export interface Column<Row> {
   headerTitle?: string;
   /** Where a column header would otherwise have to hold a translated label. */
   srOnlyHeader?: boolean;
+  /**
+   * Extra classes for this column's `<th>` and `<td>` alike — the sticky action column
+   * (`col-action`) needs both cells to move together, and a cell that is only styled on
+   * one of the two is the bug that rule exists to prevent.
+   */
+  className?: string;
 }
 
 export interface DataTableProps<Row> {
@@ -66,6 +72,15 @@ export interface DataTableProps<Row> {
   /** Rendered under the table: totals, a count, an overflow notice. */
   footer?: ReactNode;
   stickyHeader?: boolean;
+  /**
+   * The row that is currently expanded, if any. Expansion is the browse screen's answer
+   * to "show me this record's facts without losing my place in the list": the detail is
+   * appended under its own row, so the table keeps its scroll position, its sort and its
+   * filter, and the operator is never navigated away from the list they are working.
+   */
+  expandedId?: string;
+  /** The full-width band appended under the expanded row (`colSpan` is handled here). */
+  renderExpanded?: (row: Row) => ReactNode;
 }
 
 export function DataTable<Row>({
@@ -80,6 +95,8 @@ export function DataTable<Row>({
   empty,
   footer,
   stickyHeader = true,
+  expandedId,
+  renderExpanded,
 }: DataTableProps<Row>) {
   const { t } = useI18n();
   const [sortKey, setSortKey] = useState<string | null>(defaultSortKey ?? null);
@@ -129,7 +146,7 @@ export function DataTable<Row>({
                   title={column.headerTitle}
                   style={column.width ? { width: column.width } : undefined}
                   data-hide-below={column.hideBelow}
-                  className={column.numeric ? "numeric" : undefined}
+                  className={[column.numeric ? "numeric" : undefined, column.className].filter(Boolean).join(" ") || undefined}
                 >
                   {column.sortValue ? (
                     <button
@@ -155,10 +172,12 @@ export function DataTable<Row>({
           {sorted.map((row) => {
             const id = getRowId(row);
             const selected = selectedId === id;
+            const expanded = expandedId !== undefined && expandedId === id;
             return (
+              <Fragment key={id}>
               <tr
-                key={id}
                 data-selected={selected ? "true" : "false"}
+                data-expanded={expanded ? "true" : "false"}
                 data-clickable={onSelect ? "true" : "false"}
                 aria-selected={onSelect ? selected : undefined}
                 tabIndex={onSelect ? 0 : undefined}
@@ -181,11 +200,23 @@ export function DataTable<Row>({
                 }
               >
                 {columns.map((column) => (
-                  <td key={column.key} data-hide-below={column.hideBelow} className={column.numeric ? "numeric" : undefined}>
+                  <td
+                    key={column.key}
+                    data-hide-below={column.hideBelow}
+                    className={[column.numeric ? "numeric" : undefined, column.className].filter(Boolean).join(" ") || undefined}
+                  >
                     {column.render(row)}
                   </td>
                 ))}
               </tr>
+              {expanded && renderExpanded ? (
+                <tr data-expanded-band="true" className="bg-surface-muted">
+                  <td colSpan={columns.length} className="p-0">
+                    {renderExpanded(row)}
+                  </td>
+                </tr>
+              ) : null}
+              </Fragment>
             );
           })}
         </tbody>

@@ -125,6 +125,48 @@
   --z-dialog: 50;
 }
 
+/* ── 4b. Palette-neutral alias block — the TARGET token names ──────────────────
+   The palette chosen on 9 Oct 2026 (Option B, Graphite & Brass) is described in
+   `/home/team/shared/UX-OVERHAUL.md` under names this file did not use: `primary`,
+   `text`, `muted-text`, `subtle-text`, `chrome`, `control-border`. The promise the
+   palette table makes — "token names identical across the three, swap = one value
+   block" — only holds if the names exist first.
+
+   So this block lands FIRST and changes nothing visually: every name below points
+   at the token it replaces, so a screen built against the target names renders
+   exactly what it rendered before. Screens are then written against these names,
+   and the palette is a value block at the end of this file (section 2b) that sets
+   both spellings. Nothing here may carry a value; a value here is the rename being
+   done twice. */
+@theme {
+  --color-primary: var(--color-accent);
+  --color-primary-hover: var(--color-accent-hover);
+  --color-primary-fg: var(--color-accent-fg);
+  --color-primary-soft: var(--color-accent-soft);
+  --color-primary-border: var(--color-accent-border);
+
+  --color-text: var(--color-fg);
+  --color-muted-text: var(--color-fg-muted);
+  --color-subtle-text: var(--color-fg-subtle);
+
+  /* Inputs, selects, toggles and segmented controls: WCAG 1.4.11 wants 3:1 on a
+     control's outline, which a hairline `border` cannot give. It resolves to
+     `border-strong` until the palette block sets a measured value. */
+  --color-control-border: var(--color-border-strong);
+
+  /* The shell's chrome — sidebar and top bar. The shell consumes these in its own
+     slab (UX-OVERHAUL prioritised order #1); defining them here means that slab is
+     a class change, not a second rename. `--color-flag` is the second accent the
+     palette calls "accent" (brass in B): flags, the active-tab marker, the KPI rule.
+     It is a NON-TEXT token — it does not clear 4.5:1 on white, so it is only ever a
+     shape or a rule, never a label. */
+  --color-chrome: var(--color-surface);
+  --color-chrome-fg: var(--color-fg);
+  --color-chrome-muted: var(--color-fg-muted);
+  --color-chrome-active: var(--color-accent-soft);
+  --color-flag: var(--color-accent);
+}
+
 /* ── 5. Focus ring, density presets and geometry ────────────────────────────── */
 
 :root {
@@ -356,7 +398,7 @@
     min-height: var(--control-height);
     padding: var(--density-control-py) var(--density-control-px);
     border-radius: var(--radius-md);
-    border: 1px solid var(--color-border-strong);
+    border: 1px solid var(--color-control-border);
     background-color: var(--color-surface);
     color: var(--color-fg);
     font-size: var(--text-sm);
@@ -382,7 +424,7 @@
     width: 2rem;
     height: 1.125rem;
     border-radius: var(--radius-pill);
-    border: 1px solid var(--color-border-strong);
+    border: 1px solid var(--color-control-border);
     background-color: var(--color-surface-sunken);
     transition:
       background-color var(--motion-fast) var(--motion-ease),
@@ -416,7 +458,7 @@
     display: inline-flex;
     align-items: stretch;
     border-radius: var(--radius-md);
-    border: 1px solid var(--color-border-strong);
+    border: 1px solid var(--color-control-border);
     background-color: var(--color-surface);
     overflow: hidden;
   }
@@ -446,6 +488,120 @@
   }
   .segmented-item[aria-pressed="true"] {
     box-shadow: inset 0 -2px 0 0 var(--color-accent);
+  }
+
+  /* Tabs — the entity-level bar (src/components/tabs.tsx).
+     Height tracks the container's density the way `.data-table` rows do, so a compact
+     drawer's tabs and a roomy console's tabs are the same component. The active tab is
+     marked three ways — `aria-selected`, semibold, and a rule on the block end — because
+     colour alone is never a state. The rule is `--color-flag` (brass in palette B), which
+     is a NON-TEXT token: it is a 2px shape, never a label, so its sub-4.5:1 ratio on
+     white is not a text contrast failure. */
+  .tab-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    min-height: var(--control-height);
+    padding: var(--density-control-py) 0.75rem;
+    font-size: var(--text-sm);
+    font-weight: var(--font-weight-medium);
+    color: var(--color-muted-text);
+    background-color: transparent;
+    border: 0;
+    border-block-end: 2px solid transparent;
+    margin-block-end: -1px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition:
+      color var(--motion-fast) var(--motion-ease),
+      background-color var(--motion-fast) var(--motion-ease);
+  }
+  .tab-item:hover:not(:disabled) {
+    color: var(--color-text);
+    background-color: var(--color-surface-muted);
+  }
+  .tab-item-on {
+    color: var(--color-primary);
+    font-weight: var(--font-weight-semibold);
+    border-block-end-color: var(--color-flag);
+  }
+  .tab-item:disabled {
+    color: var(--color-subtle-text);
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+  .tab-badge {
+    border-radius: var(--radius-sm);
+    background-color: var(--color-surface-sunken);
+    padding: 0 0.25rem;
+    font-size: var(--text-2xs);
+    font-weight: var(--font-weight-semibold);
+    color: var(--color-muted-text);
+  }
+  .tab-item-on .tab-badge {
+    background-color: var(--color-primary-soft);
+    color: var(--color-primary);
+  }
+
+  /* Drawer — the transient side panel (src/components/drawer.tsx). It slides from the
+     inline end, so the same markup mirrors for RTL; `--drawer-shift` carries the
+     direction and is the only direction-sensitive value in the block. */
+  .drawer-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-dialog);
+    display: flex;
+    justify-content: flex-end;
+    background-color: var(--color-overlay);
+  }
+  [dir="rtl"] .drawer-scrim {
+    justify-content: flex-start;
+  }
+  .drawer-panel {
+    display: flex;
+    flex-direction: column;
+    max-width: 100%;
+    height: 100%;
+    background-color: var(--color-surface);
+    border-inline-start: 1px solid var(--color-border);
+    box-shadow: var(--shadow-dialog);
+    outline: none;
+    animation: drawer-in var(--motion-base) var(--motion-ease);
+  }
+  .drawer-panel-sm {
+    width: 22.5rem; /* 360px */
+  }
+  .drawer-panel-md {
+    width: 26.25rem; /* 420px */
+  }
+  .drawer-panel-lg {
+    width: 35rem; /* 560px */
+  }
+  .drawer-panel-danger {
+    border-block-start: 3px solid var(--color-danger);
+  }
+  @keyframes drawer-in {
+    from {
+      transform: translateX(1.25rem);
+      opacity: 0.6;
+    }
+    to {
+      transform: translateX(0);
+      opacity: 1;
+    }
+  }
+  [dir="rtl"] .drawer-panel {
+    animation-name: drawer-in-rtl;
+  }
+  @keyframes drawer-in-rtl {
+    from {
+      transform: translateX(-1.25rem);
+      opacity: 0.6;
+    }
+    to {
+      transform: translateX(0);
+      opacity: 1;
+    }
   }
 
   /* Dialogs. */
@@ -589,6 +745,22 @@
     [data-hide-below="80rem"] {
       display: none;
     }
+  }
+
+  /* A table's action column (a toggle, a row's one verb) is pinned to the inline end,
+     so a column drop never takes the control away with it — the operator's action
+     stays reachable whatever width the pane is. It carries its own background because
+     a sticky cell scrolls over the cells behind it. */
+  .data-table .col-action {
+    position: sticky;
+    inset-inline-end: 0;
+    background-color: var(--color-surface);
+  }
+  .data-table tbody tr:hover .col-action {
+    background-color: var(--color-surface-muted);
+  }
+  .data-table tbody tr[data-selected="true"] .col-action {
+    background-color: var(--color-accent-soft);
   }
 
   /* Numeric columns: right in LTR, left in RTL, decimal aligned either way. */

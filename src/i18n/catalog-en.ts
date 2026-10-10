@@ -230,6 +230,41 @@ export const enIN = {
   "chains.status.suspended": "Suspended",
   "chains.status.pending": "Pending",
   "chains.features.enabledOf": "{enabled} of {total}",
+  // ── Chains — the tabbed record (the exemplar, 10 Oct 2026) ───────────────────
+  // One screen per task, tabs per facet, every tab a URL. These are the words the
+  // tabbed IA introduces; where an existing string already said the same thing it is
+  // reused rather than re-spelled, because two words for one idea is a bug an operator
+  // has to decode.
+  "chains.tabs.aria": "Chain views",
+  "chains.tab.list": "Chains",
+  "chains.tab.onboard": "Onboard a chain",
+  "chains.tab.overview": "Overview",
+  "chains.tab.features": "Features",
+  "chains.tab.sites": "Sites & outlets",
+  "chains.tab.settings": "Settings",
+  "chains.tab.history": "History",
+  "chains.history.disabled": "Needs chain.audit.read",
+  "chains.settings.tabs.aria": "Configuration panes",
+  "chains.settings.tab.signin": "Sign-in",
+  "chains.settings.tab.settings": "Delegated settings",
+  "chains.settings.tab.locale": "Site language",
+  "chains.kpi.aria": "Estate at a glance",
+  "chains.kpi.chains": "Chains",
+  "chains.kpi.sites": "Sites",
+  "chains.kpi.featuresOn": "Features switched on",
+  "chains.expanded.licence": "Licence",
+  "chains.expanded.changeTier": "Change tier",
+  "chains.expanded.features": "Features",
+  "chains.expanded.recentChanges": "Recent changes",
+  "chains.expanded.openRecord": "Open full record",
+  "chains.list.expand": "Expand {chain}",
+  "chains.list.collapse": "Collapse {chain}",
+  "chains.history.title": "Activity for this chain",
+  "chains.history.note":
+    "Newest first, taken from the {limit} most recent audit entries this session may read.",
+  "chains.history.empty.title": "No activity for this chain yet",
+  "chains.history.empty.description":
+    "Changes and refusals appear here once this chain starts moving.",
   // The module a setting is filed under (`setting_definition.module`) — a code in the database,
   // a word to the operator reading the AppConfig settings table. Six values are seeded; the
   // screen's map is closed, so a seventh reads as its own code rather than borrowing a word.
@@ -578,6 +613,9 @@ export const enIN = {
   "audit.column.outcome": "Outcome",
   "audit.column.source": "Source",
   "audit.column.stateChange": "State change",
+  // The verb that opens one entry's diff beside the ledger (the row is not a link: a
+  // drawer keeps the operator's place in the table).
+  "audit.column.detail": "Detail",
   "audit.outcome.success": "Succeeded",
   "audit.outcome.denied": "Refused",
   "audit.outcome.error": "Failed",

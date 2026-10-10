@@ -1,0 +1,550 @@
+<!doctype html>
+<html lang="en" data-palette="a" data-screen="chains">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>OmniHost.ai — palette preview</title>
+<style>
+/* ============================================================================
+   OmniHost.ai — palette preview for the owner. Three colour options, each
+   rendered on two real screens. Structural tokens (type, spacing, density,
+   radii) are IDENTICAL in all three: only the colour layer changes, so the
+   owner is choosing a palette, not a layout.
+   ========================================================================== */
+
+/* ---------- Option A — Saffron & Stone (warm hospitality) ------------------ */
+[data-palette="a"] {
+  --canvas:#F6F2EC; --surface:#FFFFFF; --surface-muted:#F1EBE2; --surface-sunken:#E8E0D4;
+  --chrome:#241C18; --chrome-fg:#F3EDE6; --chrome-muted:#B9A99B; --chrome-active:#3A2C23;
+  --border:#E2D8C9; --border-strong:#C9B9A3; --control-border:#9C8B77;
+  --text:#2A211C; --muted:#6A5A4D; --subtle:#7C6C5E;
+  --primary:#A83C10; --primary-hover:#8C3109; --primary-fg:#FFFFFF; --primary-soft:#FBEAE0; --primary-border:#EFC7AE;
+  --success:#1B6E45; --success-soft:#E5F3EA; --success-border:#BFDFCC;
+  --warning:#8A5700; --warning-soft:#FCEFD6; --warning-border:#EBD3A2;
+  --danger:#A52419; --danger-soft:#FBE9E6; --danger-border:#EFC3BD;
+  --info:#1A6478; --info-soft:#E3F0F4; --info-border:#BCD9E1;
+  --accent:#C2410C; --shadow:0 1px 2px rgba(42,33,28,.07); --shadow-pop:0 10px 30px rgba(42,33,28,.16);
+}
+/* ---------- Option B — Graphite & Brass (cool enterprise) ------------------ */
+[data-palette="b"] {
+  --canvas:#F3F5F8; --surface:#FFFFFF; --surface-muted:#ECF0F4; --surface-sunken:#E1E7ED;
+  --chrome:#16222E; --chrome-fg:#EEF2F6; --chrome-muted:#A6B4C2; --chrome-active:#243543;
+  --border:#D6DEE6; --border-strong:#AFBDCA; --control-border:#8497A6;
+  --text:#15202A; --muted:#52606D; --subtle:#657280;
+  --primary:#1B4A72; --primary-hover:#143A5C; --primary-fg:#FFFFFF; --primary-soft:#E7EFF6; --primary-border:#BBD0E2;
+  --success:#15704E; --success-soft:#E4F3EC; --success-border:#B9DCCB;
+  --warning:#96610A; --warning-soft:#FBF0D9; --warning-border:#E8D2A0;
+  --danger:#A8241C; --danger-soft:#FAE9E7; --danger-border:#EDC2BE;
+  --info:#0F6E8C; --info-soft:#E2F1F6; --info-border:#B7D8E2;
+  --accent:#A9761B; --shadow:0 1px 2px rgba(21,32,42,.07); --shadow-pop:0 10px 30px rgba(21,32,42,.16);
+}
+/* ---------- Option C — Teal & Sand (rich and contemporary) ----------------- */
+[data-palette="c"] {
+  --canvas:#F5F3EE; --surface:#FFFFFF; --surface-muted:#EFEDE6; --surface-sunken:#E3E1D8;
+  --chrome:#0F2E2A; --chrome-fg:#EAF3F0; --chrome-muted:#9DB7B0; --chrome-active:#1B443D;
+  --border:#DCD9CE; --border-strong:#BAB6A8; --control-border:#94907F;
+  --text:#16211F; --muted:#4E5C58; --subtle:#68756F;
+  --primary:#0E6357; --primary-hover:#0A4F45; --primary-fg:#FFFFFF; --primary-soft:#E2F1EE; --primary-border:#AED6CE;
+  --success:#2F6F1E; --success-soft:#EBF3E3; --success-border:#C8DEB4;
+  --warning:#9A5B00; --warning-soft:#FCEEDA; --warning-border:#EAD0A4;
+  --danger:#B02A22; --danger-soft:#FBE9E6; --danger-border:#F0C3BC;
+  --info:#20558F; --info-soft:#E5EEF8; --info-border:#BBD0E8;
+  --accent:#C2410C; --shadow:0 1px 2px rgba(22,33,31,.07); --shadow-pop:0 10px 30px rgba(22,33,31,.18);
+}
+
+/* ---------- structure — identical for every palette ----------------------- */
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{
+  background:var(--canvas); color:var(--text);
+  font:13px/1.45 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  -webkit-font-smoothing:antialiased;
+}
+.num{font-variant-numeric:tabular-nums}
+.app{display:grid;grid-template-columns:228px 1fr;grid-template-rows:52px 1fr;height:100vh;overflow:hidden}
+.topbar{grid-column:1 / -1;display:flex;align-items:center;gap:14px;background:var(--chrome);color:var(--chrome-fg);padding:0 18px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:600;letter-spacing:.2px}
+.brand .mark{width:26px;height:26px;border-radius:7px;background:var(--primary);color:var(--primary-fg);
+  display:grid;place-items:center;font-size:12px;font-weight:700;letter-spacing:.4px}
+.brand small{display:block;font-weight:400;font-size:11px;color:var(--chrome-muted);letter-spacing:.3px}
+.crumb{color:var(--chrome-muted);font-size:12px;border-inline-start:1px solid rgba(255,255,255,.14);padding-inline-start:14px}
+.topbar .spacer{flex:1}
+.scope{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--chrome-fg);
+  background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.14);padding:5px 10px;border-radius:999px}
+.scope .dot{width:7px;height:7px;border-radius:50%;background:var(--success)}
+.user{display:flex;align-items:center;gap:9px;font-size:12px}
+.avatar{width:26px;height:26px;border-radius:50%;background:var(--primary);color:var(--primary-fg);display:grid;place-items:center;font-weight:600;font-size:11px}
+.user .who{line-height:1.15}
+.user .who small{display:block;color:var(--chrome-muted);font-size:11px}
+
+.sidebar{background:var(--chrome);color:var(--chrome-fg);padding:12px 10px;display:flex;flex-direction:column;gap:2px;overflow:auto}
+.side-group{font-size:10px;letter-spacing:.9px;text-transform:uppercase;color:var(--chrome-muted);padding:14px 10px 6px}
+.nav{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;font-size:13px;color:var(--chrome-fg);text-decoration:none}
+.nav:hover{background:rgba(255,255,255,.06)}
+.nav.active{background:var(--chrome-active);font-weight:600;box-shadow:inset 3px 0 0 var(--primary)}
+.nav .ic{width:14px;text-align:center;color:var(--chrome-muted)}
+.nav.active .ic{color:var(--primary)}
+.side-foot{margin-top:auto;border-top:1px solid rgba(255,255,255,.12);padding:12px 10px 2px;font-size:11px;color:var(--chrome-muted);line-height:1.5}
+
+.main{overflow:hidden;display:flex;flex-direction:column;background:var(--canvas)}
+.page{padding:16px 20px 0}
+.eyebrow{font-size:10.5px;letter-spacing:.9px;text-transform:uppercase;color:var(--subtle);font-weight:600}
+h1{margin:3px 0 4px;font-size:21px;line-height:1.2;letter-spacing:-.2px}
+.lede{margin:0;color:var(--muted);font-size:12.5px;max-width:74ch}
+.head-row{display:flex;align-items:flex-start;gap:16px}
+.head-row .grow{flex:1;min-width:0}
+.actions{display:flex;gap:8px;align-items:center}
+.btn{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 11px;border-radius:7px;
+  border:1px solid var(--border-strong);background:var(--surface);color:var(--text);font:inherit;font-size:12.5px;cursor:pointer}
+.btn:hover{background:var(--surface-muted)}
+.btn.primary{background:var(--primary);border-color:var(--primary);color:var(--primary-fg)}
+.btn.primary:hover{background:var(--primary-hover)}
+.btn.quiet{border-color:transparent;background:transparent;color:var(--muted)}
+.btn.sm{height:26px;padding:0 9px;font-size:12px}
+
+/* tabs — the owner's rule: sibling tasks are tabs, not a list beside an explainer */
+.tabs{display:flex;gap:2px;margin:14px 20px 0;border-bottom:1px solid var(--border);align-items:flex-end}
+.tab{appearance:none;background:none;border:0;border-bottom:2px solid transparent;padding:9px 13px 8px;
+  font:inherit;font-size:13px;color:var(--muted);cursor:pointer;display:flex;align-items:center;gap:8px;border-radius:7px 7px 0 0}
+.tab:hover{color:var(--text);background:var(--surface-muted)}
+.tab.on{color:var(--primary);border-bottom-color:var(--primary);font-weight:600;background:var(--surface)}
+.tab .count{background:var(--surface-sunken);color:var(--muted);border-radius:999px;padding:1px 7px;font-size:11px;font-weight:600}
+.tab.on .count{background:var(--primary-soft);color:var(--primary)}
+.tabs .push{flex:1}
+
+.body{padding:14px 20px 20px;overflow:auto;flex:1}
+.strip{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+.swatch{display:flex;flex-direction:column;gap:4px;align-items:flex-start}
+.chip{width:44px;height:22px;border-radius:6px;border:1px solid var(--border);box-shadow:var(--shadow)}
+.swatch span{font-size:9.5px;color:var(--subtle);letter-spacing:.3px}
+.pal-name{font-size:11px;color:var(--muted);margin-inline-start:6px;max-width:38ch;line-height:1.35}
+
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
+.kpi{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:11px 13px;box-shadow:var(--shadow);
+  border-top:3px solid var(--primary)}
+.kpi .k{font-size:10.5px;letter-spacing:.7px;text-transform:uppercase;color:var(--subtle);font-weight:600}
+.kpi .v{font-size:22px;font-weight:600;letter-spacing:-.3px;margin-top:2px}
+.kpi .d{font-size:11.5px;color:var(--muted);margin-top:1px}
+
+.card{background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:var(--shadow);overflow:hidden}
+.toolbar{display:flex;gap:8px;align-items:center;padding:9px 11px;border-bottom:1px solid var(--border);background:var(--surface-muted);flex-wrap:wrap}
+.search{display:flex;align-items:center;gap:7px;background:var(--surface);border:1px solid var(--control-border);
+  border-radius:7px;height:30px;padding:0 10px;min-width:250px;color:var(--subtle)}
+.search input{border:0;outline:0;background:transparent;font:inherit;color:var(--text);width:100%}
+select.ctl{height:30px;border:1px solid var(--control-border);border-radius:7px;background:var(--surface);color:var(--text);
+  font:inherit;font-size:12.5px;padding:0 8px}
+.toolbar .push{flex:1}
+.count{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+
+table{border-collapse:separate;border-spacing:0;width:100%;background:var(--surface)}
+thead th{position:sticky;top:0;background:var(--surface-muted);text-align:start;font-size:10.5px;letter-spacing:.6px;
+  text-transform:uppercase;color:var(--subtle);font-weight:600;padding:8px 11px;border-bottom:1px solid var(--border-strong);white-space:nowrap}
+tbody td{padding:9px 11px;border-bottom:1px solid var(--border);vertical-align:middle}
+tbody tr:hover{background:var(--surface-muted)}
+tbody tr.open{background:var(--primary-soft)}
+td.strong{font-weight:600;white-space:nowrap}
+td .sub{display:block;font-size:11.5px;color:var(--muted);margin-top:1px}
+td.r,th.r{text-align:end}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11.5px;color:var(--muted)}
+
+/* badges: tinted, bordered, and always carry a glyph or a word — never colour alone */
+.badge{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;padding:2px 8px;border-radius:999px;
+  border:1px solid;white-space:nowrap}
+.b-silver{color:var(--muted);background:var(--surface-sunken);border-color:var(--border-strong)}
+.b-gold{color:var(--warning);background:var(--warning-soft);border-color:var(--warning-border)}
+.b-plat{color:var(--info);background:var(--info-soft);border-color:var(--info-border)}
+.b-ok{color:var(--success);background:var(--success-soft);border-color:var(--success-border)}
+.b-warn{color:var(--warning);background:var(--warning-soft);border-color:var(--warning-border)}
+.b-bad{color:var(--danger);background:var(--danger-soft);border-color:var(--danger-border)}
+.b-info{color:var(--info);background:var(--info-soft);border-color:var(--info-border)}
+.b-pri{color:var(--primary);background:var(--primary-soft);border-color:var(--primary-border)}
+.glyph{font-weight:700}
+.pill-plain{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
+
+.meter{display:flex;align-items:center;gap:8px}
+.meter .bar{width:56px;height:6px;border-radius:999px;background:var(--surface-sunken);overflow:hidden;border:1px solid var(--border)}
+.meter .bar i{display:block;height:100%;background:var(--primary)}
+.meter .bar i.warn{background:var(--warning)}
+.meter .bar i.bad{background:var(--danger)}
+.meter span{font-variant-numeric:tabular-nums;font-size:12px;color:var(--muted)}
+
+/* expanded row = "see one record without leaving the page, without scrolling" */
+.expand td{background:var(--surface-muted);border-bottom:1px solid var(--border-strong);padding:0}
+.expand-inner{padding:12px 14px;display:grid;grid-template-columns:1.4fr 1.1fr;gap:18px}
+.facts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px 14px}
+.fact{min-width:0}
+.fact dt{font-size:10.5px;letter-spacing:.6px;text-transform:uppercase;color:var(--subtle);font-weight:600}
+.fact dd{margin:2px 0 0;font-size:13px}
+.panel{border:1px solid var(--border);border-radius:9px;background:var(--surface);overflow:hidden}
+.panel h3{margin:0;font-size:12px;letter-spacing:.5px;text-transform:uppercase;color:var(--subtle);font-weight:600;
+  padding:8px 11px;background:var(--surface-muted);border-bottom:1px solid var(--border)}
+.panel .rows{padding:4px 0}
+.prow{display:flex;align-items:center;gap:10px;padding:7px 11px;border-bottom:1px solid var(--border);font-size:12.5px}
+.prow:last-child{border-bottom:0}
+.prow .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.toggle{width:34px;height:19px;border-radius:999px;background:var(--control-border);position:relative;flex:none;border:0}
+.toggle.on{background:var(--primary)}
+.toggle i{position:absolute;inset-block-start:2px;inset-inline-start:2px;width:15px;height:15px;border-radius:50%;background:#fff;transition:none}
+.toggle.on i{inset-inline-start:17px}
+.toggle[disabled]{opacity:.55;cursor:not-allowed}
+.hintrow{display:flex;gap:8px;align-items:flex-start;padding:9px 11px;background:var(--info-soft);color:var(--info);
+  border-top:1px solid var(--info-border);font-size:12px}
+
+/* audit ledger */
+.ledger td.when{white-space:nowrap;font-variant-numeric:tabular-nums;color:var(--muted)}
+.who-cell{display:flex;align-items:center;gap:8px}
+.mini-av{width:22px;height:22px;border-radius:50%;background:var(--surface-sunken);color:var(--muted);display:grid;place-items:center;font-size:10px;font-weight:700;flex:none}
+.act{display:flex;align-items:center;gap:8px}
+.act .glyph{width:16px;height:16px;border-radius:5px;display:grid;place-items:center;font-size:10px;flex:none}
+.g-ok{background:var(--success-soft);color:var(--success);border:1px solid var(--success-border)}
+.g-bad{background:var(--danger-soft);color:var(--danger);border:1px solid var(--danger-border)}
+.g-warn{background:var(--warning-soft);color:var(--warning);border:1px solid var(--warning-border)}
+.g-info{background:var(--info-soft);color:var(--info);border:1px solid var(--info-border)}
+.scope-chip{display:inline-flex;flex-direction:column;line-height:1.25}
+.scope-chip b{font-weight:600}
+.scope-chip small{color:var(--muted);font-size:11px}
+.drawer{position:absolute;inset-block:52px 0;inset-inline-end:0;width:420px;background:var(--surface);
+  border-inline-start:1px solid var(--border-strong);box-shadow:var(--shadow-pop);display:flex;flex-direction:column;z-index:5}
+.drawer header{padding:13px 15px;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;gap:10px}
+.drawer header h2{margin:0;font-size:15px}
+.drawer header .x{margin-inline-start:auto;color:var(--muted);border:0;background:none;font-size:16px;cursor:pointer}
+.drawer .dbody{padding:13px 15px;overflow:auto;display:flex;flex-direction:column;gap:12px}
+.dl{display:grid;grid-template-columns:110px 1fr;gap:6px 10px;font-size:12.5px}
+.dl dt{color:var(--subtle);font-size:10.5px;letter-spacing:.6px;text-transform:uppercase;font-weight:600;padding-top:2px}
+.dl dd{margin:0}
+.diff{border:1px solid var(--border);border-radius:9px;overflow:hidden}
+.diff .h{font-size:11px;letter-spacing:.5px;text-transform:uppercase;color:var(--subtle);font-weight:600;padding:7px 10px;background:var(--surface-muted);border-bottom:1px solid var(--border)}
+.diff .cols{display:grid;grid-template-columns:1fr 1fr}
+.diff .col{padding:9px 10px}
+.diff .col:first-child{border-inline-end:1px solid var(--border)}
+.diff .col h4{margin:0 0 5px;font-size:10.5px;letter-spacing:.6px;text-transform:uppercase;color:var(--subtle)}
+.diff .col p{margin:0;font-size:12.5px}
+.old{color:var(--danger);text-decoration:line-through;text-decoration-thickness:1px}
+.new{color:var(--success);font-weight:600}
+.overlay{position:absolute;inset:52px 0 0 228px;background:rgba(20,20,20,.10);z-index:4}
+.chains-only,.main .audit-only{display:contents}
+[data-screen="chains"] .main .audit-only{display:none!important}
+[data-screen="audit"] .chains-only{display:none!important}
+[data-screen="chains"] .audit-part{display:none!important}
+</style>
+</head>
+<body>
+<div class="app" style="position:relative">
+  <div class="topbar">
+    <div class="brand"><span class="mark">OH</span><span>OmniHost.ai<small>Operations console</small></span></div>
+    <div class="crumb">Saffron Table Hospitality · Central</div>
+    <div class="spacer"></div>
+    <div class="scope"><span class="dot"></span>Asia/Kolkata · English (India)</div>
+    <div class="user"><span class="avatar">PR</span><span class="who">Priya Raman<small>AppAdmin · App layer</small></span></div>
+  </div>
+
+  <nav class="sidebar">
+    <div class="side-group">Operations</div>
+    <a class="nav" href="#"><span class="ic">◧</span>Approvals <span class="badge b-warn" style="margin-inline-start:auto">4</span></a>
+    <a class="nav" href="#"><span class="ic">◔</span>Audit trail</a>
+    <a class="nav" href="#"><span class="ic">▤</span>Master data</a>
+    <div class="side-group">Platform</div>
+    <a class="nav active" href="#"><span class="ic">▣</span>Chains</a>
+    <a class="nav" href="#"><span class="ic">✉</span>Support queue</a>
+    <a class="nav" href="#"><span class="ic">⚿</span>Support access</a>
+    <div class="side-foot">Signed in as AppAdmin.<br />Session ends 09 Oct, 11:09 am.</div>
+  </nav>
+
+  <div class="main">
+    <!-- ============ SCREEN 1 — CHAINS ==================================== -->
+    <div class="chains-only">
+      <div class="page">
+        <div class="head-row">
+          <div class="grow">
+            <div class="eyebrow">App layer · Licensing</div>
+            <h1>Chains</h1>
+            <p class="lede">Two chains in your scope. Licence tier is set per chain — every site in a chain runs the same tier.</p>
+          </div>
+        </div>
+      </div>
+      <div class="tabs">
+        <button class="tab on">Chains <span class="count">2</span></button>
+        <button class="tab">Onboard a chain</button>
+        <span class="push"></span>
+        <button class="btn sm quiet">Export list</button>
+      </div>
+      <div class="body">
+        <div class="strip">
+          <div class="swatch"><i class="chip" style="background:var(--canvas)"></i><span>canvas</span></div>
+          <div class="swatch"><i class="chip" style="background:var(--surface)"></i><span>surface</span></div>
+          <div class="swatch"><i class="chip" style="background:var(--chrome)"></i><span>chrome</span></div>
+          <div class="swatch"><i class="chip" style="background:var(--primary)"></i><span>primary</span></div>
+          <div class="swatch"><i class="chip" style="background:var(--success)"></i><span>success</span></div>
+          <div class="swatch"><i class="chip" style="background:var(--warning)"></i><span>warning</span></div>
+          <div class="swatch"><i class="chip" style="background:var(--danger)"></i><span>danger</span></div>
+          <div class="swatch"><i class="chip" style="background:var(--info)"></i><span>info</span></div>
+          <span class="pal-name" id="pal-name"></span>
+        </div>
+
+        <div class="kpis">
+          <div class="kpi"><div class="k">Chains in scope</div><div class="v num">2</div><div class="d">1 Platinum · 1 Gold</div></div>
+          <div class="kpi"><div class="k">Sites</div><div class="v num">3</div><div class="d">across 2 chains</div></div>
+          <div class="kpi"><div class="k">Outlets</div><div class="v num">7</div><div class="d">3 need a licence review</div></div>
+          <div class="kpi"><div class="k">Features switched on</div><div class="v num">4<span style="font-size:13px;color:var(--muted)"> / 18</span></div><div class="d">within entitlement</div></div>
+        </div>
+
+        <div class="card">
+          <div class="toolbar">
+            <label class="search">⌕<input value="" placeholder="Search chains, codes, jurisdictions" /></label>
+            <select class="ctl"><option>All tiers</option><option>Platinum</option><option>Gold</option><option>Silver</option></select>
+            <select class="ctl"><option>All statuses</option><option>Active</option><option>Suspended</option></select>
+            <span class="push"></span>
+            <span class="count num">2 of 2 chains</span>
+            <button class="btn sm">Columns</button>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Chain</th><th>Tier</th><th>Jurisdiction</th><th class="r">Sites</th>
+                <th>Features on</th><th>Status</th><th>Onboarded</th><th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="open">
+                <td class="strong">Coastal Catch Kitchens<span class="sub mono">coastal-catch</span></td>
+                <td><span class="badge b-plat"><span class="glyph">◆</span>Platinum</span></td>
+                <td>IN-MH<span class="sub">Maharashtra</span></td>
+                <td class="r num">1</td>
+                <td><span class="meter"><span class="bar"><i style="width:72%"></i></span><span class="num">13 / 18</span></span></td>
+                <td><span class="badge b-ok"><span class="glyph">✓</span>Active</span></td>
+                <td class="num">21 Sep 2026</td>
+                <td class="r"><button class="btn sm quiet">⋯</button></td>
+              </tr>
+              <tr class="expand">
+                <td colspan="8">
+                  <div class="expand-inner">
+                    <div>
+                      <dl class="facts">
+                        <div class="fact"><dt>Tier</dt><dd><span class="badge b-plat"><span class="glyph">◆</span>Platinum</span></dd></div>
+                        <div class="fact"><dt>Change tier</dt><dd><button class="btn sm">Change tier</button></dd></div>
+                        <div class="fact"><dt>Currency</dt><dd>INR · ₹</dd></div>
+                        <div class="fact"><dt>Jurisdiction</dt><dd>IN-MH · GST 18%</dd></div>
+                        <div class="fact"><dt>Contract</dt><dd class="num">21 Sep 2026 → 20 Sep 2027</dd></div>
+                        <div class="fact"><dt>Billing</dt><dd>Per outlet · ₹13,750</dd></div>
+                      </dl>
+                      <div class="panel" style="margin-top:12px">
+                        <h3>Recent changes to this chain</h3>
+                        <div class="rows">
+                          <div class="prow"><span class="nm">Licence tier Gold → Platinum</span><span class="badge b-ok"><span class="glyph">✓</span>07 Oct</span><span style="color:var(--muted);font-size:12px">Priya Raman</span></div>
+                          <div class="prow"><span class="nm">Customer display switched on</span><span class="badge b-ok"><span class="glyph">✓</span>02 Oct</span><span style="color:var(--muted);font-size:12px">Arun Nair</span></div>
+                          <div class="prow"><span class="nm">KDS routing switched off</span><span class="badge b-warn"><span class="glyph">!</span>29 Sep</span><span style="color:var(--muted);font-size:12px">Arun Nair</span></div>
+                        </div>
+                      </div>
+                      <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+                        <button class="btn primary sm">Open full record</button>
+                        <button class="btn sm">Feature toggles</button>
+                        <button class="btn sm">Sites &amp; outlets</button>
+                        <button class="btn sm">History</button>
+                      </div>
+                    </div>
+                    <div class="panel">
+                      <h3>Features — 13 of 18 switched on</h3>
+                      <div class="rows">
+                        <div class="prow"><span class="nm">Executive dashboards</span><span class="badge b-plat"><span class="glyph">◆</span>Platinum</span><button class="toggle on"><i></i></button></div>
+                        <div class="prow"><span class="nm">Cross-site dashboards</span><span class="badge b-gold"><span class="glyph">◆</span>Gold</span><button class="toggle on"><i></i></button></div>
+                        <div class="prow"><span class="nm">Native sign-in</span><span class="badge b-silver"><span class="glyph">◆</span>Silver</span><button class="toggle on" disabled><i></i></button></div>
+                        <div class="prow"><span class="nm">Single sign-on (SAML/OIDC)</span><span class="badge b-gold"><span class="glyph">◆</span>Gold</span><button class="toggle on"><i></i></button></div>
+                      </div>
+                      <div class="hintrow"><span class="glyph">i</span><span>Anything left at registry default. A feature above the chain's tier cannot be switched on, and a tier change never switches one on for you.</span></div>
+                    </div>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td class="strong">Saffron Table Hospitality<span class="sub mono">saffron-table</span></td>
+                <td><span class="badge b-gold"><span class="glyph">◆</span>Gold</span></td>
+                <td>IN-KA<span class="sub">Karnataka</span></td>
+                <td class="r num">2</td>
+                <td><span class="meter"><span class="bar"><i class="warn" style="width:44%"></i></span><span class="num">8 / 18</span></span></td>
+                <td><span class="badge b-ok"><span class="glyph">✓</span>Active</span></td>
+                <td class="num">14 Aug 2026</td>
+                <td class="r"><button class="btn sm quiet">⋯</button></td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="hintrow" style="background:var(--surface-muted);color:var(--muted);border-color:var(--border)">
+            <span class="glyph">⤢</span><span>Selecting a chain expands its record inline — the full record keeps its own tabs, so a tier change never sends you hunting through the list again.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ SCREEN 2 — AUDIT TRAIL ============================== -->
+    <div class="audit-only">
+      <div class="page">
+        <div class="head-row">
+          <div class="grow">
+            <div class="eyebrow">Controls · Transparency</div>
+            <h1>Audit trail</h1>
+            <p class="lede">Who did what, where, and what the state was before and after. Refusals are recorded as refusals — no row means the action never ran.</p>
+          </div>
+          <div class="actions"><button class="btn">Export CSV</button><button class="btn">Refresh</button></div>
+        </div>
+      </div>
+      <div class="tabs">
+        <button class="tab on">All activity <span class="count">128</span></button>
+        <button class="tab">Mutations</button>
+        <button class="tab">Refusals <span class="count">9</span></button>
+        <button class="tab">Sign-in</button>
+        <span class="push"></span>
+        <span class="pill-plain">Showing 25 Oct 2026, 07:00 → now</span>
+      </div>
+      <div class="body">
+        <div class="strip">
+          <div class="swatch"><i class="chip" style="background:var(--canvas)"></i><span>canvas</span></div>
+          <div class="swatch"><i class="chip" style="background:var(--surface)"></i><span>surface</span></div>
+          <div class="swatch"><i class="chip" style="background:var(--chrome)"></i><span>chrome</span></div>
+          <div class="swatch"><i class="chip" style="background:var(--primary)"></i><span>primary</span></div>
+          <div class="swatch"><i class="chip" style="background:var(--success)"></i><span>success</span></div>
+          <div class="swatch"><i class="chip" style="background:var(--warning)"></i><span>warning</span></div>
+          <div class="swatch"><i class="chip" style="background:var(--danger)"></i><span>danger</span></div>
+          <div class="swatch"><i class="chip" style="background:var(--info)"></i><span>info</span></div>
+          <span class="pal-name" id="pal-name2"></span>
+        </div>
+        <div class="card">
+          <div class="toolbar">
+            <label class="search">⌕<input placeholder="Person, record or reference" /></label>
+            <select class="ctl"><option>All actions</option><option>Licence changes</option><option>Approvals</option><option>Settings</option></select>
+            <select class="ctl"><option>All chains</option><option>Saffron Table</option><option>Coastal Catch</option></select>
+            <select class="ctl"><option>Today</option><option>Last 7 days</option><option>Custom</option></select>
+            <span class="push"></span>
+            <span class="count num">128 rows</span>
+          </div>
+          <table class="ledger">
+            <thead>
+              <tr><th>When</th><th>Who</th><th>What happened</th><th>Record</th><th>Chain · site</th><th>Result</th><th>Source</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="when">09:42:18</td>
+                <td><span class="who-cell"><span class="mini-av">PR</span>Priya Raman</span></td>
+                <td><span class="act"><span class="glyph g-ok">✓</span>Licence tier changed to Platinum</span></td>
+                <td>Coastal Catch Kitchens</td>
+                <td><span class="scope-chip"><b>Coastal Catch</b><small>central</small></span></td>
+                <td><span class="badge b-ok"><span class="glyph">✓</span>Succeeded</span></td>
+                <td>Console</td>
+              </tr>
+              <tr>
+                <td class="when">09:38:02</td>
+                <td><span class="who-cell"><span class="mini-av">AN</span>Arun Nair</span></td>
+                <td><span class="act"><span class="glyph g-warn">!</span>Feature switched off: cross-site dashboards</span></td>
+                <td>Saffron Table Hospitality</td>
+                <td><span class="scope-chip"><b>Saffron Table</b><small>central</small></span></td>
+                <td><span class="badge b-ok"><span class="glyph">✓</span>Succeeded</span></td>
+                <td>Chat</td>
+              </tr>
+              <tr>
+                <td class="when">09:31:44</td>
+                <td><span class="who-cell"><span class="mini-av">SM</span>Suresh Nair</span></td>
+                <td><span class="act"><span class="glyph g-bad">×</span>Approval refused — you raised this version</span></td>
+                <td>Article version 12 · Hara Bhara Kebab</td>
+                <td><span class="scope-chip"><b>Saffron Table</b><small>Koramangala</small></span></td>
+                <td><span class="badge b-bad"><span class="glyph">×</span>Refused</span></td>
+                <td>Console</td>
+              </tr>
+              <tr>
+                <td class="when">09:22:10</td>
+                <td><span class="who-cell"><span class="mini-av">KM</span>Kavita Menon</span></td>
+                <td><span class="act"><span class="glyph g-info">→</span>Article version submitted for review</span></td>
+                <td>Article version 13 · Malabar Parotta</td>
+                <td><span class="scope-chip"><b>Saffron Table</b><small>central</small></span></td>
+                <td><span class="badge b-info"><span class="glyph">→</span>Pending</span></td>
+                <td>Console</td>
+              </tr>
+              <tr>
+                <td class="when">09:05:57</td>
+                <td><span class="who-cell"><span class="mini-av">PR</span>Priya Raman</span></td>
+                <td><span class="act"><span class="glyph g-warn">!</span>GST rate override set for Maharashtra sites</span></td>
+                <td>State rate IN-MH · 18%</td>
+                <td><span class="scope-chip"><b>Coastal Catch</b><small>central</small></span></td>
+                <td><span class="badge b-warn"><span class="glyph">!</span>Needs co-sign</span></td>
+                <td>Console</td>
+              </tr>
+              <tr>
+                <td class="when">08:58:31</td>
+                <td><span class="who-cell"><span class="mini-av">RN</span>Ravi Nair</span></td>
+                <td><span class="act"><span class="glyph g-ok">✓</span>Signed in</span></td>
+                <td>—</td>
+                <td><span class="scope-chip"><b>Platform</b><small>—</small></span></td>
+                <td><span class="badge b-ok"><span class="glyph">✓</span>Succeeded</span></td>
+                <td>Console</td>
+              </tr>
+              <tr>
+                <td class="when">08:44:12</td>
+                <td><span class="who-cell"><span class="mini-av">MB</span>Meera Bhat</span></td>
+                <td><span class="act"><span class="glyph g-bad">×</span>Purchase order approval refused — above your threshold</span></td>
+                <td>PO-2026-0448 · ₹6,40,000</td>
+                <td><span class="scope-chip"><b>Saffron Table</b><small>Koramangala</small></span></td>
+                <td><span class="badge b-bad"><span class="glyph">×</span>Refused</span></td>
+                <td>Chat</td>
+              </tr>
+              <tr>
+                <td class="when">08:30:00</td>
+                <td><span class="who-cell"><span class="mini-av">sys</span>OmniHost scheduler</span></td>
+                <td><span class="act"><span class="glyph g-info">→</span>Nightly master-data export finished</span></td>
+                <td>Export · 1,284 rows</td>
+                <td><span class="scope-chip"><b>Saffron Table</b><small>central</small></span></td>
+                <td><span class="badge b-ok"><span class="glyph">✓</span>Succeeded</span></td>
+                <td>System</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- audit drawer: the detail of a selected row, inside the same page -->
+  <div class="overlay audit-part" id="ov"></div>
+  <aside class="drawer audit-part">
+    <header>
+      <div>
+        <h2>Licence tier changed to Platinum</h2>
+        <span class="pill-plain">Coastal Catch Kitchens · 09:42:18 · Console</span>
+      </div>
+      <button class="x">×</button>
+    </header>
+    <div class="dbody">
+      <dl class="dl">
+        <dt>Who</dt><dd>Priya Raman — AppAdmin (App layer)</dd>
+        <dt>Scope</dt><dd>Chain · Coastal Catch Kitchens</dd>
+        <dt>Capability</dt><dd>chain.licence.update</dd>
+        <dt>Result</dt><dd><span class="badge b-ok"><span class="glyph">✓</span>Succeeded</span></dd>
+        <dt>Reference</dt><dd class="mono">AUD-2026-10-08-094218-4c1f</dd>
+      </dl>
+      <div class="diff">
+        <div class="h">Before / after</div>
+        <div class="cols">
+          <div class="col"><h4>Before</h4><p class="old">Gold</p></div>
+          <div class="col"><h4>After</h4><p class="new">Platinum</p></div>
+        </div>
+      </div>
+      <p style="margin:0;color:var(--muted);font-size:12px">The tier change itself wrote no feature row: a chain never gains a capability it did not switch on.</p>
+    </div>
+  </aside>
+</div>
+<script>
+  const q = new URLSearchParams(location.search);
+  const p = (q.get("p") || "a").toLowerCase();
+  const screen = (q.get("screen") || "chains").toLowerCase();
+  document.documentElement.dataset.palette = ["a","b","c"].includes(p) ? p : "a";
+  document.documentElement.dataset.screen = screen === "audit" ? "audit" : "chains";
+  const names = { a: "Option A — Saffron & Stone · warm stone canvas, terracotta primary, espresso chrome",
+                  b: "Option B — Graphite & Brass · slate canvas, navy primary, brass accent",
+                  c: "Option C — Teal & Sand · sand canvas, deep teal primary, coral flags" };
+  const html = names[document.documentElement.dataset.palette];
+  const n1 = document.getElementById("pal-name"); if (n1) n1.textContent = html;
+  const n2 = document.getElementById("pal-name2"); if (n2) n2.textContent = html;
+  if (screen === "audit") {
+    // the ledger's selected row, kept to one row so the drawer reads as a consequence of it
+    document.querySelector(".ledger tbody tr").style.background = "var(--primary-soft)";
+    document.querySelector(".ledger tbody tr").style.boxShadow = "inset 3px 0 0 var(--primary)";
+  }
+</script>
+</body>
+</html>

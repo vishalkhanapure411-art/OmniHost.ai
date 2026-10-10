@@ -1,118 +1,120 @@
-import { createFileRoute, useRouter } from "@tanstack/react-router";
-import { useState } from "react";
+import { createFileRoute, Outlet, useRouter } from "@tanstack/react-router";
 
-import { ChainList } from "~/components/ChainList";
-import { ListToolbar, MasterDetail } from "~/components/MasterDetail";
-import { Button, Card, CardHeader, ConfirmSummary, DescriptionList, Dialog, EmptyState, ErrorState, Note, PageHeader, TableSkeleton, Toggle } from "~/components/ui";
-import { CategoryBadge, ChainStatusBadge, TierBadge } from "~/components/status";
-import { TimestampValue } from "~/components/values";
+import { ChainStatusBadge, TierBadge } from "~/components/status";
+import { Tabs, type TabItem } from "~/components/tabs";
+import { Button, Card, ErrorState, PageHeader, TableSkeleton } from "~/components/ui";
 import { useI18n } from "~/i18n";
-import { currencyForJurisdiction } from "~/i18n/locales";
-import { tierLabel } from "~/i18n/labels";
-import type { LicenceTier } from "~/domain/chains";
-import { getChainFn, listChainsFn, setChainFeatureFn, updateChainTierFn } from "~/server-fns";
+import { getChainFn } from "~/server-fns";
 
 /**
- * Chain detail — the licence tier and the per-chain feature toggles.
+ * The chain record — a **layout**, not a screen.
  *
- * Every mutation on this screen goes through the same permission-checked, audit-logged
- * domain function the HTTP API and (later) the chatbot call, and the screen re-reads the
- * chain from the database after each write, so what is on screen is the stored state
- * rather than an optimistic guess. A failed write leaves the toggle where the server
- * says it is and explains why.
+ * The page it replaces was a master-detail split: the same list down the left third, the
+ * record in the remainder, and everything about the chain stacked in one column that
+ * needed three page-heights at 1280 to read. That is the shape the owner rejected (8 Oct:
+ * one task per page, tabs per entity, "no scrolling to assemble one record's facts").
  *
- * Tier changes are confirm-before-commit: a tier gates module depth across every site in
- * the chain, and switching it down silently disables features. The dialog names the
- * consequence and the number of sites affected before anything is written.
+ * So this route now owns exactly three things — the record's identity, the tab bar, and
+ * the outlet — and each tab is a child route with its own URL:
  *
- * Missing permissions are shown as read-only with the reason, never by hiding the
- * control — an operator needs to know the capability exists and is not theirs.
+ *   /chains/$chainId            Overview
+ *   /chains/$chainId/features   Features
+ *   /chains/$chainId/sites      Sites & outlets
+ *   /chains/$chainId/settings   Settings
+ *   /chains/$chainId/history    History
+ *
+ * The identity strip is deliberately thin: name, code, tier, status and the way back. The
+ * verbs that act on the chain (change tier, toggle a feature) live in the tab that owns
+ * them, so the header makes no promise the panel does not keep.
+ *
+ * The list is gone from here on purpose. A record does not need to repeat the list it came
+ * from — the browser's back button, the tab bar and the sidebar all lead back to it, and
+ * repeating it cost a third of the width on every one of the five tabs.
  */
 export const Route = createFileRoute("/_shell/chains/$chainId")({
   staticData: { titleKey: "chains.detail.titleFallback" },
-  loader: async ({ params }) => {
-    const [chains, detail] = await Promise.all([
-      listChainsFn(),
-      getChainFn({ data: { chainId: params.chainId } }),
-    ]);
-    return { chains, detail };
-  },
-  pendingComponent: ChainDetailPending,
-  component: ChainDetailScreen,
+  loader: async ({ params }) => ({ detail: await getChainFn({ data: { chainId: params.chainId } }) }),
+  pendingComponent: ChainRecordPending,
+  component: ChainRecordLayout,
 });
 
-function ChainDetailPending() {
+function ChainRecordPending() {
   const { t } = useI18n();
   return (
-    <MasterDetail
-      masterLabel={t("a11y.masterPane")}
-      master={<TableSkeleton rows={8} columns={4} label={t("state.loading.title")} />}
-      detail={
-        <div className="flex flex-col gap-4 p-4">
-          <TableSkeleton rows={3} columns={3} label={t("state.loading.title")} />
-          <TableSkeleton rows={6} columns={4} label={t("state.loading.title")} />
-        </div>
-      }
-    />
+    <div className="flex flex-col gap-3 p-4">
+      <TableSkeleton rows={4} columns={3} label={t("state.loading.title")} />
+    </div>
   );
 }
 
-function ChainDetailScreen() {
-  const { chains, detail } = Route.useLoaderData();
-  const { principal } = Route.useRouteContext();
-  const { t, format } = useI18n();
+function ChainRecordLayout() {
+  const { detail } = Route.useLoaderData();
   const router = useRouter();
-  const [error, setError] = useState<string | null>(null);
-  const [pendingTier, setPendingTier] = useState<LicenceTier | null>(null);
-  const [busy, setBusy] = useState(false);
+  const { t } = useI18n();
+  const { principal } = Route.useRouteContext();
 
-  const chainList = chains.ok ? chains.chains : [];
-  const canUpdateTier = principal.permissions.includes("chain.tier.update");
-  const canToggleFeature = principal.permissions.includes("chain.feature.update");
+  const pathname = router.state.location.pathname.replace(/\/+$/, "");
+  const canReadAudit = principal.permissions.includes("chain.audit.read");
 
-  async function changeTier(next: LicenceTier) {
-    if (!detail.ok) return;
-    setBusy(true);
-    setError(null);
-    const response = await updateChainTierFn({ data: { chainId: detail.chain.id, licenceTier: next } });
-    setBusy(false);
-    setPendingTier(null);
-    if (!response.ok) {
-      setError(response.message);
-      return;
-    }
-    await router.invalidate();
+  const items: TabItem[] = [
+    { value: "overview", label: "chains.tab.overview" },
+    { value: "features", label: "chains.tab.features" },
+    { value: "sites", label: "chains.tab.sites" },
+    { value: "settings", label: "chains.tab.settings" },
+    {
+      value: "history",
+      label: "chains.tab.history",
+      disabled: !canReadAudit,
+      disabledReason: "chains.history.disabled",
+    },
+  ];
+
+  const active = ["features", "sites", "settings", "history"].find((tab) => pathname.endsWith(`/${tab}`)) ?? "overview";
+
+  if (!detail.ok) {
+    return (
+      <>
+        <PageHeader eyebrow={t("chains.detail.eyebrow")} title={t("chains.detail.titleFallback")} />
+        <div className="p-4">
+          <Card>
+            <ErrorState
+              title={t("chains.detail.notFound.title")}
+              description={t("chains.detail.notFound.description")}
+              detail={detail.message}
+              action={
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    void router.navigate({ to: "/chains" });
+                  }}
+                >
+                  {t("action.back")}
+                </Button>
+              }
+            />
+          </Card>
+        </div>
+      </>
+    );
   }
 
-  async function toggleFeature(featureCode: string, enabled: boolean) {
-    if (!detail.ok) return;
-    setError(null);
-    const response = await setChainFeatureFn({ data: { chainId: detail.chain.id, featureCode, enabled } });
-    if (!response.ok) {
-      setError(response.message);
-      return;
-    }
-    await router.invalidate();
-  }
-
-  const currency = detail.ok ? currencyForJurisdiction(detail.chain.taxJurisdiction) : null;
+  const chain = detail.chain;
 
   return (
-    <>
-      <PageHeader
-        eyebrow={t("chains.detail.eyebrow")}
-        title={detail.ok ? detail.chain.name : t("chains.detail.titleFallback")}
-        description={detail.ok ? t("chains.detail.description") : undefined}
-        meta={
-          detail.ok ? (
-            <>
-              <code className="font-mono text-2xs text-fg-subtle">{detail.chain.code}</code>
-              <TierBadge tier={detail.chain.licenceTier} />
-              <ChainStatusBadge status={detail.chain.status} />
-            </>
-          ) : undefined
-        }
-        actions={
+    <div className="flex h-full flex-col">
+      <header className="flex flex-wrap items-end justify-between gap-3 border-b border-border bg-surface px-5 py-3.5">
+        <div className="min-w-0">
+          <p className="text-2xs font-semibold tracking-wider text-subtle-text uppercase">
+            {t("chains.detail.eyebrow")}
+          </p>
+          <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+            <h1 className="text-xl font-semibold text-text">{chain.name}</h1>
+            <code className="font-mono text-2xs text-subtle-text">{chain.code}</code>
+            <TierBadge tier={chain.licenceTier} />
+            <ChainStatusBadge status={chain.status} />
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
           <Button
             variant="secondary"
             onClick={() => {
@@ -121,303 +123,38 @@ function ChainDetailScreen() {
           >
             {t("action.back")}
           </Button>
-        }
-      />
+        </div>
+      </header>
 
-      <MasterDetail
-        masterLabel={t("a11y.masterPane")}
-        master={
-          <>
-            <ListToolbar meta={format.integer(chainList.length)} />
-            {chains.ok ? (
-              <ChainList
-                chains={chainList}
-                selectedChainId={detail.ok ? detail.chain.id : undefined}
-                onSelect={(chain) => {
-                  void router.navigate({ to: "/chains/$chainId", params: { chainId: chain.id } });
-                }}
-              />
-            ) : (
-              <ErrorState title={t("error.title")} detail={chains.message} />
-            )}
-          </>
-        }
-        detail={
-          detail.ok ? (
-            <div className="flex flex-col gap-4 p-4">
-              {error ? (
-                <Note tone="danger" title={t("error.title")}>
-                  {error}
-                </Note>
-              ) : null}
-
-              <Card>
-                <CardHeader title={t("chains.detail.tier.title")} subtitle={t("chains.detail.tier.subtitle")} />
-                <div className="flex flex-col gap-3 p-4">
-                  <DescriptionList
-                    columns={3}
-                    items={[
-                      { label: t("chains.column.tier"), value: <TierBadge tier={detail.chain.licenceTier} /> },
-                      {
-                        label: t("chains.column.jurisdiction"),
-                        value: (
-                          <span className="font-mono text-xs">{detail.chain.taxJurisdiction ?? t("common.none")}</span>
-                        ),
-                      },
-                      {
-                        label: t("shell.chain.label"),
-                        value: (
-                          <span className="text-xs">
-                            {t("common.currency.label")} <code className="font-mono">{currency ?? t("common.none")}</code>
-                          </span>
-                        ),
-                      },
-                      { label: t("chains.column.status"), value: <ChainStatusBadge status={detail.chain.status} /> },
-                      {
-                        label: t("chains.column.onboarded"),
-                        value: <TimestampValue value={detail.chain.onboardedAt} mode="dateTime" />,
-                      },
-                      { label: t("chains.column.sites"), value: format.integer(detail.chain.siteCount) },
-                    ]}
-                  />
-
-                  <div className="flex flex-wrap items-center gap-2">
-                    {(["silver", "gold", "platinum"] as LicenceTier[]).map((tier) => (
-                      <Button
-                        key={tier}
-                        size="sm"
-                        variant={tier === detail.chain.licenceTier ? "primary" : "secondary"}
-                        disabled={!canUpdateTier || tier === detail.chain.licenceTier}
-                        onClick={() => {
-                          setPendingTier(tier);
-                        }}
-                      >
-                        {tierLabel(t, tier)}
-                      </Button>
-                    ))}
-                    {!canUpdateTier ? (
-                      <Note tone="warn" compact>
-                        {t("error.forbidden.needs", { permission: "chain.tier.update" })}
-                      </Note>
-                    ) : null}
-                  </div>
-                </div>
-              </Card>
-
-              <Card>
-                <CardHeader
-                  title={t("chains.detail.features.title")}
-                  subtitle={
-                    detail.chain.featureCount === 1
-                      ? t("chains.detail.features.subtitle.one", { enabled: detail.chain.enabledFeatureCount })
-                      : t("chains.detail.features.subtitle.other", {
-                          enabled: detail.chain.enabledFeatureCount,
-                          total: detail.chain.featureCount,
-                        })
-                  }
-                />
-                {detail.chain.features.length === 0 ? (
-                  <EmptyState title={t("state.empty.title")} description={t("state.empty.description")} />
-                ) : (
-                  <table className="data-table">
-                    <caption className="sr-only">{t("chains.detail.features.title")}</caption>
-                    <thead>
-                      <tr>
-                        <th scope="col">{t("chains.detail.features.column.feature")}</th>
-                        <th scope="col">{t("chains.detail.features.column.module")}</th>
-                        <th scope="col">{t("chains.detail.features.column.minTier")}</th>
-                        <th scope="col">{t("chains.detail.features.column.lastChange")}</th>
-                        <th scope="col" className="numeric">
-                          {t("chains.detail.features.column.enabled")}
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {detail.chain.features.map((feature) => (
-                        <tr key={feature.code}>
-                          <td>
-                            <span className="block text-fg">{feature.name}</span>
-                            <code className="block font-mono text-2xs text-fg-subtle">{feature.code}</code>
-                            {feature.description ? (
-                              <span className="mt-0.5 block max-w-prose text-2xs text-fg-muted">
-                                {feature.description}
-                              </span>
-                            ) : null}
-                          </td>
-                          <td>
-                            <CategoryBadge category={feature.module} />
-                          </td>
-                          <td>
-                            <TierBadge
-                              tier={feature.minTier}
-                              title={
-                                feature.blockedByTier
-                                  ? t("chains.detail.features.blocked", {
-                                      tier: tierLabel(t, feature.minTier),
-                                      current: tierLabel(t, detail.chain.licenceTier),
-                                    })
-                                  : t("chains.detail.features.availableFrom", {
-                                      tier: tierLabel(t, feature.minTier),
-                                    })
-                              }
-                            />
-                          </td>
-                          <td>
-                            <TimestampValue value={feature.updatedAt} mode="dateTime" className="text-fg-muted" />
-                          </td>
-                          <td className="numeric">
-                            <span className="flex items-center justify-end gap-2">
-                              <Toggle
-                                label={t("chains.detail.features.toggleLabel", { feature: feature.name })}
-                                checked={feature.enabled}
-                                disabled={!canToggleFeature || !feature.toggleable || feature.blockedByTier}
-                                onChange={(next) => {
-                                  void toggleFeature(feature.code, next);
-                                }}
-                              />
-                              {!feature.toggleable ? (
-                                <span className="text-2xs text-fg-subtle">
-                                  {t("chains.detail.features.alwaysOn")}
-                                </span>
-                              ) : null}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </Card>
-
-              <Card>
-                <CardHeader title={t("chains.detail.sites.title")} subtitle={t("chains.detail.sites.subtitle")} />
-                {detail.chain.sites.length === 0 ? (
-                  <EmptyState
-                    title={t("chains.detail.sites.empty.title")}
-                    description={t("chains.detail.sites.empty.description")}
-                  />
-                ) : (
-                  <table className="data-table">
-                    <caption className="sr-only">{t("chains.detail.sites.title")}</caption>
-                    <thead>
-                      <tr>
-                        <th scope="col">{t("chains.detail.sites.column.site")}</th>
-                        <th scope="col">{t("chains.detail.sites.column.timezone")}</th>
-                        <th scope="col">{t("chains.detail.sites.column.outlets")}</th>
-                        <th scope="col">{t("chains.detail.sites.column.status")}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {detail.chain.sites.map((site) => (
-                        <tr key={site.id}>
-                          <td>
-                            <span className="block text-fg">{site.name}</span>
-                            <code className="block font-mono text-2xs text-fg-subtle">{site.code}</code>
-                          </td>
-                          <td>
-                            <code className="font-mono text-xs text-fg-muted">{site.timezone}</code>
-                          </td>
-                          <td>
-                            <ul className="flex flex-col gap-0.5">
-                              {site.outlets.map((outlet) => (
-                                <li key={outlet.id} className="text-xs text-fg-muted">
-                                  {outlet.name}{" "}
-                                  <span className="font-mono text-2xs text-fg-subtle">{outlet.kind}</span>
-                                </li>
-                              ))}
-                            </ul>
-                          </td>
-                          <td>
-                            <ChainStatusBadge status={site.status} />
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </Card>
-            </div>
-          ) : (
-            <div className="p-4">
-              <Card>
-                <ErrorState
-                  title={t("chains.detail.notFound.title")}
-                  description={t("chains.detail.notFound.description")}
-                  detail={detail.message}
-                  action={
-                    <Button
-                      variant="secondary"
-                      onClick={() => {
-                        void router.navigate({ to: "/chains" });
-                      }}
-                    >
-                      {t("action.back")}
-                    </Button>
-                  }
-                />
-              </Card>
-            </div>
-          )
-        }
-      />
-
-      <Dialog
-        open={pendingTier !== null}
-        onClose={() => {
-          setPendingTier(null);
+      <Tabs
+        idBase={`chain-${chain.id}`}
+        ariaLabel="chains.tabs.aria"
+        value={active}
+        items={items}
+        onChange={(next) => {
+          if (next === "features") {
+            void router.navigate({ to: "/chains/$chainId/features", params: { chainId: chain.id } });
+            return;
+          }
+          if (next === "sites") {
+            void router.navigate({ to: "/chains/$chainId/sites", params: { chainId: chain.id } });
+            return;
+          }
+          if (next === "settings") {
+            void router.navigate({ to: "/chains/$chainId/settings", params: { chainId: chain.id } });
+            return;
+          }
+          if (next === "history") {
+            void router.navigate({ to: "/chains/$chainId/history", params: { chainId: chain.id } });
+            return;
+          }
+          void router.navigate({ to: "/chains/$chainId", params: { chainId: chain.id } });
         }}
-        title={
-          pendingTier
-            ? t("chains.detail.tier.confirmTitle", { tier: tierLabel(t, pendingTier) })
-            : ""
-        }
-        description={t("chains.detail.tier.confirmBody", {
-          tier: pendingTier ? tierLabel(t, pendingTier) : "",
-        })}
-        footer={
-          <>
-            <Button
-              variant="ghost"
-              onClick={() => {
-                setPendingTier(null);
-              }}
-            >
-              {t("action.cancel")}
-            </Button>
-            <Button
-              variant="primary"
-              loading={busy}
-              onClick={() => {
-                if (pendingTier) void changeTier(pendingTier);
-              }}
-            >
-              {t("chains.detail.tier.confirmCta")}
-            </Button>
-          </>
-        }
-      >
-        {pendingTier ? (
-          <ConfirmSummary
-            items={[
-              { label: t("chains.column.chain"), value: detail.ok ? detail.chain.name : "" },
-              {
-                label: t("chains.detail.features.column.minTier"),
-                // A read that failed is not evidence of a Silver chain: the cell says
-                // there is no value rather than naming the cheapest real tier.
-                value: detail.ok ? <TierBadge tier={detail.chain.licenceTier} /> : t("common.none"),
-              },
-              { label: t("action.confirm"), value: <TierBadge tier={pendingTier} /> },
-              {
-                label: t("chains.column.sites"),
-                value:
-                  detail.ok && detail.chain.siteCount === 1
-                    ? t("chains.detail.tier.sitesAffected.one")
-                    : t("chains.detail.tier.sitesAffected.other", { count: detail.ok ? detail.chain.siteCount : 0 }),
-              },
-            ]}
-          />
-        ) : null}
-      </Dialog>
-    </>
+      />
+
+      <div className="min-h-0 flex-1 overflow-y-auto bg-canvas" role="tabpanel" id={`chain-${chain.id}-panel-${active}`}>
+        <Outlet />
+      </div>
+    </div>
   );
 }

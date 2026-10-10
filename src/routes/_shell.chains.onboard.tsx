@@ -2,6 +2,7 @@ import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useState } from "react";
 
 import { Banner, Button, Card, CardHeader, Dialog, Field, ConfirmSummary, PageHeader, Select, TextInput, ValidationSummary } from "~/components/ui";
+import { ChainsTabs } from "~/components/ChainsTabs";
 import { PermissionDenied } from "~/components/ui";
 import { Layers, Lock } from "~/components/icons";
 import { TierBadge } from "~/components/status";
@@ -118,6 +119,7 @@ function OnboardScreen() {
     return (
       <>
         <PageHeader eyebrow={t("chains.onboard.eyebrow")} title={t("chains.onboard.title")} description={t("chains.onboard.description")} />
+        <ChainsTabs active="onboard" />
         <div className="p-4">
           <Card>
             <PermissionDenied
@@ -147,17 +149,8 @@ function OnboardScreen() {
         eyebrow={t("chains.onboard.eyebrow")}
         title={t("chains.onboard.title")}
         description={t("chains.onboard.description")}
-        actions={
-          <Button
-            variant="ghost"
-            onClick={() => {
-              void router.navigate({ to: "/chains" });
-            }}
-          >
-            {t("action.cancel")}
-          </Button>
-        }
       />
+      <ChainsTabs active="onboard" />
 
       <div className="mx-auto flex max-w-3xl flex-col gap-4 p-4">
         {serverError ? (
@@ -270,8 +263,7 @@ function OnboardScreen() {
           </div>
         </Card>
 
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <p className="max-w-md text-2xs text-fg-subtle">{t("chains.onboard.description")}</p>
+        <div className="flex flex-wrap items-center justify-end gap-3">
           <div className="flex items-center gap-2">
             <Button
               variant="ghost"
