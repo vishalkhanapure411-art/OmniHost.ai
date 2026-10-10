@@ -1,0 +1,320 @@
+OmniHost.ai — slab 3c-2 (the draft-version rule), verified by reading the database.
+database under test: postgresql://neondb_owner:***@ep-empty-water-b3p8hf5h-pooler.c-4.ap-southeast-1.aws.neon.tech/omnihost_check?sslmode=require&channel_binding=require
+No owner row is touched: this is the scratch database only.
+chain saffron-table = 0bde1a96-f19d-42b7-9e2a-c12ac43daf84 (Saffron Table Hospitality, gold); outlet koramangala-restaurant = 865c9aaf-e567-4b13-9b18-711dda7ed8ee (INR)
+
+==============================================================================
+STEP 1. Three seeded principals: the raiser, the approver and the head
+==============================================================================
+The approver split made approval its own role. The raiser (CENTRAL_MDM_TEAM) creates,
+the approver (CENTRAL_MDM_APPROVER) decides, and the head keeps policy, above-threshold
+and reads. Four eyes is now two roles as well as two people.
+
+raiser   mdm.team@saffron.example (CENTRAL_MDM_TEAM) user bf95cdae-09fc-4698-918e-6fdfef149761
+approver mdm.approver@saffron.example (CENTRAL_MDM_APPROVER) user b76f62f6-fa5a-4210-8dff-fa2e958fe1d8
+head     mdm.head@saffron.example (CENTRAL_MDM_HEAD) user 11305de2-7e3e-4c2b-9ef1-d50cba108334
+  PASS  the raiser may create — expected true, read true
+  PASS  the raiser may NOT approve — expected false, read false
+  PASS  the approver may approve — expected true, read true
+  PASS  the approver may NOT create — expected false, read false
+  PASS  the approver may NOT update — expected false, read false
+  PASS  the approver may NOT re-price — expected false, read false
+  PASS  the approver may NOT propose — expected false, read false
+  PASS  the head may NOT approve — expected false, read false
+  PASS  the head may NOT create — expected false, read false
+  PASS  the head may view — expected true, read true
+  PASS  the head may search — expected true, read true
+  PASS  the approver is a different person from the raiser, so four eyes are two people — bf95cdae-09fc-4698-918e-6fdfef149761 vs b76f62f6-fa5a-4210-8dff-fa2e958fe1d8
+
+  gate as found: mdm_approval_gated = false for saffron-table
+FIXTURE (scratch database): mdm_approval_gated for saffron-table was false; the script sets it true for the gated walk and back to false at the end
+  The scratch database has the gate off on both chains; the owner's demo database has
+  it switched on by hand for the pilot chain. That asymmetry is a known demo-data item,
+  not a defect this script fixes.
+FIXTURE (scratch database): removing the previous run's article 3be1e182-9c49-4c14-8cb3-c69dda5e9ee4 (CHK-DRAFT-VERIFY)
+FIXTURE (scratch database): removing 4 import report(s) from a previous run of this script
+reference data: category BAR-MOCKTAILS, base UoM BAG, allergen celery, tax class GST12-PACK
+
+==============================================================================
+STEP 2. GATED WALK — a brand-new article, taken live through the review path
+==============================================================================
+The fixture article is created by its author and, because the chain is approval-gated,
+lands in review; the second person approves it. This is the settled state the rule
+starts from: one `active` version with one open price window.
+  gate set: mdm_approval_gated = true for saffron-table
+FIXTURE (scratch database): set mdm_approval_gated = true for chain 0bde1a96-f19d-42b7-9e2a-c12ac43daf84 (gated walk)
+
+createArticle -> {"id":"3845f9e1-c0b3-4178-aeb1-73b0b0b810cd","code":"CHK-DRAFT-VERIFY","status":"pending_review","version":1,"outcome":"created","changed":["article","version","prices"],"pricesWritten":1,"missingRequired":[]}
+versions after create: [{"id":"58d02871-77bc-4bac-9297-ef86258bdbcc","version":1,"status":"pending_review","supersedes_version_id":null,"approved_at":null,"approved_by_user_id":null}]
+article after create: {"id":"3845f9e1-c0b3-4178-aeb1-73b0b0b810cd","code":"CHK-DRAFT-VERIFY","status":"pending_review","current_version_id":"58d02871-77bc-4bac-9297-ef86258bdbcc","current_version":1,"current_version_status":"pending_review"}
+  PASS  the create landed one version — expected 1, read 1
+  PASS  the gated chain's brand-new record landed pending_review — task e65ae072-bed9-4ff9-9771-99bc57903b18
+decideArticleReview(approve) -> {"taskId":"e65ae072-bed9-4ff9-9771-99bc57903b18","code":"","decision":"approve","versionStatus":"active","reasonCode":null}
+versions with the article settled: [{"id":"58d02871-77bc-4bac-9297-ef86258bdbcc","version":1,"status":"active","supersedes_version_id":null,"approved_at":"2026-10-10T13:53:59.309Z","approved_by_user_id":"b76f62f6-fa5a-4210-8dff-fa2e958fe1d8"}]
+price windows with the article settled: [{"id":"a9c9d154-513c-417e-8ccd-9dc100b19bf5","article_version_id":"58d02871-77bc-4bac-9297-ef86258bdbcc","version":1,"outlet_code":"koramangala-restaurant","amount":"250.0000","currency_code":"INR","effective_from":"2026-10-10","effective_to":null}]
+  PASS  exactly one version — expected 1, read 1
+  PASS  version 1 is active — expected "active", read "active"
+  PASS  version 1 has one open price window — expected 1, read 1
+  PASS  the open window holds the base price — expected 250, read 250
+  PASS  the article points at version 1 — expected "58d02871-77bc-4bac-9297-ef86258bdbcc", read "58d02871-77bc-4bac-9297-ef86258bdbcc"
+  PASS  the article is active — expected "active", read "active"
+
+==============================================================================
+STEP 3. A REPRICE leaves N active and sellable, and opens N+1 carrying the new price
+==============================================================================
+The heart of the rule. Before slab 3c-2 this call closed the sellable window and
+published the new price immediately. On a gated chain the opened version goes to the
+approver's queue — §6's landing rule applied to a version rather than a create.
+
+updateArticlePrice(250 -> 310) -> {"code":"CHK-DRAFT-VERIFY","outletCode":"koramangala-restaurant","before":{"amount":250,"currencyCode":"INR"},"after":{"amount":310,"currencyCode":"INR"},"version":{"id":"726419fa-a517-4c89-8be8-1380f394b306","version":2,"status":"pending_review","landed":"opened","baseVersionId":"58d02871-77bc-4bac-9297-ef86258bdbcc","baseVersion":1,"taskId":"c6f6c562-ae17-4f5a-803a-3419f3fa34c1"}}
+versions after the reprice: [{"id":"58d02871-77bc-4bac-9297-ef86258bdbcc","version":1,"status":"active","supersedes_version_id":null,"approved_at":"2026-10-10T13:53:59.309Z","approved_by_user_id":"b76f62f6-fa5a-4210-8dff-fa2e958fe1d8"},{"id":"726419fa-a517-4c89-8be8-1380f394b306","version":2,"status":"pending_review","supersedes_version_id":"58d02871-77bc-4bac-9297-ef86258bdbcc","approved_at":null,"approved_by_user_id":null}]
+price windows after the reprice: [{"id":"a9c9d154-513c-417e-8ccd-9dc100b19bf5","article_version_id":"58d02871-77bc-4bac-9297-ef86258bdbcc","version":1,"outlet_code":"koramangala-restaurant","amount":"250.0000","currency_code":"INR","effective_from":"2026-10-10","effective_to":null},{"id":"ebc5ba76-9f24-4d57-9ba9-f80e82f60ceb","article_version_id":"726419fa-a517-4c89-8be8-1380f394b306","version":2,"outlet_code":"koramangala-restaurant","amount":"250.0000","currency_code":"INR","effective_from":"2026-10-10","effective_to":"2026-10-10"},{"id":"b5fdcf96-9d8a-496c-a5a5-a0f0c8c16a4b","article_version_id":"726419fa-a517-4c89-8be8-1380f394b306","version":2,"outlet_code":"koramangala-restaurant","amount":"310.0000","currency_code":"INR","effective_from":"2026-10-10","effective_to":null}]
+article after the reprice: {"id":"3845f9e1-c0b3-4178-aeb1-73b0b0b810cd","code":"CHK-DRAFT-VERIFY","status":"active","current_version_id":"58d02871-77bc-4bac-9297-ef86258bdbcc","current_version":1,"current_version_status":"active"}
+  PASS  the reprice opened a second version — expected 2, read 2
+  PASS  the write reports what it landed — expected "opened", read "opened"
+  PASS  N is still active — expected "active", read "active"
+  PASS  N+1 is the version after N — expected 2, read 2
+  PASS  N+1 records N as the version it replaces — expected "58d02871-77bc-4bac-9297-ef86258bdbcc", read "58d02871-77bc-4bac-9297-ef86258bdbcc"
+  PASS  the write names that base — expected "58d02871-77bc-4bac-9297-ef86258bdbcc", read "58d02871-77bc-4bac-9297-ef86258bdbcc"
+  PASS  on a gated chain the opened version waits for the approver — expected "pending_review", read "pending_review"
+N's open windows: [{"id":"a9c9d154-513c-417e-8ccd-9dc100b19bf5","article_version_id":"58d02871-77bc-4bac-9297-ef86258bdbcc","version":1,"outlet_code":"koramangala-restaurant","amount":"250.0000","currency_code":"INR","effective_from":"2026-10-10","effective_to":null}]
+N+1's open windows: [{"id":"b5fdcf96-9d8a-496c-a5a5-a0f0c8c16a4b","article_version_id":"726419fa-a517-4c89-8be8-1380f394b306","version":2,"outlet_code":"koramangala-restaurant","amount":"310.0000","currency_code":"INR","effective_from":"2026-10-10","effective_to":null}]
+  PASS  N's price window is still OPEN — expected 1, read 1
+  PASS  N's window was not closed by the reprice — expected null, read null
+  PASS  N's window still holds the sellable price — expected 250, read 250
+  PASS  N+1 carries exactly one open window — expected 1, read 1
+  PASS  N+1's window holds the proposed price — expected 310, read 310
+  PASS  the article still points at N — expected "58d02871-77bc-4bac-9297-ef86258bdbcc", read "58d02871-77bc-4bac-9297-ef86258bdbcc"
+  PASS  the article is still active — the dish is still on sale — expected "active", read "active"
+  PASS  the article's current version is still N — expected 1, read 1
+tasks after the reprice: [{"id":"e65ae072-bed9-4ff9-9771-99bc57903b18","status":"approved","entity_type":"article_version","entity_id":"58d02871-77bc-4bac-9297-ef86258bdbcc","raised_by_user_id":"bf95cdae-09fc-4698-918e-6fdfef149761","assigned_role_code":"CENTRAL_MDM_APPROVER","assigned_user_id":null,"decided_by_user_id":"b76f62f6-fa5a-4210-8dff-fa2e958fe1d8","decided_at":"2026-10-10T13:53:59.309Z","decision_note":null},{"id":"c6f6c562-ae17-4f5a-803a-3419f3fa34c1","status":"open","entity_type":"article_version","entity_id":"726419fa-a517-4c89-8be8-1380f394b306","raised_by_user_id":"bf95cdae-09fc-4698-918e-6fdfef149761","assigned_role_code":"CENTRAL_MDM_APPROVER","assigned_user_id":null,"decided_by_user_id":null,"decided_at":null,"decision_note":null}]
+  PASS  the gated reprice raised exactly one review task — expected 1, read 1
+  PASS  the task names the opened version as its entity — expected "726419fa-a517-4c89-8be8-1380f394b306", read "726419fa-a517-4c89-8be8-1380f394b306"
+  PASS  the task's entity is the version, not the article — expected "article_version", read "article_version"
+  PASS  the task is assigned to the article approver role — expected "CENTRAL_MDM_APPROVER", read "CENTRAL_MDM_APPROVER"
+  PASS  the task was raised by the author — expected "bf95cdae-09fc-4698-918e-6fdfef149761", read "bf95cdae-09fc-4698-918e-6fdfef149761"
+
+==============================================================================
+STEP 4. A content write onto an article with a version waiting is refused (articleOpen)
+==============================================================================
+The open version was cloned from the sellable one, so editing the sellable version here
+would leave the proposal carrying content it was never cloned with. It must change
+nothing — and, being a validation refusal, it writes no audit row at all.
+  PASS  a content write refuses while a version waits for a decision — refused with validation.review.articleOpen
+article before/after the refusal: [{"id":"3845f9e1-c0b3-4178-aeb1-73b0b0b810cd","code":"CHK-DRAFT-VERIFY","status":"active","current_version_id":"58d02871-77bc-4bac-9297-ef86258bdbcc","current_version":1,"current_version_status":"active"},{"id":"3845f9e1-c0b3-4178-aeb1-73b0b0b810cd","code":"CHK-DRAFT-VERIFY","status":"active","current_version_id":"58d02871-77bc-4bac-9297-ef86258bdbcc","current_version":1,"current_version_status":"active"}]
+versions before/after the refusal: [[{"id":"58d02871-77bc-4bac-9297-ef86258bdbcc","version":1,"status":"active","supersedes_version_id":null,"approved_at":"2026-10-10T13:53:59.309Z","approved_by_user_id":"b76f62f6-fa5a-4210-8dff-fa2e958fe1d8"},{"id":"726419fa-a517-4c89-8be8-1380f394b306","version":2,"status":"pending_review","supersedes_version_id":"58d02871-77bc-4bac-9297-ef86258bdbcc","approved_at":null,"approved_by_user_id":null}],[{"id":"58d02871-77bc-4bac-9297-ef86258bdbcc","version":1,"status":"active","supersedes_version_id":null,"approved_at":"2026-10-10T13:53:59.309Z","approved_by_user_id":"b76f62f6-fa5a-4210-8dff-fa2e958fe1d8"},{"id":"726419fa-a517-4c89-8be8-1380f394b306","version":2,"status":"pending_review","supersedes_version_id":"58d02871-77bc-4bac-9297-ef86258bdbcc","approved_at":null,"approved_by_user_id":null}]]
+price windows before/after the refusal: [[{"id":"a9c9d154-513c-417e-8ccd-9dc100b19bf5","article_version_id":"58d02871-77bc-4bac-9297-ef86258bdbcc","version":1,"outlet_code":"koramangala-restaurant","amount":"250.0000","currency_code":"INR","effective_from":"2026-10-10","effective_to":null},{"id":"ebc5ba76-9f24-4d57-9ba9-f80e82f60ceb","article_version_id":"726419fa-a517-4c89-8be8-1380f394b306","version":2,"outlet_code":"koramangala-restaurant","amount":"250.0000","currency_code":"INR","effective_from":"2026-10-10","effective_to":"2026-10-10"},{"id":"b5fdcf96-9d8a-496c-a5a5-a0f0c8c16a4b","article_version_id":"726419fa-a517-4c89-8be8-1380f394b306","version":2,"outlet_code":"koramangala-restaurant","amount":"310.0000","currency_code":"INR","effective_from":"2026-10-10","effective_to":null}],[{"id":"a9c9d154-513c-417e-8ccd-9dc100b19bf5","article_version_id":"58d02871-77bc-4bac-9297-ef86258bdbcc","version":1,"outlet_code":"koramangala-restaurant","amount":"250.0000","currency_code":"INR","effective_from":"2026-10-10","effective_to":null},{"id":"ebc5ba76-9f24-4d57-9ba9-f80e82f60ceb","article_version_id":"726419fa-a517-4c89-8be8-1380f394b306","version":2,"outlet_code":"koramangala-restaurant","amount":"250.0000","currency_code":"INR","effective_from":"2026-10-10","effective_to":"2026-10-10"},{"id":"b5fdcf96-9d8a-496c-a5a5-a0f0c8c16a4b","article_version_id":"726419fa-a517-4c89-8be8-1380f394b306","version":2,"outlet_code":"koramangala-restaurant","amount":"310.0000","currency_code":"INR","effective_from":"2026-10-10","effective_to":null}]]
+  PASS  the refusal changed nothing at all — article, versions, prices, tasks and the mdm.article.update ledger are byte-identical
+  PASS  the refusal wrote no audit row (a validation refusal aborts its transaction) — expected 0, read 0
+
+==============================================================================
+STEP 5. A decision whose base has moved is refused (validation.review.baseMoved)
+==============================================================================
+The check asserts that the version a proposal was cloned from is still the article's
+current version. Its live trigger is a concurrent approval: two approvers deciding the
+same proposal, where the first moves the pointer under the second. A sequential script
+cannot reach that state — migration 0010 makes two open versions of one article
+unrepresentable — so the condition is constructed with ONE statement against ONE scratch
+row (the proposal's predecessor link), restored immediately after. Nothing about the
+refusal itself is faked: the call, the transaction and the ledger are real.
+FIXTURE (scratch database): cleared supersedes_version_id on 726419fa-a517-4c89-8be8-1380f394b306 to construct the moved-base window (restored below)
+  PASS  approving a proposal whose base has moved is refused — refused with validation.review.baseMoved
+versions with the base cleared: [{"id":"58d02871-77bc-4bac-9297-ef86258bdbcc","version":1,"status":"active","supersedes_version_id":null,"approved_at":"2026-10-10T13:53:59.309Z","approved_by_user_id":"b76f62f6-fa5a-4210-8dff-fa2e958fe1d8"},{"id":"726419fa-a517-4c89-8be8-1380f394b306","version":2,"status":"pending_review","supersedes_version_id":null,"approved_at":null,"approved_by_user_id":null}]
+versions read back after the refusal: [{"id":"58d02871-77bc-4bac-9297-ef86258bdbcc","version":1,"status":"active","supersedes_version_id":null,"approved_at":"2026-10-10T13:53:59.309Z","approved_by_user_id":"b76f62f6-fa5a-4210-8dff-fa2e958fe1d8"},{"id":"726419fa-a517-4c89-8be8-1380f394b306","version":2,"status":"pending_review","supersedes_version_id":null,"approved_at":null,"approved_by_user_id":null}]
+tasks read back after the refusal: [{"id":"e65ae072-bed9-4ff9-9771-99bc57903b18","status":"approved","entity_type":"article_version","entity_id":"58d02871-77bc-4bac-9297-ef86258bdbcc","raised_by_user_id":"bf95cdae-09fc-4698-918e-6fdfef149761","assigned_role_code":"CENTRAL_MDM_APPROVER","assigned_user_id":null,"decided_by_user_id":"b76f62f6-fa5a-4210-8dff-fa2e958fe1d8","decided_at":"2026-10-10T13:53:59.309Z","decision_note":null},{"id":"c6f6c562-ae17-4f5a-803a-3419f3fa34c1","status":"open","entity_type":"article_version","entity_id":"726419fa-a517-4c89-8be8-1380f394b306","raised_by_user_id":"bf95cdae-09fc-4698-918e-6fdfef149761","assigned_role_code":"CENTRAL_MDM_APPROVER","assigned_user_id":null,"decided_by_user_id":null,"decided_at":null,"decision_note":null}]
+  PASS  the refusal wrote nothing: N stays active, N+1 stays under review — expected "active/pending_review", read "active/pending_review"
+  PASS  no price window moved — expected "[{\"id\":\"a9c9d154-513c-417e-8ccd-9dc100b19bf5\",\"article_version_id\":\"58d02871-77bc-4bac-9297-ef86258bdbcc\",\"version\":1,\"outlet_code\":\"koramangala-restaurant\",\"amount\":\"250.0000\",\"currency_code\":\"INR\",\"effective_from\":\"2026-10-10\",\"effective_to\":null},{\"id\":\"ebc5ba76-9f24-4d57-9ba9-f80e82f60ceb\",\"article_version_id\":\"726419fa-a517-4c89-8be8-1380f394b306\",\"version\":2,\"outlet_code\":\"koramangala-restaurant\",\"amount\":\"250.0000\",\"currency_code\":\"INR\",\"effective_from\":\"2026-10-10\",\"effective_to\":\"2026-10-10\"},{\"id\":\"b5fdcf96-9d8a-496c-a5a5-a0f0c8c16a4b\",\"article_version_id\":\"726419fa-a517-4c89-8be8-1380f394b306\",\"version\":2,\"outlet_code\":\"koramangala-restaurant\",\"amount\":\"310.0000\",\"currency_code\":\"INR\",\"effective_from\":\"2026-10-10\",\"effective_to\":null}]", read "[{\"id\":\"a9c9d154-513c-417e-8ccd-9dc100b19bf5\",\"article_version_id\":\"58d02871-77bc-4bac-9297-ef86258bdbcc\",\"version\":1,\"outlet_code\":\"koramangala-restaurant\",\"amount\":\"250.0000\",\"currency_code\":\"INR\",\"effective_from\":\"2026-10-10\",\"effective_to\":null},{\"id\":\"ebc5ba76-9f24-4d57-9ba9-f80e82f60ceb\",\"article_version_id\":\"726419fa-a517-4c89-8be8-1380f394b306\",\"version\":2,\"outlet_code\":\"koramangala-restaurant\",\"amount\":\"250.0000\",\"currency_code\":\"INR\",\"effective_from\":\"2026-10-10\",\"effective_to\":\"2026-10-10\"},{\"id\":\"b5fdcf96-9d8a-496c-a5a5-a0f0c8c16a4b\",\"article_version_id\":\"726419fa-a517-4c89-8be8-1380f394b306\",\"version\":2,\"outlet_code\":\"koramangala-restaurant\",\"amount\":\"310.0000\",\"currency_code\":\"INR\",\"effective_from\":\"2026-10-10\",\"effective_to\":null}]"
+  PASS  the task is still open — expected 1, read 1
+  PASS  the refusal wrote no audit row — expected 26, read 26
+FIXTURE (scratch database): restored supersedes_version_id = 58d02871-77bc-4bac-9297-ef86258bdbcc on 726419fa-a517-4c89-8be8-1380f394b306
+  PASS  the fixture is restored — expected "58d02871-77bc-4bac-9297-ef86258bdbcc", read "58d02871-77bc-4bac-9297-ef86258bdbcc"
+
+==============================================================================
+STEP 6. A send-back returns the proposal to its author as a draft, and N stays on sale
+==============================================================================
+The approver's other decision, on the version a price change opened. The header must not
+follow a *proposal* back to draft: the dish is still on sale at N's price.
+
+decideArticleReview(sendBack) -> {"taskId":"c6f6c562-ae17-4f5a-803a-3419f3fa34c1","code":"","decision":"sendBack","versionStatus":"draft","reasonCode":"pricing_wrong"}
+versions after the send-back: [{"id":"58d02871-77bc-4bac-9297-ef86258bdbcc","version":1,"status":"active","supersedes_version_id":null,"approved_at":"2026-10-10T13:53:59.309Z","approved_by_user_id":"b76f62f6-fa5a-4210-8dff-fa2e958fe1d8"},{"id":"726419fa-a517-4c89-8be8-1380f394b306","version":2,"status":"draft","supersedes_version_id":"58d02871-77bc-4bac-9297-ef86258bdbcc","approved_at":null,"approved_by_user_id":null}]
+tasks after the send-back: [{"id":"e65ae072-bed9-4ff9-9771-99bc57903b18","status":"approved","entity_type":"article_version","entity_id":"58d02871-77bc-4bac-9297-ef86258bdbcc","raised_by_user_id":"bf95cdae-09fc-4698-918e-6fdfef149761","assigned_role_code":"CENTRAL_MDM_APPROVER","assigned_user_id":null,"decided_by_user_id":"b76f62f6-fa5a-4210-8dff-fa2e958fe1d8","decided_at":"2026-10-10T13:53:59.309Z","decision_note":null},{"id":"c6f6c562-ae17-4f5a-803a-3419f3fa34c1","status":"rejected","entity_type":"article_version","entity_id":"726419fa-a517-4c89-8be8-1380f394b306","raised_by_user_id":"bf95cdae-09fc-4698-918e-6fdfef149761","assigned_role_code":"CENTRAL_MDM_APPROVER","assigned_user_id":"bf95cdae-09fc-4698-918e-6fdfef149761","decided_by_user_id":"b76f62f6-fa5a-4210-8dff-fa2e958fe1d8","decided_at":"2026-10-10T13:54:13.905Z","decision_note":"slab 3c-2 verification: send the proposal back"}]
+article after the send-back: {"id":"3845f9e1-c0b3-4178-aeb1-73b0b0b810cd","code":"CHK-DRAFT-VERIFY","status":"active","current_version_id":"58d02871-77bc-4bac-9297-ef86258bdbcc","current_version":1,"current_version_status":"active"}
+  PASS  N+1 is a draft again — expected "draft", read "draft"
+  PASS  N is still active — expected "active", read "active"
+  PASS  the article header did NOT follow the proposal to draft — expected "active", read "active"
+  PASS  the task is rejected, not open — expected "rejected", read "rejected"
+  PASS  the task was re-routed to the author — expected "bf95cdae-09fc-4698-918e-6fdfef149761", read "bf95cdae-09fc-4698-918e-6fdfef149761"
+  PASS  the task records who decided it — expected "b76f62f6-fa5a-4210-8dff-fa2e958fe1d8", read "b76f62f6-fa5a-4210-8dff-fa2e958fe1d8"
+
+==============================================================================
+STEP 7. DRY RUN AND COMMIT SAY THE SAME THING — the correction a returned draft needs
+==============================================================================
+`planArticleWrite` is what the import's dry run reads. Before this pass it knew only
+`lockedUnderReview`, so a content row against an article with a version waiting was
+called `updated` by the dry run and refused at commit with `articleOpen`; and the price
+comparison read the *sellable* grid rather than the draft's, so a file carrying the
+draft's own price was reported as a change — and the commit, following that plan, closed
+and reopened a window whose figure had not moved. Both are read back here: the plan
+itself, and a real import dry run and commit of the same file.
+plan for a content change with a version waiting: {"outcome":"updated","articleOpen":true,"openVersion":2,"openVersionId":"726419fa-a517-4c89-8be8-1380f394b306","openVersionStatus":"draft","priceAgainst":"openVersion","versionStatus":"active","existingStatus":"active"}
+  PASS  the plan reports the refusal the commit raises, rather than calling the row updated — articleOpen=true openVersion=2
+plan for the price the draft already carries: {"outcome":"unchanged","priceAgainst":"openVersion","priceChanges":[],"priceUnchanged":["koramangala-restaurant"]}
+  PASS  a price the draft already carries reads as unchanged, not as a change against the sellable price — priceUnchanged=["koramangala-restaurant"] priceChanges=0
+  PASS  the plan compared against the draft, whose window the commit would close — expected "openVersion", read "openVersion"
+plan for a price change against the open draft: [{"outletCode":"koramangala-restaurant","amount":320,"currencyCode":"INR","from":{"amount":310,"currencyCode":"INR"},"effectiveFrom":"2026-10-10"}]
+  PASS  the plan compares against the draft's open window, which is what the commit will close — expected 310, read 310
+  PASS  the plan reports the sellable version and the waiting draft separately — expected "active/open", read "active/open"
+dry run of a content change while a version waits: {"status":"succeeded_with_issues","row":{"lineNumber":2,"outcome":"rejected","codes":["validation.review.articleOpen","mdm.import.warning.updatesExisting"]}}
+  PASS  the dry run rejects the content row rather than promising an update — expected "rejected", read "rejected"
+  PASS  the row is refused for the same reason the commit refuses it — issues=["validation.review.articleOpen","mdm.import.warning.updatesExisting"]
+commit of the same file: {"status":"failed","applied":false,"counts":{"seen":1,"created":0,"updated":0,"unchanged":0,"rejected":1,"warned":1},"fileError":"mdm.import.error.fileHasErrors","rowOutcome":"rejected"}
+  PASS  the commit refuses the file and applies nothing — expected false, read false
+  PASS  the refused commit changed no article row — article, versions, prices and the update ledger are byte-identical
+dry run of a file carrying the draft's own price: {"status":"succeeded","row":{"outcome":"unchanged","changed":[],"codes":[]}}
+  PASS  the dry run calls the row unchanged — the only honest answer against the grid the commit writes to — expected "unchanged", read "unchanged"
+commit of that file: {"status":"succeeded","applied":true,"counts":{"seen":1,"created":0,"updated":0,"unchanged":1,"rejected":0,"warned":0},"rowOutcome":"unchanged"}
+  PASS  the commit applied it as no-op rows — expected 1, read 1
+  PASS  no window was closed and reopened — the same price row is still the open one — draft window b5fdcf96-9d8a-496c-a5a5-a0f0c8c16a4b unchanged
+
+==============================================================================
+STEP 8. Submitting the open draft raises a real task against it
+==============================================================================
+
+submitArticleForReview -> {"taskId":"6c09952f-1c60-41b4-9162-e0d92c9e573b","versionId":"726419fa-a517-4c89-8be8-1380f394b306","code":"CHK-DRAFT-VERIFY","version":2,"status":"pending_review"}
+versions after submit: [{"id":"58d02871-77bc-4bac-9297-ef86258bdbcc","version":1,"status":"active","supersedes_version_id":null,"approved_at":"2026-10-10T13:53:59.309Z","approved_by_user_id":"b76f62f6-fa5a-4210-8dff-fa2e958fe1d8"},{"id":"726419fa-a517-4c89-8be8-1380f394b306","version":2,"status":"pending_review","supersedes_version_id":"58d02871-77bc-4bac-9297-ef86258bdbcc","approved_at":null,"approved_by_user_id":null}]
+tasks after submit: [{"id":"e65ae072-bed9-4ff9-9771-99bc57903b18","status":"approved","entity_type":"article_version","entity_id":"58d02871-77bc-4bac-9297-ef86258bdbcc","raised_by_user_id":"bf95cdae-09fc-4698-918e-6fdfef149761","assigned_role_code":"CENTRAL_MDM_APPROVER","assigned_user_id":null,"decided_by_user_id":"b76f62f6-fa5a-4210-8dff-fa2e958fe1d8","decided_at":"2026-10-10T13:53:59.309Z","decision_note":null},{"id":"c6f6c562-ae17-4f5a-803a-3419f3fa34c1","status":"rejected","entity_type":"article_version","entity_id":"726419fa-a517-4c89-8be8-1380f394b306","raised_by_user_id":"bf95cdae-09fc-4698-918e-6fdfef149761","assigned_role_code":"CENTRAL_MDM_APPROVER","assigned_user_id":"bf95cdae-09fc-4698-918e-6fdfef149761","decided_by_user_id":"b76f62f6-fa5a-4210-8dff-fa2e958fe1d8","decided_at":"2026-10-10T13:54:13.905Z","decision_note":"slab 3c-2 verification: send the proposal back"},{"id":"6c09952f-1c60-41b4-9162-e0d92c9e573b","status":"open","entity_type":"article_version","entity_id":"726419fa-a517-4c89-8be8-1380f394b306","raised_by_user_id":"bf95cdae-09fc-4698-918e-6fdfef149761","assigned_role_code":"CENTRAL_MDM_APPROVER","assigned_user_id":null,"decided_by_user_id":null,"decided_at":null,"decision_note":null}]
+article after submit: {"id":"3845f9e1-c0b3-4178-aeb1-73b0b0b810cd","code":"CHK-DRAFT-VERIFY","status":"active","current_version_id":"58d02871-77bc-4bac-9297-ef86258bdbcc","current_version":1,"current_version_status":"active"}
+  PASS  exactly one review task is open — expected 1, read 1
+  PASS  the task names the open draft as its entity — expected "726419fa-a517-4c89-8be8-1380f394b306", read "726419fa-a517-4c89-8be8-1380f394b306"
+  PASS  the task was raised by the author — expected "bf95cdae-09fc-4698-918e-6fdfef149761", read "bf95cdae-09fc-4698-918e-6fdfef149761"
+  PASS  the task is assigned to the article approver role — expected "CENTRAL_MDM_APPROVER", read "CENTRAL_MDM_APPROVER"
+  PASS  the submission reports that task — expected "6c09952f-1c60-41b4-9162-e0d92c9e573b", read "6c09952f-1c60-41b4-9162-e0d92c9e573b"
+  PASS  N+1 is now under review — expected "pending_review", read "pending_review"
+  PASS  N is still active and sellable — expected "active", read "active"
+  PASS  the article header did NOT follow the proposal into review — expected "active", read "active"
+  PASS  the article still points at N — expected "58d02871-77bc-4bac-9297-ef86258bdbcc", read "58d02871-77bc-4bac-9297-ef86258bdbcc"
+
+==============================================================================
+STEP 9. Four eyes: the author cannot approve their own proposal
+==============================================================================
+After the approver split the raiser no longer holds the approve act at all, so the
+attempt is refused by the capability check (guard) — a `denied` audit row with
+`entity_id` NULL, no data change, proven by calling it. The four-eyes rule is now
+structural: the raiser's roles simply do not contain `mdm.article.approve`.
+  PASS  the author's own approval is refused as a capability refusal — action mdm.article.approve, no code
+  PASS  the self-approval changed nothing — expected "pending_review", read "pending_review"
+  PASS  the task is still open — expected 1, read 1
+  PASS  the attempt is in the ledger as a denial — expected 1, read 1
+
+==============================================================================
+STEP 10. The second person's approval supersedes N in ONE transaction
+==============================================================================
+
+decideArticleReview(approve) -> {"taskId":"6c09952f-1c60-41b4-9162-e0d92c9e573b","code":"","decision":"approve","versionStatus":"active","reasonCode":null}
+versions after approval: [{"id":"58d02871-77bc-4bac-9297-ef86258bdbcc","version":1,"status":"superseded","supersedes_version_id":null,"approved_at":"2026-10-10T13:53:59.309Z","approved_by_user_id":"b76f62f6-fa5a-4210-8dff-fa2e958fe1d8"},{"id":"726419fa-a517-4c89-8be8-1380f394b306","version":2,"status":"active","supersedes_version_id":"58d02871-77bc-4bac-9297-ef86258bdbcc","approved_at":"2026-10-10T13:54:42.705Z","approved_by_user_id":"b76f62f6-fa5a-4210-8dff-fa2e958fe1d8"}]
+price windows after approval: [{"id":"a9c9d154-513c-417e-8ccd-9dc100b19bf5","article_version_id":"58d02871-77bc-4bac-9297-ef86258bdbcc","version":1,"outlet_code":"koramangala-restaurant","amount":"250.0000","currency_code":"INR","effective_from":"2026-10-10","effective_to":"2026-10-10"},{"id":"ebc5ba76-9f24-4d57-9ba9-f80e82f60ceb","article_version_id":"726419fa-a517-4c89-8be8-1380f394b306","version":2,"outlet_code":"koramangala-restaurant","amount":"250.0000","currency_code":"INR","effective_from":"2026-10-10","effective_to":"2026-10-10"},{"id":"b5fdcf96-9d8a-496c-a5a5-a0f0c8c16a4b","article_version_id":"726419fa-a517-4c89-8be8-1380f394b306","version":2,"outlet_code":"koramangala-restaurant","amount":"310.0000","currency_code":"INR","effective_from":"2026-10-10","effective_to":null}]
+article after approval: {"id":"3845f9e1-c0b3-4178-aeb1-73b0b0b810cd","code":"CHK-DRAFT-VERIFY","status":"active","current_version_id":"726419fa-a517-4c89-8be8-1380f394b306","current_version":2,"current_version_status":"active"}
+tasks after approval: [{"id":"e65ae072-bed9-4ff9-9771-99bc57903b18","status":"approved","entity_type":"article_version","entity_id":"58d02871-77bc-4bac-9297-ef86258bdbcc","raised_by_user_id":"bf95cdae-09fc-4698-918e-6fdfef149761","assigned_role_code":"CENTRAL_MDM_APPROVER","assigned_user_id":null,"decided_by_user_id":"b76f62f6-fa5a-4210-8dff-fa2e958fe1d8","decided_at":"2026-10-10T13:53:59.309Z","decision_note":null},{"id":"c6f6c562-ae17-4f5a-803a-3419f3fa34c1","status":"rejected","entity_type":"article_version","entity_id":"726419fa-a517-4c89-8be8-1380f394b306","raised_by_user_id":"bf95cdae-09fc-4698-918e-6fdfef149761","assigned_role_code":"CENTRAL_MDM_APPROVER","assigned_user_id":"bf95cdae-09fc-4698-918e-6fdfef149761","decided_by_user_id":"b76f62f6-fa5a-4210-8dff-fa2e958fe1d8","decided_at":"2026-10-10T13:54:13.905Z","decision_note":"slab 3c-2 verification: send the proposal back"},{"id":"6c09952f-1c60-41b4-9162-e0d92c9e573b","status":"approved","entity_type":"article_version","entity_id":"726419fa-a517-4c89-8be8-1380f394b306","raised_by_user_id":"bf95cdae-09fc-4698-918e-6fdfef149761","assigned_role_code":"CENTRAL_MDM_APPROVER","assigned_user_id":null,"decided_by_user_id":"b76f62f6-fa5a-4210-8dff-fa2e958fe1d8","decided_at":"2026-10-10T13:54:42.705Z","decision_note":null}]
+  PASS  N+1 is active — expected "active", read "active"
+  PASS  N is superseded — expected "superseded", read "superseded"
+  PASS  N+1 records who approved it — expected "b76f62f6-fa5a-4210-8dff-fa2e958fe1d8", read "b76f62f6-fa5a-4210-8dff-fa2e958fe1d8"
+N's windows after approval (closed, never deleted): [{"id":"a9c9d154-513c-417e-8ccd-9dc100b19bf5","article_version_id":"58d02871-77bc-4bac-9297-ef86258bdbcc","version":1,"outlet_code":"koramangala-restaurant","amount":"250.0000","currency_code":"INR","effective_from":"2026-10-10","effective_to":"2026-10-10"}]
+  PASS  N's window was closed, not deleted — expected 1, read 1
+  PASS  N's window now has an end date — effective_to 2026-10-10
+  PASS  the closed window kept its price — a historical bill still reproduces it — expected 250, read 250
+  PASS  N+1 has the open, sellable window — expected 1, read 1
+  PASS  the sellable price is the proposed one — expected 310, read 310
+  PASS  the article's pointer moved to N+1 — expected "726419fa-a517-4c89-8be8-1380f394b306", read "726419fa-a517-4c89-8be8-1380f394b306"
+  PASS  the article's current version is N+1 — expected 2, read 2
+  PASS  the article is active — expected "active", read "active"
+  PASS  exactly one version is active — expected 1, read 1
+  PASS  exactly one open price window remains for the article — expected 1, read 1
+  PASS  the review task is decided — expected "approved", read "approved"
+  PASS  the decider is the second person — expected "b76f62f6-fa5a-4210-8dff-fa2e958fe1d8", read "b76f62f6-fa5a-4210-8dff-fa2e958fe1d8"
+
+The ledger row for this approval, read back from audit_log:
+audit row: [{"id":"164","action":"mdm.article.approve","entity_type":"approval_task","entity_id":"6c09952f-1c60-41b4-9162-e0d92c9e573b","outcome":"success","reason":null,"before_state":{"version":1,"versionId":"58d02871-77bc-4bac-9297-ef86258bdbcc","taskStatus":"open","articleCode":"CHK-DRAFT-VERIFY","versionStatus":"pending_review","currentVersionId":"58d02871-77bc-4bac-9297-ef86258bdbcc"},"after_state":{"note":null,"version":2,"decision":"approve","versionId":"726419fa-a517-4c89-8be8-1380f394b306","reasonCode":null,"taskStatus":"approved","closedPrices":[{"outletCode":"koramangala-restaurant","effectiveTo":"2026-10-10"}],"versionStatus":"active","returnedToUserId":null,"supersededVersion":1,"supersededVersionId":"58d02871-77bc-4bac-9297-ef86258bdbcc"},"actor_user_id":"b76f62f6-fa5a-4210-8dff-fa2e958fe1d8","created_at":"2026-10-10T13:54:42.705Z"}]
+  PASS  exactly one success row was written for this decision — expected 1, read 1
+  PASS  the row is a success — expected "success", read "success"
+  PASS  the row's before_state names N (the version that was live) — expected "58d02871-77bc-4bac-9297-ef86258bdbcc", read "58d02871-77bc-4bac-9297-ef86258bdbcc"
+  PASS  the row's after_state names N+1 (the version that became live) — expected "726419fa-a517-4c89-8be8-1380f394b306", read "726419fa-a517-4c89-8be8-1380f394b306"
+  PASS  the row names the superseded version — expected "58d02871-77bc-4bac-9297-ef86258bdbcc", read "58d02871-77bc-4bac-9297-ef86258bdbcc"
+the closed windows the row carries: [{"outletCode":"koramangala-restaurant","effectiveTo":"2026-10-10"}]
+  PASS  the row carries both version ids and the closed window — N=58d02871-77bc-4bac-9297-ef86258bdbcc -> N+1=726419fa-a517-4c89-8be8-1380f394b306
+
+==============================================================================
+STEP 11. NON-GATED LANDING — the gate off, the caller may approve: one transaction, no queue
+==============================================================================
+The other landing of the same call: with `mdm_approval_gated` off and `mdm.article.approve`
+held, the opener creates N+1 and approves it in the same transaction — §6's third branch,
+applied to a version.
+
+The approver split moved `mdm.article.approve` off every role that can reprice, so this
+branch is unreachable through the seeded roles — that separation IS the four-eyes rule.
+To exercise the branch without faking it, this step grants the author the one act on the
+one scratch chain for the one call, then revokes it. The call, the transaction and the
+ledger are the real ones.
+  gate set: mdm_approval_gated = false for saffron-table
+FIXTURE (scratch database): set mdm_approval_gated = false for chain 0bde1a96-f19d-42b7-9e2a-c12ac43daf84 (non-gated landing)
+FIXTURE (scratch database): granted the author mdm.article.approve on saffron-table for one call (scope key 'verify-draft-version-non-gated-approve')
+  PASS  the grant gives the author the approve act on this chain — expected true, read true
+FIXTURE (scratch database): revoked the scratch scope grant 'verify-draft-version-non-gated-approve'
+
+updateArticlePrice(310 -> 325) -> {"code":"CHK-DRAFT-VERIFY","outletCode":"koramangala-restaurant","before":{"amount":310,"currencyCode":"INR"},"after":{"amount":325,"currencyCode":"INR"},"version":{"id":"93297520-56ed-474f-b7be-eab4bae0a4da","version":3,"status":"active","landed":"approved","baseVersionId":"726419fa-a517-4c89-8be8-1380f394b306","baseVersion":2,"taskId":null}}
+versions after the non-gated reprice: [{"id":"58d02871-77bc-4bac-9297-ef86258bdbcc","version":1,"status":"superseded","supersedes_version_id":null,"approved_at":"2026-10-10T13:53:59.309Z","approved_by_user_id":"b76f62f6-fa5a-4210-8dff-fa2e958fe1d8"},{"id":"726419fa-a517-4c89-8be8-1380f394b306","version":2,"status":"superseded","supersedes_version_id":"58d02871-77bc-4bac-9297-ef86258bdbcc","approved_at":"2026-10-10T13:54:42.705Z","approved_by_user_id":"b76f62f6-fa5a-4210-8dff-fa2e958fe1d8"},{"id":"93297520-56ed-474f-b7be-eab4bae0a4da","version":3,"status":"active","supersedes_version_id":"726419fa-a517-4c89-8be8-1380f394b306","approved_at":"2026-10-10T13:54:49.945Z","approved_by_user_id":"bf95cdae-09fc-4698-918e-6fdfef149761"}]
+price windows after the non-gated reprice: [{"id":"a9c9d154-513c-417e-8ccd-9dc100b19bf5","article_version_id":"58d02871-77bc-4bac-9297-ef86258bdbcc","version":1,"outlet_code":"koramangala-restaurant","amount":"250.0000","currency_code":"INR","effective_from":"2026-10-10","effective_to":"2026-10-10"},{"id":"ebc5ba76-9f24-4d57-9ba9-f80e82f60ceb","article_version_id":"726419fa-a517-4c89-8be8-1380f394b306","version":2,"outlet_code":"koramangala-restaurant","amount":"250.0000","currency_code":"INR","effective_from":"2026-10-10","effective_to":"2026-10-10"},{"id":"b5fdcf96-9d8a-496c-a5a5-a0f0c8c16a4b","article_version_id":"726419fa-a517-4c89-8be8-1380f394b306","version":2,"outlet_code":"koramangala-restaurant","amount":"310.0000","currency_code":"INR","effective_from":"2026-10-10","effective_to":"2026-10-10"},{"id":"9d2420e9-0610-410b-8e09-da3e12431d49","article_version_id":"93297520-56ed-474f-b7be-eab4bae0a4da","version":3,"outlet_code":"koramangala-restaurant","amount":"310.0000","currency_code":"INR","effective_from":"2026-10-10","effective_to":"2026-10-10"},{"id":"74fc5cca-e36f-4055-977c-bc22bcb7d65c","article_version_id":"93297520-56ed-474f-b7be-eab4bae0a4da","version":3,"outlet_code":"koramangala-restaurant","amount":"325.0000","currency_code":"INR","effective_from":"2026-10-10","effective_to":null}]
+article after the non-gated reprice: {"id":"3845f9e1-c0b3-4178-aeb1-73b0b0b810cd","code":"CHK-DRAFT-VERIFY","status":"active","current_version_id":"93297520-56ed-474f-b7be-eab4bae0a4da","current_version":3,"current_version_status":"active"}
+  PASS  the write reports the same-transaction landing — expected "approved", read "approved"
+  PASS  a third version exists — expected 3, read 3
+  PASS  N+2 is active — expected "active", read "active"
+  PASS  N+1 is superseded — expected "superseded", read "superseded"
+  PASS  N+2 records N+1 as the version it replaces — expected "726419fa-a517-4c89-8be8-1380f394b306", read "726419fa-a517-4c89-8be8-1380f394b306"
+  PASS  no version waits for a decision — expected 0, read 0
+  PASS  the article points at N+2 — expected "93297520-56ed-474f-b7be-eab4bae0a4da", read "93297520-56ed-474f-b7be-eab4bae0a4da"
+  PASS  the article's current version is N+2 — expected 3, read 3
+  PASS  N+1 was selling through one window when the reprice started — expected 1, read 1
+  PASS  the window N+1 was selling at was closed, not deleted — window b5fdcf96-9d8a-496c-a5a5-a0f0c8c16a4b effective_to 2026-10-10
+  PASS  N+1's window ends the day N+2's begins — closed at 2026-10-10, N+2's window opens 2026-10-10
+  PASS  N+1 is left with no open window — expected 0, read 0
+  PASS  N+2 carries the new open window — expected 1, read 1
+  PASS  the sellable price is the third one — expected 325, read 325
+  PASS  exactly one open price window remains for the article — expected 1, read 1
+  PASS  no review task was raised by the non-gated landing — expected 0, read 0
+
+The ledger row the non-gated landing wrote, read back from audit_log:
+audit row: [{"id":"165","action":"mdm.article.price.update","entity_type":"article_price","entity_id":"74fc5cca-e36f-4055-977c-bc22bcb7d65c","outcome":"success","reason":null,"before_state":{"amount":310,"priceId":"9d2420e9-0610-410b-8e09-da3e12431d49","version":2,"versionId":"726419fa-a517-4c89-8be8-1380f394b306","effectiveTo":"2026-10-10","currencyCode":"INR"},"after_state":{"amount":325,"landed":"approved","taskId":null,"version":3,"versionId":"93297520-56ed-474f-b7be-eab4bae0a4da","outletCode":"koramangala-restaurant","baseVersion":2,"currencyCode":"INR","baseVersionId":"726419fa-a517-4c89-8be8-1380f394b306","effectiveFrom":"2026-10-10","openedVersion":true,"versionStatus":"active"},"actor_user_id":"bf95cdae-09fc-4698-918e-6fdfef149761","created_at":"2026-10-10T13:54:49.945Z"}]
+  PASS  one price-write row records the same-transaction approval — expected 1, read 1
+  PASS  its before_state names the version that was on sale — expected "726419fa-a517-4c89-8be8-1380f394b306", read "726419fa-a517-4c89-8be8-1380f394b306"
+  PASS  its after_state names the version that became live — expected "93297520-56ed-474f-b7be-eab4bae0a4da", read "93297520-56ed-474f-b7be-eab4bae0a4da"
+  PASS  it names the superseded version — expected "726419fa-a517-4c89-8be8-1380f394b306", read "726419fa-a517-4c89-8be8-1380f394b306"
+  PASS  it reports the window it closed — expected "2026-10-10", read "2026-10-10"
+
+==============================================================================
+STEP 12. Restore the fixture the walk borrowed, and say what is left behind
+==============================================================================
+  gate restored: mdm_approval_gated = false for saffron-table
+  PASS  the gate is back where the script found it — expected false, read false
+FIXTURE (scratch database): deleting the 4 session row(s) this script minted (user_agent = 'verify-draft-version')
+
+LEFT BEHIND IN THE SCRATCH DATABASE, for a later run or a human:
+  * article CHK-DRAFT-VERIFY in chain saffron-table: 3 versions (1 and 2 superseded, 3 active), one open window at 325 INR
+    — deleted by the NEXT run of this script, which starts from a clear canvas
+  * import reports for file names beginning 'verify-draft-version' — also deleted by the next run
+  * audit rows (append-only, deliberately: a rewrite of the ledger would defeat its purpose)
+  * the second approver identity and its role assignment, above, with its reverse SQL
+
+==============================================================================
+steps: 12
+fixture writes: 10
+  FIXTURE  mdm_approval_gated for saffron-table was false; the script sets it true for the gated walk and back to false at the end
+  FIXTURE  removing the previous run's article 3be1e182-9c49-4c14-8cb3-c69dda5e9ee4 (CHK-DRAFT-VERIFY)
+  FIXTURE  removing 4 import report(s) from a previous run of this script
+  FIXTURE  set mdm_approval_gated = true for chain 0bde1a96-f19d-42b7-9e2a-c12ac43daf84 (gated walk)
+  FIXTURE  cleared supersedes_version_id on 726419fa-a517-4c89-8be8-1380f394b306 to construct the moved-base window (restored below)
+  FIXTURE  restored supersedes_version_id = 58d02871-77bc-4bac-9297-ef86258bdbcc on 726419fa-a517-4c89-8be8-1380f394b306
+  FIXTURE  set mdm_approval_gated = false for chain 0bde1a96-f19d-42b7-9e2a-c12ac43daf84 (non-gated landing)
+  FIXTURE  granted the author mdm.article.approve on saffron-table for one call (scope key 'verify-draft-version-non-gated-approve')
+  FIXTURE  revoked the scratch scope grant 'verify-draft-version-non-gated-approve'
+  FIXTURE  deleting the 4 session row(s) this script minted (user_agent = 'verify-draft-version')
+failures: 0
+VERDICT: the draft-version rule behaves as designed, and the dry run agrees with the commit.
